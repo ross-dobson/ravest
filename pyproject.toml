@@ -9,7 +9,7 @@ readme = "README.md"
 requires-python = ">=3.8"
 classifiers = [
     "Private :: Do Not Upload",
-    Development Status :: 1 - Planning",
+    "Development Status :: 1 - Planning",
 
     "License :: OSI Approved :: MIT License",
     
