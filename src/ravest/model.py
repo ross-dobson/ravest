@@ -17,6 +17,10 @@ class Planet:
         self.letter = letter
         self.basis = basis
         self.params = params
+
+    def __repr__(self):
+        class_name = type(self).__name__
+        return f"{class_name}(letter={self.letter!r}, basis={self.basis!r}, params={self.params!r})"
         
     def _calculate_mean_motion(self, period: float) -> float:
         """Calculate mean motion (mean angular rate of orbit in radians/day)
