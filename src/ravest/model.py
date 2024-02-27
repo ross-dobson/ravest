@@ -13,7 +13,7 @@ class Planet:
     """
     def __init__(self, letter: str, basis: str, params: dict):
         # TODO: validation on letter and basis
-        # TODO: implement basis detection and automatic conversion to synth basis?
+        # TODO: implement basis detection and automatic conversion to synth basis? compare basis to params keys?
         self.letter = letter
         self.basis = basis
         self.params = params
@@ -21,6 +21,10 @@ class Planet:
     def __repr__(self):
         class_name = type(self).__name__
         return f"{class_name}(letter={self.letter!r}, basis={self.basis!r}, params={self.params!r})"
+    
+    def __str__(self):
+        class_name = type(self).__name__
+        return f"{class_name} {self.letter} {self.params}"
         
     def _calculate_mean_motion(self, period: float) -> float:
         """Calculate mean motion (mean angular rate of orbit in radians/day)
@@ -145,8 +149,17 @@ class Star:
         self.name = name
         self.mass = mass
         self.planets = {}
+        self.num_planets = 0
         if mass <= 0:
             raise ValueError(f"Stellar mass {self.mass} must be greater than zero")
+    
+    def __repr__(self):
+        return f"Star(name={self.name!r}, mass={self.mass!r})"
+
+    def __str__(self):
+        return f"Star, {self.num_planets!r} planets: {[*self.planets]!r}"
 
     def add_planet(self, planet):
+        # TODO validation of planet letter - warn for duplicates/overwrite?
         self.planets[planet.letter] = planet
+        self.num_planets += 1
