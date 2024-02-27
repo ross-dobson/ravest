@@ -162,7 +162,7 @@ class Star:
     def add_planet(self, planet):
         # TODO validation of planet letter - warn for duplicates/overwrite?
         self.planets[planet.letter] = planet
-        self.num_planets += 1
+        self.num_planets = len(self.planets)
 
     def radial_velocity(self, t):
         rv = np.zeros(len(t))
