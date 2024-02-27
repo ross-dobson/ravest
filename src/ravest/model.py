@@ -4,6 +4,13 @@ import numpy as np
 from scipy.optimize import minimize, newton
 
 class Planet:
+    """Planet defined by its orbital parameters.
+
+    Attributes:
+        letter: the label of the planet, e.g. "b", "c"
+        basis: the set of planetary parameters used to define the planet.
+        params: dict of planetary parameters, matching the basis
+    """
     def __init__(self, letter: str, basis: str, params: dict):
         # TODO: validation on letter and basis
         # TODO: implement basis detection and automatic conversion to synth basis?
@@ -90,7 +97,7 @@ class Planet:
             period: orbital period of planet
             semi_amplitude: semi amplitude of radial velocity of star reflex motion due to the planet
             eccentricity: orbital eccentricity
-            omega_star: the angle of periastron of the star, $\omega_* (=\omega_p + \pi/2)$
+            omega_star: the angle of periastron of the star
             time_peri: the time of periastron passage
 
         Returns:
@@ -101,7 +108,7 @@ class Planet:
     def radial_velocity(self, t: float) -> float:
         """Calculate radial velocity of the star due to the planet, at time t.
 
-        Calculates the true anomaly at time t by solving the Keplerian equation, and uses that to calculate the radial velocity.
+        Calculates the true anomaly at time t by solving the Keplerian equation, and uses the anomaly to calculate the radial velocity.
         
         Args:
             t: the time to calculate the radial velocity at (days)
@@ -121,3 +128,19 @@ class Planet:
         f = self._true_anomaly(E=E, eccentricity=e)
 
         return self._radial_velocity(true_anomaly=f, semi_amplitude=K, eccentricity=e, omega_star=w)
+    
+
+class Star:
+    """Star with orbiting planet(s).
+    
+    Attributes:
+        name: the name of the star system
+        mass: mass of the star [solar mass]
+    """
+    def __init__(self, name: str, mass: float):
+        self.name = name
+        self.mass = mass
+        self.planets = {}
+
+    def add_planet(self, planet):
+        self.planets[planet.letter] = planet
