@@ -141,6 +141,8 @@ class Star:
         self.name = name
         self.mass = mass
         self.planets = {}
+        if mass <= 0:
+            raise ValueError(f"Stellar mass {self.mass} must be greater than zero")
 
     def add_planet(self, planet):
         self.planets[planet.letter] = planet
