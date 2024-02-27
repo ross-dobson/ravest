@@ -51,7 +51,7 @@ class Planet:
         # TODO this docstring isn't correct about fictitious angle. Find a better reference.
         return n * (t - time_peri)
     
-    def _solve_keplerian_equation(M: float, eccentricity:float) -> float:
+    def _solve_keplerian_equation(self, eccentricity: float, M: float) -> float:
         """Solve the Keplerian equation for eccentric anomaly E.
         
         The eccentric anomaly is the corresponding angle for the true anomaly on the
@@ -83,7 +83,7 @@ class Planet:
         
         return newton(func=f, fprime=fp, fprime2=fpp, args=(eccentricity, M), x0=E0)
     
-    def _true_anomaly(E: float, eccentricity: float) -> float:
+    def _true_anomaly(self, E: float, eccentricity: float) -> float:
         """Calculate true anomaly, the angle between periastron and planet, as
         measured from the system barycentre. This is the angle normally used to 
         characterise an orbit.
@@ -97,7 +97,7 @@ class Planet:
         """
         return 2*np.arctan(np.sqrt((1+eccentricity)/(1-eccentricity))*np.tan(E/2))
     
-    def _radial_velocity(true_anomaly: float, semi_amplitude: float, eccentricity: float, omega_star: float) -> float:
+    def _radial_velocity(self, true_anomaly: float, semi_amplitude: float, eccentricity: float, omega_star: float) -> float:
         """Calculate the radial velocity of the star due to the planet, at a given true anomaly.
 
         Args:
@@ -163,3 +163,10 @@ class Star:
         # TODO validation of planet letter - warn for duplicates/overwrite?
         self.planets[planet.letter] = planet
         self.num_planets += 1
+
+    def radial_velocity(self, t):
+        rv = np.zeros(len(t))
+
+        for planet in self.planets:
+            rv += self.planets[planet].radial_velocity(t)
+        return rv
