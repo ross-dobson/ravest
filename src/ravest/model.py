@@ -14,9 +14,13 @@ class Planet:
     def __init__(self, letter: str, basis: str, params: dict):
         # TODO: validation on letter and basis
         # TODO: implement basis detection and automatic conversion to synth basis? compare basis to params keys?
+        if not (letter.isalpha() and (letter == letter[0]*len(letter))):
+            raise ValueError(f"Letter {letter} is not a single alphabet character.")
         self.letter = letter
         self.basis = basis
         self.params = params
+
+
 
     def __repr__(self):
         class_name = type(self).__name__
