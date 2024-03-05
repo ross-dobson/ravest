@@ -1,7 +1,8 @@
 # model.py
 
 import numpy as np
-from scipy.optimize import minimize, newton
+import matplotlib.pyplot as plt
+from scipy.optimize import newton
 
 class Planet:
     """Planet defined by its orbital parameters.
@@ -20,8 +21,6 @@ class Planet:
         self.basis = basis
         self.params = params
 
-
-
     def __repr__(self):
         class_name = type(self).__name__
         return f"{class_name}(letter={self.letter!r}, basis={self.basis!r}, params={self.params!r})"
@@ -29,7 +28,7 @@ class Planet:
     def __str__(self):
         class_name = type(self).__name__
         return f"{class_name} {self.letter} {self.params}"
-        
+
     def _calculate_mean_motion(self, period: float) -> float:
         """Calculate mean motion (mean angular rate of orbit in radians/day)
         
@@ -141,6 +140,44 @@ class Planet:
 
         return self._radial_velocity(true_anomaly=f, semi_amplitude=K, eccentricity=e, omega_star=w)
     
+    def _time_given_true_anomaly(self, true_anomaly, period, eccentricity, time_peri):
+        """Calculate the time that the planet will be at a given true anomaly.
+
+        Args:
+            true_anomaly: the true anomaly of the planet at the wanted time
+            period: length of period of orbit (days)
+            eccentricity: eccentricity of orbit (dimensionless)
+            time_peri: the time of periastron (days)
+
+        Returns:
+            time (days)
+        """
+        # TODO update this docstring to better reflect it is inverse of other equation (eastman et al)?
+        eccentric_anomaly = 2*np.arctan(np.sqrt((1-eccentricity)/(1+eccentricity))*np.tan(true_anomaly/2))
+        mean_anomaly = eccentric_anomaly - (eccentricity*np.sin(eccentric_anomaly))
+
+        return mean_anomaly * (period / (2*np.pi)) + time_peri
+
+    def convert_tp_to_tc(self):
+        arg_peri = self.params['w']
+        period = self.params['p']
+        eccentricity = self.params['e']
+        time_peri = self.params['tp']
+
+        theta_tc = (np.pi/2) - arg_peri  # true anomaly at time t_c
+        return self._time_given_true_anomaly(theta_tc, period, eccentricity, time_peri)
+
+    def convert_tc_to_tp(self):
+        time_conj = self.params['tc']
+        period = self.params['p']
+        eccentricity = self.params['e']
+        arg_peri = self.params['w']
+        
+        theta_tc = (np.pi/2) - arg_peri # true anomaly at time t_c
+        eccentric_anomaly = 2*np.arctan(np.sqrt((1-eccentricity)/(1+eccentricity))*np.tan(theta_tc/2))
+        mean_anomaly = eccentric_anomaly - (eccentricity*np.sin(eccentric_anomaly))
+        return time_conj - (period/(2*np.pi))*mean_anomaly
+        
 
 class Star:
     """Star with orbiting planet(s).
@@ -174,3 +211,58 @@ class Star:
         for planet in self.planets:
             rv += self.planets[planet].radial_velocity(t)
         return rv
+    
+    def phase_plot(self, t, ydata, yerr):
+        # TODO use gridspec or subfigures to sort out figure spacing
+        N = len(t)
+        t = np.sort(t)
+        tplot = np.linspace(t[0], t[-1], 1000)
+        fig, axs = plt.subplots(2+self.num_planets, 1, 
+                                figsize=(10,(2*10/3)+(self.num_planets*10/3)),
+                                constrained_layout=True)
+        
+        # First panel: plot the observed data and the combined system model
+        axs[0].set_title(f"Stellar radial velocity")
+        axs[0].set_ylabel("Radial Velocity [m/s]")
+        axs[0].set_xlabel("Time [days]")
+        axs[0].axhline(y=0, color="k", alpha=0.25, linestyle="--", zorder=1)
+
+        modelled_rv_tplot = self.radial_velocity(tplot)
+        modelled_rv_tdata = self.radial_velocity(t)
+        axs[0].plot(tplot, modelled_rv_tplot, color="tab:blue", zorder=2)
+        axs[0].errorbar(t, ydata, yerr=yerr, marker=".", color="k", mfc="white", ecolor="tab:gray", markersize=10, linestyle="None", zorder=3)
+
+        # Second panel: O-C residuals of the top panel
+        axs[1].set_title(f"Observed-Calculated")
+        axs[1].set_xlabel("Time [days]")
+        axs[1].set_ylabel("Residual [m/s]")
+        axs[1].axhline(y=0, color="tab:blue", linestyle="-")
+        axs[1].errorbar(t, ydata-modelled_rv_tdata, yerr=yerr, marker=".", mfc="white", color="k", ecolor="tab:gray", markersize=10, linestyle="None")
+
+        # Subsequent panels: phase plot, one per planet
+        for n, l in enumerate(self.planets):
+            n+=2 # we already have two subplots
+            axs[n].set_title(f"Planet {l}")
+            axs[n].set_xlabel("Phase [days]")
+            axs[n].set_ylabel("Radial velocity [m/s]")
+            
+            this_planet = self.planets[l]
+            tc = this_planet.convert_tp_to_tc()
+            p = this_planet.params['p']
+
+            yplot = this_planet.radial_velocity(tplot)
+            tplot_fold = (tplot - tc + 0.5 * p) % p - 0.5 * p
+            inds = np.argsort(tplot_fold)
+            axs[n].plot(tplot_fold[inds]/p, yplot[inds], label=f"{n},{l}, rvplot", color="tab:blue")
+
+            # model the rv data for all the other planets, to subtract from the observed data
+            other_planets_modelled_rv_tdata = np.zeros(len(t))
+            for _l in self.planets:
+                if _l == l:
+                    continue  # don't do anything for this planet
+                else:
+                    other_planets_modelled_rv_tdata += self.planets[_l].radial_velocity(t)
+            subtracted_data = ydata - other_planets_modelled_rv_tdata
+            tdata_fold = (t - tc + 0.5 * p) % p - 0.5 * p
+            inds = np.argsort(tdata_fold)
+            axs[n].errorbar(tdata_fold[inds]/p, subtracted_data[inds], yerr=yerr, marker=".", mfc="white", color="k", ecolor="tab:gray", markersize=10, linestyle="None")

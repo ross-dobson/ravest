@@ -67,3 +67,5 @@ def test_star_rv():
     star.add_planet(c)
     star_rv = star.radial_velocity(data_tarr())
     assert list(data_rv1()+data_rv2()) == list(star_rv)
+
+# TODO tests for conversion tp <-> tc
