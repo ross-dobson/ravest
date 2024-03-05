@@ -1,7 +1,7 @@
 # ravest
-> (archaic) second-person singular simple present indicative of rave
+> _(archaic) second-person singular simple present indicative of rave_
 
-**Radial Velocity fitting, simulation and mass precision estimator**
+**Radial Velocity fitting, simulation and mass precision estimation**
 - Simulate RV data for given orbital and instrumental parameters
 - Fit RV data with MCMC to explore posterior distributions for parameters
 - Estimate the precision on mass estimate $M_p\sin{i}$: what precision can you expect from N observations, or how many observations are required to reach a target precision?
