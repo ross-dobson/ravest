@@ -1,12 +1,12 @@
 [tool.poetry]
 name = "ravest"
-version = "0.1.1"
+version = "0.1.2"
 description = "Radial Velocity fitting, simulation and mass-precision estimation"
 authors = ["Ross Dobson"]
 license = "MIT"
 readme = "README.md"
 classifiers = [
-    "Development Status :: 2 - Pre-alpha",
+    "Development Status :: 2 - Pre-Alpha",
     
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
