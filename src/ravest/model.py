@@ -198,7 +198,7 @@ class Star:
         return f"Star(name={self.name!r}, mass={self.mass!r})"
 
     def __str__(self):
-        return f"Star, {self.num_planets!r} planets: {[*self.planets]!r}"
+        return f"Star {self.name!r}, {self.num_planets!r} planets: {[*self.planets]!r}"
 
     def add_planet(self, planet):
         # TODO validation of planet letter - warn for duplicates/overwrite?
