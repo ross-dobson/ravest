@@ -2,6 +2,7 @@ sphinx==7.2.6
 numpy
 scipy
 matplotlib
+ravest
 myst-nb
 sphinx-autoapi
 sphinx-rtd-theme
