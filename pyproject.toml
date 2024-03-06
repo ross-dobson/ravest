@@ -6,8 +6,7 @@ authors = ["Ross Dobson"]
 license = "MIT"
 readme = "README.md"
 classifiers = [
-    "Private :: Do Not Upload",
-    "Development Status :: 1 - Planning",
+    "Development Status :: 2 - Pre-alpha",
     
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
