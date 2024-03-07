@@ -15,7 +15,7 @@ $ pip install ravest
 
 ## Usage
 
-See the example notebooks in the left panel.
+See the [example notebook](https://ravest.readthedocs.io/en/latest/Examples/example_model.html) for `ravest.model`.
 
 ## Contributing
 
