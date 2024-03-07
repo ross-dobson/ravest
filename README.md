@@ -15,7 +15,7 @@ $ pip install ravest
 
 ## Usage
 
-- TODO
+See the example notebooks in the left panel.
 
 ## Contributing
 
