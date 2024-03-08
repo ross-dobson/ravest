@@ -27,6 +27,7 @@ matplotlib = ">=3.8.3"
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.2"
 pytest-cov = "^4.1.0"
+python-semantic-release = "7.19.1"
 
 [tool.poetry.group.docs]
 optional = true
@@ -40,3 +41,13 @@ sphinx-rtd-theme = "^2.0.0"
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.semantic_release]
+version_variable = "pyproject.toml:version"
+branch = "main"  # branch to make releases of
+changelog_file = "CHANGELOG.md"  # changelog file
+build_command = "pip install poetry && poetry build"  # build dists
+dist_path = "dist/"
+upload_to_pypi = false  # we do this ourselves later in CI
+remove_dist = false
+
