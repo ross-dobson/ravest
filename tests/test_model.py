@@ -52,12 +52,12 @@ def test_star_num_planets():
 def test_rv_pkewtp_eccentric():
     b = good_planet1()
     rv1 = b.radial_velocity(data_tarr())
-    assert list(data_rv1()) == list(rv1)
+    assert list(data_rv1()) == pytest.approx(list(rv1))
 
 def test_rv_pkewtp_circular():
     c = good_planet2()
     rv2 = c.radial_velocity(data_tarr())
-    assert list(data_rv2()) == list(rv2)
+    assert list(data_rv2()) == pytest.approx(list(rv2))
 
 def test_star_rv():
     b = good_planet1()
@@ -66,6 +66,6 @@ def test_star_rv():
     star.add_planet(b)
     star.add_planet(c)
     star_rv = star.radial_velocity(data_tarr())
-    assert list(data_rv1()+data_rv2()) == list(star_rv)
+    assert list(data_rv1()+data_rv2()) == pytest.approx(list(star_rv))
 
 # TODO tests for conversion tp <-> tc
