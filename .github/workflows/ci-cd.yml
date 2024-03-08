@@ -24,13 +24,13 @@ jobs:
       run: poetry install
   
     - name: Test with pytest
-      run: poetry run pytest tests/ --cov=pycounts_rsd --cov-report=xml
+      run: poetry run pytest tests/ --cov=ravest --cov-report=xml
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v4.0.1
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        slug: ross-dobson/pycounts_rsd
+        slug: ross-dobson/ravest
 
     - name: Build documentation
       run: poetry run make html --directory docs/
