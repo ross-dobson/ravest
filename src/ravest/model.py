@@ -7,11 +7,16 @@ from scipy.optimize import newton
 class Planet:
     """Planet defined by its orbital parameters.
 
-    Attributes:
-        letter: the label of the planet, e.g. "b", "c"
-        basis: the set of planetary parameters used to define the planet.
-        params: dict of planetary parameters, matching the basis
+    Parameters
+    ----------
+    letter : `str`
+        The label of the planet, e.g. "b", "c". Must be a single letter.
+    basis : `str`
+        the set of planetary parameters used to define the planet.
+    params : `dict` 
+        The orbital parameters, matching the basis.
     """
+
     def __init__(self, letter: str, basis: str, params: dict):
         # TODO: validation on letter and basis
         # TODO: implement basis detection and automatic conversion to synth basis? compare basis to params keys?
@@ -30,53 +35,76 @@ class Planet:
         return f"{class_name} {self.letter} {self.params}"
 
     def _calculate_mean_motion(self, period: float) -> float:
-        """Calculate mean motion (mean angular rate of orbit in radians/day)
+        """Calculate mean motion (mean angular rate of orbit in radians/day).
+
+        This is the mean angular rate calculated by dividing the orbital period by 
+        2*pi radians.
         
-        Returns:
-            mean_motion: average angular rate of orbit (in radians/day)
+        Parameters
+        ----------
+        period : `float`
+            The orbital period in days.
+
+        Returns
+        -------
+        `float`
+            The mean motion, the average angular rate of orbit (radians/day).
         """
         return 2*np.pi/period
 
     def _calculate_mean_anomaly(self, t: float, n: float, time_peri: float) -> float:
         """Calculate mean anomaly (radians)
         
-        Mean anomaly is a fictitious angle that you can think of as the equivalent
-        angle swept at point t, for a planet with fixed velocity in a circular orbit
-        of period P.
+        For an eccentric orbit with period P, mean anomaly is a fictitious 
+        angle that increases linearly with time ``t`` for an angular rate ``n``, the 
+        mean motion. It is the angle from the point of periapsis passage that would
+        have been swept in a circular orbit of period ``P`` with fixed angular rate
+        ``n``.
         
-        Args:
-            n: the mean motion (radians/day)
-            t: the time to evaluate the mean anomaly at (day)
-            time_peri: the time of periapsis of the orbit (day)
-        Returns:
-            Mean anomaly (radians)
+        Parameters
+        ----------
+        n : `float`
+            The mean motion (radians/day).
+        t : `float`
+            The time to evaluate the mean anomaly at (day).
+        time_peri : `float`
+            The time of periapsis of the star's orbit (day).
+        
+        Returns
+        -------
+        `float` 
+            The mean anomaly (radians).
         """
-        # TODO this docstring isn't correct about fictitious angle. Find a better reference.
         return n * (t - time_peri)
     
     def _solve_keplerian_equation(self, eccentricity: float, M: float) -> float:
         """Solve the Keplerian equation for eccentric anomaly E.
         
-        The eccentric anomaly is the corresponding angle for the true anomaly on the
-        auxiliary circle, rather than the real elliptical orbit. Therefore, if the 
-        eccentricity e=0, then the eccentric anomaly E is equivalent to the mean 
-        anomaly M. However, for eccentric cases, the equation is
-        E(t) = M(t) + e sin(E(t)) , which requires solving iteratively. This 
-        function achieves this via the Newton-Raphson iteration method.
+        The eccentric anomaly is the corresponding angle for the true anomaly on 
+        the auxiliary circle, rather than the real elliptical orbit. Therefore, if 
+        the ``eccentricity`` e=0, then the eccentric anomaly E is equivalent to the 
+        mean anomaly ``M``. However, for eccentric cases, the equation is
+        E(t) = M(t) + e*sin(E(t)), which requires solving iteratively. This 
+        function achieves this via Newton-Raphson iteration.
         
-        Args:
-            M: mean anomaly at time (t)
-            eccentricity: eccentricity (dimensionless)
+        Parameters
+        ----------
+        M : `float`
+            The mean anomaly at time t.
+        eccentricity : `float`
+            The eccentricity of the orbit, 0 <= e < 1  (dimensionless).
 
-        Returns:
-            E: Eccentric anomaly
+        Returns
+        -------
+        `float`
+            The eccentric anomaly at time t.
         """
-        # TODO: check this docstring's explanation (given that mean anomaly was wrong).
+        # TODO add Notes to docstring explaining Newton-Raphson, and choice of E0=M
         if eccentricity == 0:
             return M
         
         # Newton-Raphson finds roots, so solving E-(M+e*sinE) finds E 
-        E0 = M  # initial guess for E0 # TODO find reference for this choice
+        E0 = M  # initial guess for E0
         def f(E: float, eccentricity: float, M: float) -> float:
             return (E - (eccentricity*np.sin(E)) - M)
         def fp(E: float, eccentricity: float, M: float) -> float:
@@ -87,45 +115,66 @@ class Planet:
         return newton(func=f, fprime=fp, fprime2=fpp, args=(eccentricity, M), x0=E0)
     
     def _true_anomaly(self, E: float, eccentricity: float) -> float:
-        """Calculate true anomaly, the angle between periastron and planet, as
+        """Calculate true anomaly at time t.
+        
+        Calculate true anomaly, the angle between periastron and planet, as
         measured from the system barycentre. This is the angle normally used to 
-        characterise an orbit.
+        characterise an orbit. If orbit is circular, this is equal to mean anomaly.
 
-        Args:
-            E: Eccentric anomaly
-            eccentricity: Orbital eccentricity
+        Parameters
+        ----------
+        E : `float`
+            The Eccentric anomaly at time t (radian)
+        eccentricity : `float`
+            The eccentricity of the orbit, 0 <= e < 1  (dimensionless).
 
-        Returns:
-            True anomaly
+        Returns
+        -------
+        `float`
+            The true anomaly (radians)
         """
         return 2*np.arctan(np.sqrt((1+eccentricity)/(1-eccentricity))*np.tan(E/2))
     
     def _radial_velocity(self, true_anomaly: float, semi_amplitude: float, eccentricity: float, omega_star: float) -> float:
         """Calculate the radial velocity of the star due to the planet, at a given true anomaly.
 
-        Args:
-            true_anomaly: The true anomaly at time t
-            period: orbital period of planet
-            semi_amplitude: semi amplitude of radial velocity of star reflex motion due to the planet
-            eccentricity: orbital eccentricity
-            omega_star: the angle of periastron of the star
-            time_peri: the time of periastron passage
+        Parameters
+        ----------
+        true_anomaly : `float`
+            The true anomaly at time t (radian).
+        period : `float`
+            The orbital period of planet (day).
+        semi_amplitude : `float`
+            The Semi-amplitude of the radial velocity of the star (m/s).
+        eccentricity : `float`
+            The eccentricity of the orbit, 0 <= e < 1  (dimensionless).
+        omega_star : `float`
+            The angle of periastron of the star (radians).
+        time_peri : `float`
+            The time of periastron passage (day).
 
-        Returns:
-            radial velocity in metres/second of the reflex motion of the star due to the planet
+        Returns
+        -------
+        `float`
+            Radial velocity of the reflex motion of star due to the planet (m/s).
         """
         return semi_amplitude * (np.cos(true_anomaly+omega_star) + eccentricity*np.cos(omega_star))
     
     def radial_velocity(self, t: float) -> float:
         """Calculate radial velocity of the star due to the planet, at time t.
 
-        Calculates the true anomaly at time t by solving the Keplerian equation, and uses the anomaly to calculate the radial velocity.
+        Calculates the true anomaly at time t by solving the Keplerian equation, 
+        and uses that true anomaly to calculate the radial velocity.
         
-        Args:
-            t: the time to calculate the radial velocity at (days)
+        Parameters
+        ----------
+        t : `float`
+            The time to calculate the radial velocity at (day)
             
-        Returns:
-            radial velocity at time t (m/s)
+        Returns
+        -------
+        `float`
+            Radial velocity of the reflex motion of star due to the planet (m/s).
         """
         P = self.params['p']
         K = self.params['k']
@@ -140,25 +189,45 @@ class Planet:
 
         return self._radial_velocity(true_anomaly=f, semi_amplitude=K, eccentricity=e, omega_star=w)
     
+
     def _time_given_true_anomaly(self, true_anomaly, period, eccentricity, time_peri):
-        """Calculate the time that the planet will be at a given true anomaly.
+        """Calculate the time that the star will be at a given true anomaly.
 
-        Args:
-            true_anomaly: the true anomaly of the planet at the wanted time
-            period: length of period of orbit (days)
-            eccentricity: eccentricity of orbit (dimensionless)
-            time_peri: the time of periastron (days)
+        Parameters
+        ----------
+        true_anomaly : `float`
+            The true anomaly of the planet at the wanted time
+        period : `float`
+            The orbital period of the planet (day)
+        eccentricity : `float` 
+            The eccentricity of the orbit, 0 <= e < 1  (dimensionless).
+        time_peri : `float`
+            The time of periastron (day).
 
-        Returns:
-            time (days)
+        Returns
+        -------
+        `float`
+            The time corresponding to the given true anomaly (days).
         """
         # TODO update this docstring to better reflect it is inverse of other equation (eastman et al)?
+        # and also include in the notes a list of the angles we can get (Eastman et al equation 11)?
         eccentric_anomaly = 2*np.arctan(np.sqrt((1-eccentricity)/(1+eccentricity))*np.tan(true_anomaly/2))
         mean_anomaly = eccentric_anomaly - (eccentricity*np.sin(eccentric_anomaly))
 
         return mean_anomaly * (period / (2*np.pi)) + time_peri
 
     def convert_tp_to_tc(self):
+        """Calculate the time of transit center, given time of periastron passage.
+
+        This is only a time of (primary) transit center if the planet is actually 
+        transiting the star from the observer's viewpoint/inclination. Therefore 
+        technically this is a time of (inferior) conjunction.
+
+        Returns
+        -------
+        `float`
+            Time of primary transit center/inferior conjunction (days)
+        """
         arg_peri = self.params['w']
         period = self.params['p']
         eccentricity = self.params['e']
@@ -168,6 +237,13 @@ class Planet:
         return self._time_given_true_anomaly(theta_tc, period, eccentricity, time_peri)
 
     def convert_tc_to_tp(self):
+        """Calculate the time of periastron passage, given time of primary transit.
+
+        Returns
+        -------
+        `float`
+            Time of periastron passage (days).
+        """
         time_conj = self.params['tc']
         period = self.params['p']
         eccentricity = self.params['e']
@@ -182,10 +258,22 @@ class Planet:
 class Star:
     """Star with orbiting planet(s).
     
-    Attributes:
-        name: the name of the star system
-        mass: mass of the star [solar mass]
+    Parameters
+    ----------
+    name : `str`
+        The name of the star system.
+    mass : `float`
+        The mass of the star (solar masses)
+
+    Attributes
+    ----------
+    planets : `dict`
+        The dict storing the `Planet` objects, the key is the `planet.letter` 
+        attribute.
+    num_planets : int
+        The number of `Planet` objects stored in the `Star` object.
     """
+
     def __init__(self, name: str, mass: float):
         self.name = name
         self.mass = mass
@@ -201,11 +289,36 @@ class Star:
         return f"Star {self.name!r}, {self.num_planets!r} planets: {[*self.planets]!r}"
 
     def add_planet(self, planet):
+        """Store `Planet` object in `planets` dict with the key `Planet.letter`.
+
+        Planets cannot share letters; if two planets have the same letter then the 
+        second one will overwrite the first.
+
+        Parameters
+        ----------
+        planet : `Planet`
+            A `ravest.model.Planet` object
+        """
         # TODO validation of planet letter - warn for duplicates/overwrite?
         self.planets[planet.letter] = planet
         self.num_planets = len(self.planets)
 
     def radial_velocity(self, t):
+        """
+        Calculate the radial velocity of the star at time ``t`` due to the planets.
+        This is a linear sum of the RVs of each of the `Planet` objects stored in
+        the `Star`.
+
+        Parameters
+        ----------
+        t : `float`
+            The time at which to calculate the radial velocity (day)
+
+        Returns
+        -------
+        `float`
+            The radial velocity at time `t` (m/s)
+        """
         rv = np.zeros(len(t))
 
         for planet in self.planets:
@@ -213,6 +326,18 @@ class Star:
         return rv
     
     def phase_plot(self, t, ydata, yerr):
+        """Given RV ``ydata`` at time ``t`` with errorbars ``yerr``, generates a phase 
+        plot for each planet.
+
+        Parameters
+        ----------
+        t : `float`
+            The time of the observations ``ydata`` (day)
+        ydata : `float`
+            The observed radial velocity at time ``t`` (m/s)
+        yerr : `float`
+            The measurement error of the datapoint ``ydata`` (m/s)
+        """
         # TODO use gridspec or subfigures to sort out figure spacing
         N = len(t)
         t = np.sort(t)
