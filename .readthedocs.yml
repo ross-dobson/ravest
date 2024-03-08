@@ -20,8 +20,7 @@ build:
     post_install:
       # Install dependencies with 'docs' dependency group
       # https://python-poetry.org/docs/managing-dependencies/#dependency-groups
-      # Ross edit: https://browniebroke.com/blog/specify-docs-dependency-groups-with-poetry-and-read-the-docs/
-      - poetry install --with docs
+      - poetry install
       
 # Build documentation in the "docs/" directory with Sphinx
 sphinx:
