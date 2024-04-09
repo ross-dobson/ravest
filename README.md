@@ -1,6 +1,9 @@
 # ravest
 > _(archaic) second-person singular simple present indicative of rave_
 
+**Ravest is currently work-in-progress and in early development. Check back soon for further updates and added features!**
+
+
 **Radial Velocity fitting, simulation and mass precision estimation**
 - Simulate RV data for given orbital and instrumental parameters
 - Fit RV data with MCMC to explore posterior distributions for parameters
