@@ -394,4 +394,30 @@ class Star:
             inds = np.argsort(tdata_fold)
             axs[n].errorbar(tdata_fold[inds]/p, subtracted_data[inds], yerr=yerr, marker=".", mfc="white", color="k", ecolor="tab:gray", markersize=10, linestyle="None")
 
+class Trend:
+    def __init__(self, params: dict):
+        self.gamma = params["g"]
+        self.gammadot = params["gd"]
+        self.gammadotdot = params["gdd"]
+
+    def _constant(self, t):
+        return self.gamma
+
+    def _linear(self, t, t0):
+        if self.gammadot == 0:
+            return np.zeros(len(t))
+        return self.gammadot * (t - t0)
+
+    def _quadratic(self, t, t0):
+        if self.gammadotdot == 0:
+            return np.zeros(len(t))
+        return self.gammadotdot * (t - t0) ** 2
+
+    def radial_velocity(self, t):
+        t0 = t[0]  # TODO: do we want this to be a separate parameter?
+        rv = 0
+        rv += self._constant(t)
+        rv += self._linear(t, t0)
+        rv += self._quadratic(t, t0)
+        return rv
 
