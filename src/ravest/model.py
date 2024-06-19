@@ -3,6 +3,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import newton
+from ravest.basis import Basis
 
 
 class Planet:
@@ -12,20 +13,22 @@ class Planet:
     ----------
     letter : `str`
         The label of the planet, e.g. "b", "c". Must be a single letter.
-    basis : `str`
-        the set of planetary parameters used to define the planet.
+    basis : `Basis`
+        The set of planetary parameters used to define the planet.
     params : `dict`
         The orbital parameters, matching the basis.
     """
-
-    def __init__(self, letter: str, basis: list[str], params: dict):
-        # TODO: validation on letter and basis
-        # TODO: implement basis detection and automatic conversion to synth basis? compare basis to params keys?
+    def __init__(self, letter: str, basis: Basis, params: dict):
         if not (letter.isalpha() and (letter == letter[0] * len(letter))):
             raise ValueError(f"Letter {letter} is not a single alphabet character.")
         self.letter = letter
         self.basis = basis
         self.params = params
+        # TODO: check that the basis and input params match
+
+        # Convert to the per k e w tp basis that we need for the RV equation        
+        self._rvparams = self.convert_input_pars_to_default_basis(self.params)
+
 
     def __repr__(self):
         class_name = type(self).__name__
@@ -181,11 +184,11 @@ class Planet:
         `float`
             Radial velocity of the reflex motion of star due to the planet (m/s).
         """
-        P = self.params["per"]
-        K = self.params["k"]
-        e = self.params["e"]
-        w = self.params["w"]
-        tp = self.params["tp"]
+        P = self._rvparams["per"]
+        K = self._rvparams["k"]
+        e = self._rvparams["e"]
+        w = self._rvparams["w"]
+        tp = self._rvparams["tp"]
 
         n = self._calculate_mean_motion(period=P)
         M = self._calculate_mean_anomaly(t=t, n=n, time_peri=tp)
@@ -220,7 +223,7 @@ class Planet:
 
         return mean_anomaly * (period / (2 * np.pi)) + time_peri
 
-    def convert_tp_to_tc(self):
+    def convert_tp_to_tc(self, tp, p, e, w):
         """Calculate the time of transit center, given time of periastron passage.
 
         This is only a time of (primary) transit center if the planet is actually
@@ -232,15 +235,15 @@ class Planet:
         `float`
             Time of primary transit center/inferior conjunction (days)
         """
-        arg_peri = self.params["w"]
-        period = self.params["p"]
-        eccentricity = self.params["e"]
-        time_peri = self.params["tp"]
+        arg_peri = w
+        period = p
+        eccentricity = e
+        time_peri = tp
 
         theta_tc = (np.pi / 2) - arg_peri  # true anomaly at time t_c
         return self._time_given_true_anomaly(theta_tc, period, eccentricity, time_peri)
 
-    def convert_tc_to_tp(self):
+    def convert_tc_to_tp(self, tc, p, e, w):
         """Calculate the time of periastron passage, given time of primary transit.
 
         Returns
@@ -248,15 +251,66 @@ class Planet:
         `float`
             Time of periastron passage (days).
         """
-        time_conj = self.params["tc"]
-        period = self.params["p"]
-        eccentricity = self.params["e"]
-        arg_peri = self.params["w"]
+        time_conj = tc
+        period = p
+        eccentricity = e
+        arg_peri = w
 
         theta_tc = (np.pi / 2) - arg_peri  # true anomaly at time t_c
         eccentric_anomaly = 2 * np.arctan(np.sqrt((1 - eccentricity) / (1 + eccentricity)) * np.tan(theta_tc / 2))
         mean_anomaly = eccentric_anomaly - (eccentricity * np.sin(eccentric_anomaly))
         return time_conj - (period / (2 * np.pi)) * mean_anomaly
+
+    def convert_secosw_sesinw_to_e_w(self, secosw, sesinw):
+        e = secosw**2 + sesinw**2
+        w = np.arctan2(sesinw, secosw)
+        return e, w
+
+    def convert_e_w_to_secosw_sesinw(self, e, w):
+        secosw = np.sqrt(e) * np.cos(w)
+        sesinw = np.sqrt(e)  * np.sin(w)
+        return secosw, sesinw
+
+    def convert_ecosw_esinw_to_e_w(self, ecosw, esinw):
+        e2 = ecosw**2 + esinw**2
+        e = np.sqrt(e2)
+        w = np.arctan2(esinw, ecosw)
+        return e, w
+
+    def convert_e_w_to_ecosw_esinw(self, e, w):
+        ecosw = e * np.cos(w)
+        esinw = e * np.sin(w)
+        return ecosw, esinw
+
+    def convert_input_pars_to_default_basis(self, inpars) -> dict:
+        if self.basis.parameterisation == "per k e w tp":
+            return {"per": inpars["per"], "k": inpars["k"], "e": inpars["e"], "w": inpars["w"], "tp": inpars["tp"]}
+
+        if self.basis.parameterisation == "per k e w tc":
+            tc = self.convert_tp_to_tc(inpars["tp"], inpars["per"], inpars["e"], inpars["w"])
+            return {"per": inpars["per"], "k": inpars["k"], "e": inpars["e"], "w": inpars["w"], "tc": tc}
+
+        if self.basis.parameterisation == "per k ecosw esinw tp":
+            e, w = self.convert_ecosw_esinw_to_e_w(inpars["ecosw"], inpars["esinw"])
+            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tp": inpars["tp"]}
+
+        if self.basis.parameterisation == "per k ecosw esinw tc":
+            e, w = self.convert_ecosw_esinw_to_e_w(inpars["ecosw"], inpars["esinw"])
+            tc = self.convert_tp_to_tc(inpars["tp"], inpars["per"], e, w)
+            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tc": tc}
+
+        if self.basis.parameterisation == "per k secosw sesinw tp":
+            e, w = self.convert_secosw_sesinw_to_e_w(inpars["secosw"], inpars["sesinw"])
+            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tp": inpars["tp"]}
+
+        if self.basis.parameterisation == "per k secosw sesinw tc":
+            e, w, = self.convert_secosw_sesinw_to_e_w(inpars["secosw"], inpars["sesinw"])
+            tc = self.convert_tp_to_tc(inpars["tp"], inpars["per"], e, w)
+            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tc": tc}
+        
+        else:
+            raise Exception("Basis not recognised")
+
 
 
 class Star:
@@ -307,11 +361,22 @@ class Star:
         self.planets[planet.letter] = planet
         self.num_planets = len(self.planets)
 
+    def add_trend(self, trend):
+        """Store `Trend` object in `trend` attribute.
+
+        Parameters
+        ----------
+        trend : `Trend`
+            A `ravest.model.Trend` object
+        """
+        self.trend = trend
+
     def radial_velocity(self, t):
         """
-        Calculate the radial velocity of the star at time ``t`` due to the planets.
+        Calculate the radial velocity of the star at time ``t`` due to the 
+        planets and the trend (constant velocity, linear, and quadratic.)
         This is a linear sum of the RVs of each of the `Planet` objects stored in
-        the `Star`.
+        the `Star`, and the RV of the `Trend` object.
 
         Parameters
         ----------
@@ -327,6 +392,9 @@ class Star:
 
         for planet in self.planets:
             rv += self.planets[planet].radial_velocity(t)
+        
+        rv += self.trend.radial_velocity(t)
+
         return rv
 
     def phase_plot(self, t, ydata, yerr):
@@ -374,8 +442,11 @@ class Star:
             axs[n].set_ylabel("Radial velocity [m/s]")
 
             this_planet = self.planets[l]
-            tc = this_planet.convert_tp_to_tc()
-            p = this_planet.params["p"]
+            p = this_planet._rvparams["per"]
+            e = this_planet._rvparams["e"]
+            w = this_planet._rvparams["w"]
+            tp = this_planet._rvparams["tp"]
+            tc = this_planet.convert_tp_to_tc(tp, p, e, w)
 
             yplot = this_planet.radial_velocity(tplot)
             tplot_fold = (tplot - tc + 0.5 * p) % p - 0.5 * p

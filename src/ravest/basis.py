@@ -1,4 +1,6 @@
 # basis.py
+import numpy as np
+import ravest.model
 
 BASIS_STR = ["per k e w tp",
            "per k e w tc",
@@ -9,8 +11,10 @@ BASIS_STR = ["per k e w tp",
 
 class Basis:
 
-    def __init__(self, name: str):
-        if name not in BASIS_STR:
-            raise ValueError(f"Basis {name} not recognised")
-        self.name = name
-        self.pars = name.split()
+    def __init__(self, parameterisation: str):
+        if parameterisation not in BASIS_STR:
+            raise ValueError(f"Paramterisation {parameterisation} not recognised. Must be one of {BASIS_STR}")
+        self.parameterisation = parameterisation
+        self.pars = parameterisation.split()
+
+
