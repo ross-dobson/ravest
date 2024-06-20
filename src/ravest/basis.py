@@ -1,13 +1,12 @@
 # basis.py
 import numpy as np
-import ravest.model
 
 BASIS_STR = ["per k e w tp",
            "per k e w tc",
            "per k ecosw esinw tp",
            "per k ecosw esinw tc",
            "per k secosw sesinw tp",
-           "per k secosw sesinw tp"]
+           "per k secosw sesinw tc"]
 
 class Basis:
 
