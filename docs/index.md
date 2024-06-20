@@ -6,6 +6,7 @@
 :hidden:
 
 Examples/example_model.ipynb
+Examples/example_fitting.ipynb
 changelog.md
 contributing.md
 conduct.md
