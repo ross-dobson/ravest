@@ -286,30 +286,30 @@ class Planet:
         if self.basis.parameterisation == "per k e w tp":
             return {"per": inpars["per"], "k": inpars["k"], "e": inpars["e"], "w": inpars["w"], "tp": inpars["tp"]}
 
-        if self.basis.parameterisation == "per k e w tc":
-            tc = self.convert_tp_to_tc(inpars["tp"], inpars["per"], inpars["e"], inpars["w"])
-            return {"per": inpars["per"], "k": inpars["k"], "e": inpars["e"], "w": inpars["w"], "tc": tc}
+        elif self.basis.parameterisation == "per k e w tc":
+            tp = self.convert_tc_to_tp(inpars["tc"], inpars["per"], inpars["e"], inpars["w"])
+            return {"per": inpars["per"], "k": inpars["k"], "e": inpars["e"], "w": inpars["w"], "tp": tp}
 
-        if self.basis.parameterisation == "per k ecosw esinw tp":
+        elif self.basis.parameterisation == "per k ecosw esinw tp":
             e, w = self.convert_ecosw_esinw_to_e_w(inpars["ecosw"], inpars["esinw"])
             return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tp": inpars["tp"]}
 
-        if self.basis.parameterisation == "per k ecosw esinw tc":
+        elif self.basis.parameterisation == "per k ecosw esinw tc":
             e, w = self.convert_ecosw_esinw_to_e_w(inpars["ecosw"], inpars["esinw"])
-            tc = self.convert_tp_to_tc(inpars["tp"], inpars["per"], e, w)
-            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tc": tc}
+            tp = self.convert_tc_to_tp(inpars["tc"], inpars["per"], e, w)
+            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tp": tp}
 
-        if self.basis.parameterisation == "per k secosw sesinw tp":
+        elif self.basis.parameterisation == "per k secosw sesinw tp":
             e, w = self.convert_secosw_sesinw_to_e_w(inpars["secosw"], inpars["sesinw"])
             return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tp": inpars["tp"]}
 
-        if self.basis.parameterisation == "per k secosw sesinw tc":
+        elif self.basis.parameterisation == "per k secosw sesinw tc":
             e, w, = self.convert_secosw_sesinw_to_e_w(inpars["secosw"], inpars["sesinw"])
             tc = self.convert_tp_to_tc(inpars["tp"], inpars["per"], e, w)
             return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tc": tc}
-        
+    
         else:
-            raise Exception("Basis not recognised")
+            raise Exception(f"Basis parameterisation {self.basis.parameterisation} not recognised")
 
 
 
