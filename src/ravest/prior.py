@@ -14,9 +14,8 @@ class Uniform:
             return -np.inf
         else:
             return 0.0
-
     def __repr__(self):
-        return f"Uniform({self.name}, {self.lower}, {self.upper})"
+        return f"Uniform({self.lower}, {self.upper})"
 
 
 class Gaussian:
@@ -44,7 +43,7 @@ class EccentricityPrior:
             return 0.0
 
     def __repr__(self):
-        return f"EccentricityPrior({self.planet_letters})"
+        return f"EccentricityPrior({self.upper})"
 
 
 class BoundedGaussian:
