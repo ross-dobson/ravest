@@ -138,6 +138,7 @@ class Fitter:
         return list(self.get_fixed_params_dict().keys())
 
     def fit_model_to_data(self):
+        # TODO: allow passing number of samples and chains
 
         # create the log-posterior object
         lp = LogPosterior(
@@ -161,15 +162,16 @@ class Fitter:
         self.nwalkers = 2 * self.ndim
 
         # zip this with the free parameter names to get a dict
-        print("map_results.x", map_results.x)
+        # print("map_results.x", map_results.x)
         map_results_dict = dict(zip(self.get_free_params_names(), map_results.x))
-        print("map_results_dict", map_results_dict)
+        print("MAP results:", map_results_dict)
 
         # 2) MCMC
+        print("Starting MCMC...")
         mcmc_init = map_results.x + 1e-5 * np.random.randn(self.nwalkers, self.ndim) 
         sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability, 
                                             parameter_names=self.get_free_params_names())
-        state = sampler.run_mcmc(mcmc_init, 10000, progress=True)
+        state = sampler.run_mcmc(mcmc_init, 5000, progress=False)
 
         # TODO: multiprocessing disabled for now as it's causing slowdown
         # I suspect something might be being pickled that shouldn't be, but 
@@ -179,6 +181,7 @@ class Fitter:
         #                                     parameter_names=self.get_free_params_names(),
         #                                     pool=pool)
         #     state = sampler.run_mcmc(mcmc_init, 10000, progress=True)
+        print("...MCMC done.")
         self.sampler = sampler
     
     def get_samples_df(self, discard=0, thin=1):
