@@ -13,7 +13,7 @@ class Uniform:
         if value < self.lower or value > self.upper:
             return -np.inf
         else:
-            return 0.0
+            return -np.log(self.upper-self.lower)
     def __repr__(self):
         return f"Uniform({self.lower}, {self.upper})"
 
