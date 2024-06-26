@@ -137,8 +137,7 @@ class Fitter:
     def get_fixed_params_names(self):
         return list(self.get_fixed_params_dict().keys())
 
-    def fit_model_to_data(self):
-        # TODO: allow passing number of samples and chains
+    def fit_model_to_data(self, nwalkers, nsteps=5000, progress=True):
 
         # create the log-posterior object
         lp = LogPosterior(
@@ -159,19 +158,23 @@ class Fitter:
             print(map_results)
             raise Warning("MAP did not converge. Check the initial values of the parameters, and the priors functions.")
         self.ndim = len(self.get_free_params_val())
-        self.nwalkers = 2 * self.ndim
-
-        # zip this with the free parameter names to get a dict
-        # print("map_results.x", map_results.x)
+        
+        # zip the MAP results with the free parameter names to get a dict
         map_results_dict = dict(zip(self.get_free_params_names(), map_results.x))
         print("MAP results:", map_results_dict)
 
         # 2) MCMC
         print("Starting MCMC...")
+        if nwalkers < 2 * self.ndim:
+            print(f"Warning: nwalkers should be at least 2 * ndim. You have {nwalkers} walkers and {self.ndim} dimensions. Setting nwalkers to {2 * self.ndim}.")
+            self.nwalkers = 2 * self.ndim
+        else:
+            self.nwalkers = nwalkers
+
         mcmc_init = map_results.x + 1e-5 * np.random.randn(self.nwalkers, self.ndim) 
         sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability, 
                                             parameter_names=self.get_free_params_names())
-        state = sampler.run_mcmc(mcmc_init, 5000, progress=False)
+        state = sampler.run_mcmc(initial_state=mcmc_init, nsteps=nsteps, progress=progress)
 
         # TODO: multiprocessing disabled for now as it's causing slowdown
         # I suspect something might be being pickled that shouldn't be, but 
