@@ -1,24 +1,21 @@
 # fit.py
-
-from multiprocessing import Pool
-import sys
-from ravest.basis import Basis
-from operator import itemgetter
 import ravest.model
-import emcee
+from ravest.param import Parameter, Parameterisation
+
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.optimize import minimize
-import corner
 import pandas as pd
+from scipy.optimize import minimize
+import emcee
+import corner
 
 
 
 class Fitter:
 
-    def __init__(self, planet_letters: list[str], fitting_basis: Basis):
+    def __init__(self, planet_letters: list[str], parameterisation: Parameterisation):
         self.planet_letters = planet_letters
-        self.fitting_basis = fitting_basis
+        self.parameterisation = parameterisation
         self.params = {}
 
     def add_data(self, time, vel, verr):
@@ -43,12 +40,12 @@ class Fitter:
         self.verr = verr
 
     def add_params(self, params):
-        """Add the parameters, checking the correct parameters for the basis are present.
+        """Add the parameters, checking the correct parameters for the parameterisation are present.
 
         Parameters
         ----------
         params : dict
-            Dictionary of Parameters, for each parameter in the fitting basis, for each planet
+            Dictionary of Parameters, for each parameter in the fitting parameterisation, for each planet
 
         Raises
         ------
@@ -64,7 +61,7 @@ class Fitter:
 
         # second check - are all the parameters in the list?
         for planet_letter in self.planet_letters:  # for each planet
-            for par_name in self.fitting_basis.pars:  # and for each parameter we expect from the fitting basis
+            for par_name in self.parameterisation.pars:  # and for each parameter we expect from the parameterisation
                 expected_par = par_name + "_" + planet_letter
                 if expected_par not in params:
                     raise ValueError(f"Parameter {expected_par} not found in parameter list")
@@ -142,7 +139,7 @@ class Fitter:
         # create the log-posterior object
         lp = LogPosterior(
             self.planet_letters,
-            self.fitting_basis,
+            self.parameterisation,
             self.priors,
             self.get_fixed_params_dict(),
             self.get_free_params_names(),
@@ -202,10 +199,10 @@ class Fitter:
         samples = self.sampler.get_chain(flat=False, thin=thin, discard=discard)
         for i in range(self.ndim):
             ax = axes[i]
-            to_plot = samples[:, :, i]
+            to_plot = samples[:, :, i] # type: ignore
 
             ax.plot(to_plot, "k", alpha=0.3)
-            ax.set_xlim(0, len(samples))
+            ax.set_xlim(0, len(samples)) # type: ignore
             ax.set_ylabel(self.get_free_params_names()[i])
             ax.yaxis.set_label_coords(-0.1, 0.5)
             axes[-1].set_xlabel("Step number")
@@ -233,7 +230,7 @@ class LogPosterior:
     def __init__(
         self,
         planet_letters: list,
-        basis: Basis,
+        parameterisation: Parameterisation,
         priors: dict,
         fixed_params: dict,
         free_params_names,
@@ -242,7 +239,7 @@ class LogPosterior:
         verr: np.ndarray,
     ):
         self.planet_letters = planet_letters
-        self.basis = basis
+        self.parameterisation = parameterisation
         self.priors = priors
         # self.fixed_params = fixed_params  # parameter objects
         self.fixed_params = {key: fixed_params[key].value for key in fixed_params}
@@ -254,14 +251,14 @@ class LogPosterior:
         # build expected params list - 5 pars per planet, then 3 trends, then jit
         self.expected_params = []
         for letter in planet_letters:
-            for par in basis.pars:
+            for par in parameterisation.pars:
                 self.expected_params.append(par + "_" + letter)
 
         self.expected_params += ["g", "gd", "gdd"]
         self.expected_params += ["jit"]
 
         # Create log-likelihood object and log-prior objects for later
-        self.log_likelihood = LogLikelihood(self.time, self.vel, self.verr, self.planet_letters, self.basis)
+        self.log_likelihood = LogLikelihood(self.time, self.vel, self.verr, self.planet_letters, self.parameterisation)
         self.log_prior = LogPrior(self.priors)
 
 
@@ -326,7 +323,7 @@ class LogLikelihood:
         vel: np.ndarray,
         verr: np.ndarray,
         planet_letters: list,
-        basis: Basis,
+        parameterisation: Parameterisation,
     ):
         self.time = time
         self.vel = vel
@@ -335,9 +332,9 @@ class LogLikelihood:
         # build expected params list - 5 pars per planet, then 3 trends, then jit
         self.expected_params = []
         self.planet_letters = planet_letters
-        self.basis = basis
+        self.parameterisation = parameterisation
         for letter in self.planet_letters:
-            for par in self.basis.pars:
+            for par in self.parameterisation.pars:
                 self.expected_params.append(par + "_" + letter)
         self.expected_params += ["g", "gd", "gdd"]
         self.expected_params += ["jit"]
@@ -349,9 +346,9 @@ class LogLikelihood:
         # one) calculate RV for each planet
         # TODO: could we rely on dict maintaining order to just get each planet
         # by getting 5 params each time? rather than doing this loop yet again?
-        # TODO: or is there a better way to use the list of keys that Basis provides?
+        # TODO: or is there a better way to use the list of keys that Parameterisation provides?
         for letter in self.planet_letters:
-            _this_planet_keys = [par + "_" + letter for par in self.basis.pars]
+            _this_planet_keys = [par + "_" + letter for par in self.parameterisation.pars]
             # _this_planet_params = {key[:-2]: params[key] for key in _this_planet_keys}
             _this_planet_params = {}
             for _this_planet_key in _this_planet_keys:
@@ -361,7 +358,7 @@ class LogLikelihood:
                 _this_planet_params[_key_inside_dict] = params[_this_planet_key]
                 # we do this because the Planet object doesn't want the planet letter in the key
             _this_planet = ravest.model.Planet(
-                letter, self.basis, _this_planet_params
+                letter, self.parameterisation, _this_planet_params
             )
             # print("DEBUG LogLikelihood.__call__: _this_planet", _this_planet)
             rv_total += _this_planet.radial_velocity(self.time)

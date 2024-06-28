@@ -3,7 +3,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import newton
-from ravest.basis import Basis
+from ravest.param import Parameterisation
 
 
 class Planet:
@@ -13,26 +13,27 @@ class Planet:
     ----------
     letter : `str`
         The label of the planet, e.g. "b", "c". Must be a single letter.
-    basis : `Basis`
+    parameterisation : `parameterisation`
         The set of planetary parameters used to define the planet.
     params : `dict`
         The orbital parameters, matching the basis.
     """
-    def __init__(self, letter: str, basis: Basis, params: dict):
+    def __init__(self, letter: str, parameterisation: Parameterisation, params: dict):
         if not (letter.isalpha() and (letter == letter[0] * len(letter))):
             raise ValueError(f"Letter {letter} is not a single alphabet character.")
         self.letter = letter
-        self.basis = basis
+        self.parameterisation = parameterisation
         self.params = params
-        # TODO: check that the basis and input params match
+        # TODO: check that the basis and input params match (split the str and 
+        # check if the params dict keys match?)
 
         # Convert to the per k e w tp basis that we need for the RV equation        
-        self._rvparams = self.convert_input_pars_to_default_basis(self.params)
+        self._rvparams = self.parameterisation.convert_pars_to_default_basis(self.params)
 
 
     def __repr__(self):
         class_name = type(self).__name__
-        return f"{class_name}(letter={self.letter!r}, basis={self.basis!r}, params={self.params!r})"
+        return f"{class_name}(letter={self.letter!r}, parameterisation={self.parameterisation!r}, params={self.params!r})"
 
     def __str__(self):
         class_name = type(self).__name__
@@ -196,121 +197,6 @@ class Planet:
         f = self._true_anomaly(E=E, eccentricity=e)
 
         return self._radial_velocity(true_anomaly=f, semi_amplitude=K, eccentricity=e, omega_star=w)
-
-    def _time_given_true_anomaly(self, true_anomaly, period, eccentricity, time_peri):
-        """Calculate the time that the star will be at a given true anomaly.
-
-        Parameters
-        ----------
-        true_anomaly : `float`
-            The true anomaly of the planet at the wanted time
-        period : `float`
-            The orbital period of the planet (day)
-        eccentricity : `float`
-            The eccentricity of the orbit, 0 <= e < 1  (dimensionless).
-        time_peri : `float`
-            The time of periastron (day).
-
-        Returns
-        -------
-        `float`
-            The time corresponding to the given true anomaly (days).
-        """
-        # TODO update this docstring to better reflect it is inverse of other equation (eastman et al)?
-        # and also include in the notes a list of the angles we can get (Eastman et al equation 11)?
-        eccentric_anomaly = 2 * np.arctan(np.sqrt((1 - eccentricity) / (1 + eccentricity)) * np.tan(true_anomaly / 2))
-        mean_anomaly = eccentric_anomaly - (eccentricity * np.sin(eccentric_anomaly))
-
-        return mean_anomaly * (period / (2 * np.pi)) + time_peri
-
-    def convert_tp_to_tc(self, tp, p, e, w):
-        """Calculate the time of transit center, given time of periastron passage.
-
-        This is only a time of (primary) transit center if the planet is actually
-        transiting the star from the observer's viewpoint/inclination. Therefore
-        technically this is a time of (inferior) conjunction.
-
-        Returns
-        -------
-        `float`
-            Time of primary transit center/inferior conjunction (days)
-        """
-        arg_peri = w
-        period = p
-        eccentricity = e
-        time_peri = tp
-
-        theta_tc = (np.pi / 2) - arg_peri  # true anomaly at time t_c
-        return self._time_given_true_anomaly(theta_tc, period, eccentricity, time_peri)
-
-    def convert_tc_to_tp(self, tc, p, e, w):
-        """Calculate the time of periastron passage, given time of primary transit.
-
-        Returns
-        -------
-        `float`
-            Time of periastron passage (days).
-        """
-        time_conj = tc
-        period = p
-        eccentricity = e
-        arg_peri = w
-
-        theta_tc = (np.pi / 2) - arg_peri  # true anomaly at time t_c
-        eccentric_anomaly = 2 * np.arctan(np.sqrt((1 - eccentricity) / (1 + eccentricity)) * np.tan(theta_tc / 2))
-        mean_anomaly = eccentric_anomaly - (eccentricity * np.sin(eccentric_anomaly))
-        return time_conj - (period / (2 * np.pi)) * mean_anomaly
-
-    def convert_secosw_sesinw_to_e_w(self, secosw, sesinw):
-        e = secosw**2 + sesinw**2
-        w = np.arctan2(sesinw, secosw)
-        return e, w
-
-    def convert_e_w_to_secosw_sesinw(self, e, w):
-        secosw = np.sqrt(e) * np.cos(w)
-        sesinw = np.sqrt(e)  * np.sin(w)
-        return secosw, sesinw
-
-    def convert_ecosw_esinw_to_e_w(self, ecosw, esinw):
-        e2 = ecosw**2 + esinw**2
-        e = np.sqrt(e2)
-        w = np.arctan2(esinw, ecosw)
-        return e, w
-
-    def convert_e_w_to_ecosw_esinw(self, e, w):
-        ecosw = e * np.cos(w)
-        esinw = e * np.sin(w)
-        return ecosw, esinw
-
-    def convert_input_pars_to_default_basis(self, inpars) -> dict:
-        if self.basis.parameterisation == "per k e w tp":
-            return {"per": inpars["per"], "k": inpars["k"], "e": inpars["e"], "w": inpars["w"], "tp": inpars["tp"]}
-
-        elif self.basis.parameterisation == "per k e w tc":
-            tp = self.convert_tc_to_tp(inpars["tc"], inpars["per"], inpars["e"], inpars["w"])
-            return {"per": inpars["per"], "k": inpars["k"], "e": inpars["e"], "w": inpars["w"], "tp": tp}
-
-        elif self.basis.parameterisation == "per k ecosw esinw tp":
-            e, w = self.convert_ecosw_esinw_to_e_w(inpars["ecosw"], inpars["esinw"])
-            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tp": inpars["tp"]}
-
-        elif self.basis.parameterisation == "per k ecosw esinw tc":
-            e, w = self.convert_ecosw_esinw_to_e_w(inpars["ecosw"], inpars["esinw"])
-            tp = self.convert_tc_to_tp(inpars["tc"], inpars["per"], e, w)
-            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tp": tp}
-
-        elif self.basis.parameterisation == "per k secosw sesinw tp":
-            e, w = self.convert_secosw_sesinw_to_e_w(inpars["secosw"], inpars["sesinw"])
-            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tp": inpars["tp"]}
-
-        elif self.basis.parameterisation == "per k secosw sesinw tc":
-            e, w, = self.convert_secosw_sesinw_to_e_w(inpars["secosw"], inpars["sesinw"])
-            tc = self.convert_tp_to_tc(inpars["tp"], inpars["per"], e, w)
-            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tc": tc}
-    
-        else:
-            raise Exception(f"Basis parameterisation {self.basis.parameterisation} not recognised")
-
 
 
 class Star:
