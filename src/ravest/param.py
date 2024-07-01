@@ -1,7 +1,7 @@
 # parameterisation.py
 import numpy as np
 
-ALLOWED_parameterisationS = ["per k e w tp",
+ALLOWED_PARAMETERISATIONS = ["per k e w tp",
                              "per k e w tc",
                              "per k ecosw esinw tp",
                              "per k ecosw esinw tc",
@@ -15,8 +15,8 @@ class Parameterisation():
     # TODO: docstring
     
     def __init__(self, parameterisation: str):
-        if parameterisation not in ALLOWED_parameterisationS:
-            raise ValueError(f"parameterisation {parameterisation} not recognised. Must be one of {ALLOWED_parameterisationS}")
+        if parameterisation not in ALLOWED_PARAMETERISATIONS:
+            raise ValueError(f"parameterisation {parameterisation} not recognised. Must be one of {ALLOWED_PARAMETERISATIONS}")
         self.parameterisation = parameterisation
         self.pars = parameterisation.split()
 
@@ -107,6 +107,7 @@ class Parameterisation():
 
 
     def convert_pars_to_default_basis(self, inpars) -> dict:
+        print("DEBUG: inpars", inpars)
         if self.parameterisation == "per k e w tp":
             return {"per": inpars["per"], "k": inpars["k"], "e": inpars["e"], "w": inpars["w"], "tp": inpars["tp"]}
 
