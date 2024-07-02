@@ -107,7 +107,6 @@ class Parameterisation():
 
 
     def convert_pars_to_default_basis(self, inpars) -> dict:
-        print("DEBUG: inpars", inpars)
         if self.parameterisation == "per k e w tp":
             return {"per": inpars["per"], "k": inpars["k"], "e": inpars["e"], "w": inpars["w"], "tp": inpars["tp"]}
 
