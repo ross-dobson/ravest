@@ -24,8 +24,10 @@ class Planet:
         self.letter = letter
         self.parameterisation = parameterisation
         self.params = params
-        # TODO: check that the basis and input params match (split the str and 
-        # check if the params dict keys match?)
+        
+        # Check the input params and parameterisation match
+        if not set(params.keys()) == set(parameterisation.pars):
+            raise ValueError(f"Parameterisation {parameterisation} does not match input params {params}")
 
         # Convert to the per k e w tp basis that we need for the RV equation        
         self._rvparams = self.parameterisation.convert_pars_to_default_basis(self.params)
