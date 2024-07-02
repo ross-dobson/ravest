@@ -334,7 +334,7 @@ class Star:
             e = this_planet._rvparams["e"]
             w = this_planet._rvparams["w"]
             tp = this_planet._rvparams["tp"]
-            tc = this_planet.convert_tp_to_tc(tp, p, e, w)
+            tc = this_planet.parameterisation.convert_tp_to_tc(tp, p, e, w)
 
             yplot = this_planet.radial_velocity(tplot)
             tplot_fold = (tplot - tc + 0.5 * p) % p - 0.5 * p
