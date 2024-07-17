@@ -4,6 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import newton
 from ravest.param import Parameterisation
+from astropy import constants as const
+from scipy import constants
 
 
 class Planet:
@@ -200,6 +202,39 @@ class Planet:
 
         return self._radial_velocity(true_anomaly=f, semi_amplitude=K, eccentricity=e, omega_star=w)
 
+    def mpsini(self, mass_star, unit="kg"):
+        """Calculate the minimum mass of the planet.
+
+        Parameters
+        ----------
+        mass_star : `float`
+            The mass of the star in solar masses.
+        unit : `str`
+            The unit to return the planetary minimum mass in. Options are "kg", "M_earth", "M_jupiter".
+
+        Returns
+        -------
+        `float`
+            The minimum mass of the planet (solar masses).
+        """
+        period = self._rvparams["per"]
+        semi_amplitude = self._rvparams["k"]
+        eccentricity = self._rvparams["e"]
+
+        # convert M_s to kg, and period to s, as the formula is in SI units
+        mass_star = mass_star * (1*const.M_sun).value  # type: ignore 
+        period = period * (1*constants.day)
+        
+        mpsini_kg = semi_amplitude * (period/(2*np.pi*constants.G))**(1/3) * (mass_star)**(2/3) * (1-(eccentricity**2))**(1/2)
+        
+        if unit=="kg":
+            return mpsini_kg
+        elif unit=="M_earth":
+            return mpsini_kg / const.M_earth.value # type: ignore
+        elif unit=="M_jupiter":
+            return mpsini_kg / const.M_jup.value # type: ignore
+        else:
+            raise ValueError(f"Unit {unit} not valid. Use kg, M_Earth or M_Jupiter")
 
 class Star:
     """Star with orbiting planet(s).
@@ -284,6 +319,23 @@ class Star:
         rv += self.trend.radial_velocity(t)
 
         return rv
+    
+    def mpsini(self, planet_letter, unit="kg"):
+        """Calculate the minimum mass of a planet in the star system.
+        
+        Parameters
+        ----------
+        planet_letter : `str`
+            The letter of the planet to calculate the minimum mass of.
+        unit : `str`
+            The unit to return the planetary minimum mass in. Options are "kg", "M_earth", "M_jupiter".
+        
+        Returns
+        -------
+        `float`
+            The minimum mass of the planet.
+        """
+        return self.planets[planet_letter].mpsini(self.mass, unit)
 
     def phase_plot(self, t, ydata, yerr):
         """Given RV ``ydata`` at time ``t`` with errorbars ``yerr``, generates a phase
