@@ -222,7 +222,7 @@ class Planet:
         eccentricity = self._rvparams["e"]
 
         # convert M_s to kg, and period to s, as the formula is in SI units
-        mpsini = _mpsini(mass_star, period, semi_amplitude, eccentricity, unit)
+        mpsini = calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit)
         return mpsini
 
 class Star:
@@ -256,7 +256,10 @@ class Star:
         return f"Star(name={self.name!r}, mass={self.mass!r})"
 
     def __str__(self):
-        return f"Star {self.name!r}, {self.num_planets!r} planets: {[*self.planets]!r}"
+        if hasattr(self, "trend"):
+            return f"Star {self.name!r}, {self.num_planets!r} planets: {[*self.planets]!r}, trend: {self.trend!r}"
+        else:
+            return f"Star {self.name!r}, {self.num_planets!r} planets: {[*self.planets]!r}"
 
     def add_planet(self, planet):
         """Store `Planet` object in `planets` dict with the key `Planet.letter`.
@@ -421,7 +424,7 @@ class Trend:
         rv += self._quadratic(t, t0)
         return rv
 
-def _mpsini(mass_star, period, semi_amplitude, eccentricity, unit="kg"):
+def calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit="kg"):
     """Calculate the minimum mass of the planet.
 
     Parameters
