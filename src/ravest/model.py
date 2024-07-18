@@ -222,19 +222,8 @@ class Planet:
         eccentricity = self._rvparams["e"]
 
         # convert M_s to kg, and period to s, as the formula is in SI units
-        mass_star = mass_star * (1*const.M_sun).value  # type: ignore 
-        period = period * (1*constants.day)
-        
-        mpsini_kg = semi_amplitude * (period/(2*np.pi*constants.G))**(1/3) * (mass_star)**(2/3) * (1-(eccentricity**2))**(1/2)
-        
-        if unit=="kg":
-            return mpsini_kg
-        elif unit=="M_earth":
-            return mpsini_kg / const.M_earth.value # type: ignore
-        elif unit=="M_jupiter":
-            return mpsini_kg / const.M_jup.value # type: ignore
-        else:
-            raise ValueError(f"Unit {unit} not valid. Use kg, M_Earth or M_Jupiter")
+        mpsini = _mpsini(mass_star, period, semi_amplitude, eccentricity, unit)
+        return mpsini
 
 class Star:
     """Star with orbiting planet(s).
@@ -432,3 +421,44 @@ class Trend:
         rv += self._quadratic(t, t0)
         return rv
 
+def _mpsini(mass_star, period, semi_amplitude, eccentricity, unit="kg"):
+    """Calculate the minimum mass of the planet.
+
+    Parameters
+    ----------
+    mass_star : `float`
+        The mass of the star in solar masses.
+    period : `float`
+        The orbital period of the planet in days.
+    semi_amplitude : `float`
+        The semi-amplitude of the radial velocity of the star in m/s.
+    eccentricity : `float`
+        The eccentricity of the orbit, 0 <= e < 1  (dimensionless).
+    unit : `str`
+        The unit to return the planetary minimum mass in. Options are "kg", "M_earth", "M_jupiter".
+
+    Returns
+    -------
+    `float`
+        The minimum mass mpsini of the planet.
+
+    Raises
+    ------
+    ValueError
+        If the unit is not one of "kg", "M_earth", "M_jupiter".
+    """
+    
+    # convert M_s to kg, and period to s, as the formula is in SI units
+    mass_star = mass_star * (1*const.M_sun).value  # type: ignore 
+    period = period * (1*constants.day)
+    
+    mpsini_kg = semi_amplitude * (period/(2*np.pi*constants.G))**(1/3) * (mass_star)**(2/3) * (1-(eccentricity**2))**(1/2)
+    
+    if unit=="kg":
+        return mpsini_kg
+    elif unit=="M_earth":
+        return mpsini_kg / const.M_earth.value # type: ignore
+    elif unit=="M_jupiter":
+        return mpsini_kg / const.M_jup.value # type: ignore
+    else:
+        raise ValueError(f"Unit {unit} not valid. Use 'kg', 'M_Earth' or 'M_Jupiter'")
