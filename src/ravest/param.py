@@ -129,8 +129,8 @@ class Parameterisation():
 
         elif self.parameterisation == "per k secosw sesinw tc":
             e, w, = self.convert_secosw_sesinw_to_e_w(inpars["secosw"], inpars["sesinw"])
-            tc = self.convert_tp_to_tc(inpars["tp"], inpars["per"], e, w)
-            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tc": tc}
+            tp = self.convert_tc_to_tp(inpars["tc"], inpars["per"], e, w)
+            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tp": tp}
  
         else:
             raise Exception(f"parameterisation {self.parameterisation} not recognised")
