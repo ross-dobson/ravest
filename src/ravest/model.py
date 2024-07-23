@@ -257,7 +257,7 @@ class Star:
 
     def __str__(self):
         if hasattr(self, "trend"):
-            return f"Star {self.name!r}, {self.num_planets!r} planets: {[*self.planets]!r}, trend: {self.trend!r}"
+            return f"Star {self.name}, {self.num_planets} planets: {[*self.planets]}, {self.trend}"
         else:
             return f"Star {self.name!r}, {self.num_planets!r} planets: {[*self.planets]!r}"
 
@@ -402,6 +402,12 @@ class Trend:
         self.gamma = params["g"]
         self.gammadot = params["gd"]
         self.gammadotdot = params["gdd"]
+
+    def __str__(self):
+        return f"Trend: $\gamma$={self.gamma}, $\dot\gamma$={self.gammadot}, $\ddot\gamma$={self.gammadotdot}"
+    
+    def __repr__(self):
+        return f"Trend(params={{'g': {self.gamma}, 'gd': {self.gammadot}, 'gdd': {self.gammadotdot} }})"
 
     def _constant(self, t):
         return self.gamma
