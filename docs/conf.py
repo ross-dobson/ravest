@@ -30,6 +30,10 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 nb_execution_timeout = 600
 
+myst_enable_extensions = [
+    "dollarmath",
+]
+
 # -- Options for HTML output -------------------------------------------------
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
