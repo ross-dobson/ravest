@@ -370,7 +370,7 @@ class Star:
         for n, l in enumerate(self.planets):
             n+=2  # we already have two subplots
             axs[n].set_title(f"Planet {l}")
-            axs[n].set_xlabel("orbital Phase")
+            axs[n].set_xlabel("Orbital phase")
             axs[n].set_ylabel("Radial velocity [m/s]")
 
             this_planet = self.planets[l]
