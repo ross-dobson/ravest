@@ -18,7 +18,7 @@ class Fitter:
         self.parameterisation = parameterisation
         self.params = {}
 
-    def add_data(self, time, vel, verr):
+    def add_data(self, time, vel, verr, t0):
         """Add the data to the Fitter object
 
         Parameters
@@ -29,15 +29,17 @@ class Fitter:
             Radial velocity at each time [m/s]
         verr : array-like
             Uncertainty on the radial velocity at each time [m/s]
+        t0 : float
+            Reference time for the trend [days].
+            Recommended to set this as mean or median of input `time` array.
         """
         if len(time) != len(vel) or len(time) != len(verr):
-            raise ValueError(
-                "Time, velocity, and uncertainty arrays must be the same length."
-            )
-
+            raise ValueError("Time, velocity, and uncertainty arrays must be the same length.")
+    
         self.time = time
         self.vel = vel
         self.verr = verr
+        self.t0 = t0
 
     def add_params(self, params):
         """Add the parameters, checking the correct parameters for the parameterisation are present.
@@ -53,7 +55,7 @@ class Fitter:
             If the expected parameters are not present in the params dict
         """
         # first check - do we have the right number of parameters?
-        expected_length = 4 + (5 * len(self.planet_letters))  # 3 trend pars + jit + 5 pars per planet
+        expected_length = 4 + (5 * len(self.planet_letters))  # 3 trend pars (g, gd, gdd) + jit, then 5 pars per planet
         if len(params) != expected_length:
             raise ValueError(
                 f"Expected {expected_length} parameters, got {len(params)} parameters"
@@ -81,7 +83,13 @@ class Fitter:
         self.params["jit"] = params["jit"]
 
     def add_priors(self, priors: dict):
-        """Add the priors for the parameters.
+        """Add the priors for the free parameters, checking init value is valid.
+
+        Given a dict of Prior functions, it checks that there is a prior for all
+        of the free parameters (and none of the fixed parameters). It also calls
+        each prior function with the initial value of the parameter to check
+        that none of the starting positions are invalid (which can cause 
+        problems with the MCMC run later.)
 
         Parameters
         ----------
@@ -99,13 +107,14 @@ class Fitter:
             raise ValueError(f"Priors must be provided for all free parameters. Missing priors for {set(self.get_free_params_names()) - set(priors)}.")
         if len(self.get_free_params_names()) < len(priors):
             raise Warning(
-                f"There are fewer free parameters than priors provided. Have you accidentally provided a prior for a fixed parameter?"+
+                f"Too many priors provided. Have you accidentally provided a prior for a fixed parameter?"+
                 f"\nReceived unexpected priors for {set(priors) - set(self.get_free_params_names())}."
             )
+
         self.priors = priors
 
     def get_free_params_dict(self):
-        """Return a dictionary of the free parameters, i.e. those that are not fixed."""
+        """Return a dictionary of the free parameters."""
         self._free_pars = {}
         for par in self.params:
             if self.params[par].fixed == False:
@@ -145,7 +154,8 @@ class Fitter:
             self.get_free_params_names(),
             self.time,
             self.vel,
-            self.verr
+            self.verr,
+            self.t0,
         )
 
         # 1) Maximum A Posteriori to get the initial points for MCMC
@@ -224,7 +234,6 @@ class Fitter:
         plt.show()
 
 
-
 class LogPosterior:
 
     def __init__(
@@ -237,6 +246,7 @@ class LogPosterior:
         time: np.ndarray,
         vel: np.ndarray,
         verr: np.ndarray,
+        t0: float,
     ):
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
@@ -247,6 +257,7 @@ class LogPosterior:
         self.time = time
         self.vel = vel
         self.verr = verr
+        self.t0 = t0
 
         # build expected params list - 5 pars per planet, then 3 trends, then jit
         self.expected_params = []
@@ -258,29 +269,30 @@ class LogPosterior:
         self.expected_params += ["jit"]
 
         # Create log-likelihood object and log-prior objects for later
-        self.log_likelihood = LogLikelihood(self.time, self.vel, self.verr, self.planet_letters, self.parameterisation)
+        self.log_likelihood = LogLikelihood(time=self.time, 
+                                            vel=self.vel, 
+                                            verr=self.verr, 
+                                            t0=self.t0,
+                                            planet_letters=self.planet_letters, 
+                                            parameterisation=self.parameterisation,
+                                            )
         self.log_prior = LogPrior(self.priors)
 
 
     def log_probability(self, free_params_dict):
-        # print("\nDEBUG: LOGPOSTERIOR.LOG_PROBABILITY FUNCTION")
         # one) sort out the fixed and free values so that we can actually pass them into the LL object
 
         # 2) Calculate priors. If any are infinite, return -inf (saves us wasting time calculating LL too)
         lp = self.log_prior(free_params_dict)
         if not np.isfinite(lp):
-            # print("DEBUG DEBUG LogPosterior.log_probability: lp is not finite, returning -inf")
             return -np.inf
-        # print("DEBUG LogPosterior.log_probability: lp", lp)
             
         # 3) Calculate the log-likelihood
         _all_params_for_ll = self.fixed_params | free_params_dict
         ll = self.log_likelihood(_all_params_for_ll)
-        # print("DEBUG LogPosterior.log_probability: ll", ll)
 
         # 4) return log-likehood + log-prior
         logprob = ll+lp
-        # print("DEBUG LogPosterior.log_probability: ll*lp", logprob)
         return logprob
 
 
@@ -300,19 +312,14 @@ class LogPosterior:
         free_params_vals : list
             float values of the free parameters
         """
-        # print("\nDEBUG: LOGPOSTERIOR._NEGATIVE_LOG_PROBABILITY_FOR_MAP FUNCTION")
         free_params_dict = dict(zip(self.free_params_names, free_params_vals))
         logprob = self.log_probability(free_params_dict)
-        # print("DEBUG LogPosterior._negative_log_probability_for_MAP function: logprob", logprob)
         neglogprob = -1 * logprob
-        # print("DEBUG LogPosterior._negative_log_probability_for_MAP function: neglogprob", neglogprob)
         return neglogprob
     
     def _positive_log_probability_for_MCMC(self, free_params_vals):
-        # print("\nDEBUG: LOGPOSTERIOR._NEGATIVE_LOG_PROBABILITY_FOR_MAP FUNCTION")
         free_params_dict = dict(zip(self.free_params_names, free_params_vals))
         logprob = self.log_probability(free_params_dict)
-        # print("DEBUG LogPosterior._negative_log_probability_for_MAP function: logprob", logprob)
         return logprob
         
 
@@ -322,12 +329,14 @@ class LogLikelihood:
         time: np.ndarray,
         vel: np.ndarray,
         verr: np.ndarray,
+        t0: float,
         planet_letters: list,
         parameterisation: Parameterisation,
     ):
         self.time = time
         self.vel = vel
         self.verr = verr
+        self.t0 = t0
 
         # build expected params list - 5 pars per planet, then 3 trends, then jit
         self.expected_params = []
@@ -340,7 +349,6 @@ class LogLikelihood:
         self.expected_params += ["jit"]
 
     def __call__(self, params: dict):
-        # print("\nDEBUG: LOG-LIKELIHOOD OBJECT __CALL__ FUNCTION")
         rv_total = np.zeros(len(self.time))
 
         # one) calculate RV for each planet
@@ -349,40 +357,28 @@ class LogLikelihood:
         # TODO: or is there a better way to use the list of keys that Parameterisation provides?
         for letter in self.planet_letters:
             _this_planet_keys = [par + "_" + letter for par in self.parameterisation.pars]
-            # _this_planet_params = {key[:-2]: params[key] for key in _this_planet_keys}
             _this_planet_params = {}
             for _this_planet_key in _this_planet_keys:
-                # print("DEBUG: _this_planet_key", _this_planet_key)
                 _key_inside_dict = _this_planet_key[:-2]
-                # print("DBEUG: _key_inside_dict", _key_inside_dict)
                 _this_planet_params[_key_inside_dict] = params[_this_planet_key]
                 # we do this because the Planet object doesn't want the planet letter in the key
-            _this_planet = ravest.model.Planet(
-                letter, self.parameterisation, _this_planet_params
-            )
-            # print("DEBUG LogLikelihood.__call__: _this_planet", _this_planet)
+            _this_planet = ravest.model.Planet(letter, self.parameterisation, _this_planet_params)
             rv_total += _this_planet.radial_velocity(self.time)
 
         # two) calculate RV for trend parameters
         # TODO: this will later need updating to include multi-instrument support
         _trend_keys = ["g", "gd", "gdd"]
         _trend_params = {key: params[key] for key in _trend_keys}
-        # print("DEBUG: _trend_params", _trend_params)
-        _this_trend = ravest.model.Trend(_trend_params)
-        # print("DEBUG: _this_trend", _this_trend)
+        _this_trend = ravest.model.Trend(params=_trend_params, t0=self.t0)
         _rv_trend = _this_trend.radial_velocity(self.time)
-        # print("DEBUG: _rv_trend", _rv_trend)
         rv_total += _rv_trend
 
         # three) do the log-likelihood calculation including jitter
-        # print("DEBUG LogLikelihood.__call__: LOG-LIKELIHOOD CALCULATION")
-        verr_jitter_quadrature = self.verr**2 + params["jit"]**2  # we don't sqrt here as we square again in the next line anyway
+        verr_jitter_quadrature = self.verr**2 + params["jit"]**2  # we don't sqrt here as we would square again in the next line anyway
         jitter_penalty_term = np.sum(np.log(np.sqrt(2 * np.pi * verr_jitter_quadrature)))
-        # print("DEBUG: jitter_penalty_term", jitter_penalty_term)
         residuals = rv_total - self.vel
         chi2 = np.sum(residuals**2 / verr_jitter_quadrature)
         ll = (-0.5 * chi2) - jitter_penalty_term
-        # print("DEBUG LogLikelihood.__call__: ll", ll)
         return ll
 
 
@@ -392,12 +388,10 @@ class LogPrior:
 
     def __call__(self, params: dict):
         log_prior_probability = 0
-        # print("DEBUG LogPrior.__call")
-        # print("DEBUG: passed in params dict:", params)
         for param in params:
-            # go into the priors dict, get the Prior object for this parameter
-            # then Prior.__call__, passing in the passed-in value of said param
-            # print("DEBUG: for param in params:", param, params)
+            # go into the `self.priors dict``, get the Prior object for this `param`
+            # and call it with the value of said param, to get the prior probability
             log_prior_probability += self.priors[param](params[param])
 
         return log_prior_probability
+

@@ -398,16 +398,48 @@ class Star:
             axs[n].errorbar(tdata_fold[inds]/p, subtracted_data[inds], yerr=yerr, marker=".", mfc="white", color="k", ecolor="tab:gray", markersize=10, linestyle="None")
 
 class Trend:
-    def __init__(self, params: dict):
+    """Trend in the radial velocity of the star.
+
+    Parameters
+    ----------
+    t0 : `float`
+        The reference zero-point time for the linear and quadratic trend. 
+        Recommended to be the mean of the input times.
+    params : `dict`
+        The parameters of the trend: the constant, linear, and quadratic
+        components. These must be named "g", "gd", and "gdd" respectively (which
+        stands for gamma, gamma-dot, gamma-dot-dot). These are in units of m/s,
+        m/s/day, and m/s/day^2 respectively.
+    
+    Returns
+    -------
+    `float`
+        The radial velocity of the star due to the trend (m/s).
+    
+    Notes
+    -----
+    The radial velocity of the star due to the trend is calculated as the sum of
+    the constant, linear, and quadratic components. The constant component is
+    simply a constant offset of value gamma. The linear and quadratic components
+    are calculated as `gd*(t-t0)` and `gdd*((t-t0)**2)` respectively.
+
+    In general the trend is used to account for any unexpected effects. These 
+    could be due to instrumental effects, or for example a very long-term
+    companion could show as a linear and/or quadratic trend in the data. If you 
+    see a strong linear or quadratic trend in the data, it is worth 
+    investigating.
+    """
+    def __init__(self, t0, params: dict):
+        self.t0 = t0
         self.gamma = params["g"]
         self.gammadot = params["gd"]
         self.gammadotdot = params["gdd"]
 
     def __str__(self):
-        return f"Trend: $\gamma$={self.gamma}, $\dot\gamma$={self.gammadot}, $\ddot\gamma$={self.gammadotdot}"
+        return f"Trend: $\gamma$={self.gamma}, $\dot\gamma$={self.gammadot}, $\ddot\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
     
     def __repr__(self):
-        return f"Trend(params={{'g': {self.gamma}, 'gd': {self.gammadot}, 'gdd': {self.gammadotdot} }})"
+        return f"Trend(params={{'g': {self.gamma}, 'gd': {self.gammadot}, 'gdd': {self.gammadotdot} }}, t0={self.t0:.2f})"
 
     def _constant(self, t):
         return self.gamma
@@ -420,14 +452,13 @@ class Trend:
     def _quadratic(self, t, t0):
         if self.gammadotdot == 0:
             return np.zeros(len(t))
-        return self.gammadotdot * (t - t0) ** 2
+        return self.gammadotdot * ((t - t0) ** 2)
 
     def radial_velocity(self, t):
-        t0 = t[0]  # TODO: do we want this to be a separate parameter?
         rv = 0
         rv += self._constant(t)
-        rv += self._linear(t, t0)
-        rv += self._quadratic(t, t0)
+        rv += self._linear(t, self.t0)
+        rv += self._quadratic(t, self.t0)
         return rv
 
 def calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit="kg"):
