@@ -110,6 +110,13 @@ class Fitter:
                 f"Too many priors provided. Have you accidentally provided a prior for a fixed parameter?"+
                 f"\nReceived unexpected priors for {set(priors) - set(self.get_free_params_names())}."
             )
+    
+        # check that the initial parameter values are within the priors
+        for par in self.get_free_params_names():
+            prior_fn = priors[par]
+            log_prior_prob = prior_fn(self.params[par].value)
+            if not np.isfinite(log_prior_prob):
+                raise ValueError(f"Initial value {self.params[par].value} of parameter {par} is invalid for prior {priors[par]}.")
 
         self.priors = priors
 
