@@ -430,11 +430,17 @@ class Trend:
     investigating.
     """
     def __init__(self, t0, params: dict):
-        self.t0 = t0
         self.gamma = params["g"]
         self.gammadot = params["gd"]
         self.gammadotdot = params["gdd"]
-
+        
+        # Check the input t0 is a single time, not e.g. the entire time array
+        try:
+            t0 = float(t0)
+            self.t0 = t0
+        except (TypeError, ValueError):
+            raise ValueError(f"t0 must be a float (recommended to be mean or median of times)")
+        
     def __str__(self):
         return f"Trend: $\gamma$={self.gamma}, $\dot\gamma$={self.gammadot}, $\ddot\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
     
