@@ -37,7 +37,24 @@ class Uniform:
 
 
 class Gaussian:
+    r"""Log of Gaussian prior distribution.
 
+    The log Gaussian prior function is defined as:
+    .. math::
+        -0.5 \left( \frac{x - \mu}{\sigma} \right)^2 - 0.5 \log{2 \pi \sigma^2} \\
+
+    Parameters
+    ----------
+    mean : float
+        Mean of the Gaussian distribution.
+    std : float
+        Standard deviation of the Gaussian distribution.
+    
+    Returns
+    -------
+    float
+        Logarithm of the prior probability density function.
+    """
     def __init__(self, mean, std):
         self.mean = mean
         self.std = std
