@@ -345,7 +345,7 @@ class Star:
         # TODO use gridspec or subfigures to sort out figure spacing
         N = len(t)
         t = np.sort(t)
-        tplot = np.linspace(t[0], t[-1], 1000)
+        tlin = np.linspace(t[0], t[-1], 1000)
         fig, axs = plt.subplots(2+self.num_planets,1, figsize=(10, (2*10/3)+(self.num_planets*10/3)), constrained_layout=True,)
 
         # First panel: plot the observed data and the combined system model
@@ -354,9 +354,9 @@ class Star:
         axs[0].set_xlabel("Time [days]")
         axs[0].axhline(y=0, color="k", alpha=0.25, linestyle="--", zorder=1)
 
-        modelled_rv_tplot = self.radial_velocity(tplot)
+        modelled_rv_tlin = self.radial_velocity(tlin)
         modelled_rv_tdata = self.radial_velocity(t)
-        axs[0].plot(tplot, modelled_rv_tplot, color="tab:blue", zorder=2)
+        axs[0].plot(tlin, modelled_rv_tlin, color="tab:blue", zorder=2)
         axs[0].errorbar(t, ydata, yerr=yerr, marker=".", color="k", mfc="white", ecolor="tab:gray", markersize=10, linestyle="None", zorder=3)
 
         # Second panel: O-C residuals of the top panel
@@ -380,10 +380,10 @@ class Star:
             tp = this_planet._rvparams["tp"]
             tc = this_planet.parameterisation.convert_tp_to_tc(tp, p, e, w)
 
-            yplot = this_planet.radial_velocity(tplot)
-            tplot_fold = (tplot - tc + 0.5 * p) % p - 0.5 * p
-            inds = np.argsort(tplot_fold)
-            axs[n].plot(tplot_fold[inds]/p, yplot[inds], label=f"{n},{l}, rvplot", color="tab:blue")
+            yplot = this_planet.radial_velocity(tlin)
+            tlin_fold = (tlin - tc + 0.5 * p) % p - 0.5 * p
+            inds = np.argsort(tlin_fold)
+            axs[n].plot(tlin_fold[inds]/p, yplot[inds], label=f"{n},{l}, rvplot", color="tab:blue")
 
             # model the rv data for all the other planets, to subtract from the observed data
             other_planets_modelled_rv_tdata = np.zeros(len(t))
