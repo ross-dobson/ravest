@@ -1,6 +1,7 @@
 # prior.py
 import numpy as np
 
+PRIOR_FUNCTIONS = ["Uniform", "Gaussian", "EccentricityPrior", "BoundedGaussian"]
 
 class Uniform:
     r"""Log of uniform prior distribution.
