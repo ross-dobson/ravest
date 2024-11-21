@@ -107,7 +107,33 @@ class EccentricityPrior:
 
 
 class BoundedGaussian:
+    r"""Log of Gaussian prior distribution, with bounds.
+    
+    The log bounded Gaussian prior function is defined as:
+    .. math::
+        -0.5 \left( \frac{x - \mu}{\sigma} \right)^2 - 0.5 \log{2 \pi \sigma^2} \quad \text{for} \quad a \leq x \leq b
+        -\inf \quad \text{otherwise}
 
+    Use cases may include where you have a preferred value for a parameter, but
+    you know it is bounded within a certain range due to physical constraints
+    (e.g. ensuring a value stays positive).
+        
+    Parameters
+    ----------
+    mean : float
+        Mean of the Gaussian distribution.
+    std : float
+        Standard deviation of the Gaussian distribution.
+    lower : float
+        Lower bound of the Gaussian distribution.
+    upper : float
+        Upper bound of the Gaussian distribution.
+        
+    Returns
+    -------
+    float
+        Logarithm of the prior probability density function.
+    """
     def __init__(self, mean, std, lower, upper):
         self.mean = mean
         self.std = std
