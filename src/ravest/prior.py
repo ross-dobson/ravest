@@ -3,7 +3,25 @@ import numpy as np
 
 
 class Uniform:
+    r"""Log of uniform prior distribution.
+        
+    The log uniform prior function is defined as:
+    .. math::
+        -\log{b - a} \quad \text{for} \quad a \leq x \leq b \\
+        -\inf \quad \text{otherwise} \\
     
+    Parameters
+    ----------
+    lower : float
+        Lower bound of the uniform distribution.
+    upper : float
+        Upper bound of the uniform distribution.
+    
+    Returns
+    -------
+    float
+        Logarithm of the prior probability density function.
+    """
     def __init__(self, lower, upper):
         self.lower = lower
         self.upper = upper
