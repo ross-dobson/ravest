@@ -67,8 +67,33 @@ class Gaussian:
 
 
 class EccentricityPrior:
+    r"""Uniform prior for eccentricity. Lower bound must = 0, upper must < 1.
+
+    The log eccentricity prior function is defined as:
+    .. math::
+        -\log{b} \quad \text{for} \quad 0 \leq x \leq b \\
+        -\inf \quad \text{otherwise} \\
+
+    Parameters
+    ----------
+    upper : float
+        Upper bound of the uniform distribution.
+
+    Returns
+    -------
+    float
+        Logarithm of the prior probability density function.
     
+    Notes
+    -----
+    This is just a uniform prior with the lower bound fixed at 0, and enforcing
+    that the upper bound `b` must be 0 < b < 1. 
+    """    
     def __init__(self, upper):
+        if upper >= 1:
+            raise ValueError("Upper bound of eccentricity must be less than 1.")
+        if upper <= 0:
+            raise ValueError("Upper bound of eccentricity must be greater than 0.")
         self.upper = upper
 
     def __call__(self, value):
