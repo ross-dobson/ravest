@@ -88,7 +88,7 @@ class EccentricityPrior:
     -----
     This is just a uniform prior with the lower bound fixed at 0, and enforcing
     that the upper bound `b` must be 0 < b < 1. 
-    """    
+    """
     def __init__(self, upper):
         if upper >= 1:
             raise ValueError("Upper bound of eccentricity must be less than 1.")
@@ -97,10 +97,10 @@ class EccentricityPrior:
         self.upper = upper
 
     def __call__(self, value):
-        if value < 0.0 or value > self.upper:
+        if value < 0 or value > self.upper:
             return -np.inf
         else:
-            return 0.0
+            return -np.log(self.upper)
 
     def __repr__(self):
         return f"EccentricityPrior({self.upper})"
