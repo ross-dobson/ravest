@@ -103,14 +103,14 @@ class Fitter:
         Warning
             If a parameter is fixed, but a prior is provided
         """
-        if set(self.get_free_params_names()) != set(priors):
-            raise ValueError(f"Priors must be provided for all free parameters. Missing priors for {set(self.get_free_params_names()) - set(priors)}.")
         if len(self.get_free_params_names()) < len(priors):
             raise Warning(
                 f"Too many priors provided. Have you accidentally provided a prior for a fixed parameter?"+
                 f"\nReceived unexpected priors for {set(priors) - set(self.get_free_params_names())}."
             )
-    
+        if set(self.get_free_params_names()) != set(priors):
+            raise ValueError(f"Priors must be provided for all free parameters. Missing priors for {set(self.get_free_params_names()) - set(priors)}.")
+
         # check that the initial parameter values are within the priors
         for par in self.get_free_params_names():
             prior_fn = priors[par]
