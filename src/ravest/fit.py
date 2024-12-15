@@ -8,6 +8,7 @@ import pandas as pd
 from scipy.optimize import minimize
 import emcee
 import corner
+from tqdm import tqdm
 
 
 
@@ -110,7 +111,7 @@ class Fitter:
             )
         if set(self.get_free_params_names()) != set(priors):
             raise ValueError(f"Priors must be provided for all free parameters. Missing priors for {set(self.get_free_params_names()) - set(priors)}.")
-
+    
         # check that the initial parameter values are within the priors
         for par in self.get_free_params_names():
             prior_fn = priors[par]
@@ -207,6 +208,33 @@ class Fitter:
         flat_samples = self.sampler.get_chain(flat=True, thin=thin, discard=discard)
         df = pd.DataFrame(flat_samples, columns=self.get_free_params_names())
         return df
+    
+    def _get_samples_ndarray_dict(self, discard=0, thin=1):
+        """Returns dict of samples from the MCMC run for each free parameter.
+        
+        Each entry in the dict is a numpy array of samples for that parameter. 
+        The samples are not flattened, so the shape of each array is
+        (nwalkers, nsteps).
+
+        Parameters
+        ----------
+        discard : int, optional
+            Discard the first `discard` steps in the chain as burn-in. (default: 0)
+        thin : int, optional
+            Use only every `thin` steps from the chain. (default: 1)
+
+        Returns
+        -------
+        dict
+            Dictionary of samples for each free parameter.
+        
+        Notes
+        -----
+        The samples are not flattened, so the shape of each array is
+        (nwalkers, nsteps).
+        """
+        df = self.get_samples_df(discard=discard, thin=thin)
+        return dict(zip(df.T.index, df.T.values))
     
     def plot_chains(self, discard=0, thin=1, save=False, fname="chains_plot.png", dpi=100):
         fig, axes = plt.subplots(self.ndim, figsize=(10,6), sharex=True)
