@@ -236,6 +236,32 @@ class Fitter:
         df = self.get_samples_df(discard=discard, thin=thin)
         return dict(zip(df.T.index, df.T.values))
     
+    def get_posterior_params_dict(self, discard=0, thin=1):
+        """Returns dict of samples from the MCMC run, and the fixed parameters.
+        
+        The free parameter samples are stored in a numpy array, the fixed 
+        parameters are floats. This makes it easier to pass the values into
+        other functions, such as calculate_mpsini, which requires all parameters
+        whether they are fixed or free. The `discard` and `thin` parameters are 
+        passed into the `get_samples_df` function.
+        
+        Parameters
+        ----------
+        discard : int, optional
+            Discard the first `discard` steps in the chain as burn-in. (default: 0)
+        thin : int, optional
+            Use only every `thin` steps from the chain. (default: 1)
+        
+        Returns
+        -------
+        dict
+            Dictionary of all parameters, float for fixed parameters, ndarray for 
+            free parameters.
+        """
+        fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
+        samples_dict = self._get_samples_ndarray_dict(discard=discard, thin=thin)
+        return fixed_params_dict | samples_dict
+    
     def plot_chains(self, discard=0, thin=1, save=False, fname="chains_plot.png", dpi=100):
         fig, axes = plt.subplots(self.ndim, figsize=(10,6), sharex=True)
         # TODO: scale the size of the figure with the number of parameters
