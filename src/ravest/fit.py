@@ -294,6 +294,348 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
+    def _posterior_rv(self, discard=0, thin=1):
+        """For each parameter sample in the MCMC chain, calculate the RV.
+
+        The RVs are calculated at the times in `tlin`, which is calculated as
+        uniform points between the minimum and maximum times in the data, with
+        a 1% buffer on either side.
+
+        Parameters
+        ----------
+        discard : int, optional
+            Discard the first `discard` steps in the chain as burn-in. (default: 0)
+        thin : int, optional
+            Use only every `thin` steps from the chain. (default: 1)
+
+        Returns
+        -------
+        np.ndarray
+            Array of RVs for each sample in the chain, at the times in `tlin`.
+        """
+        samples = self.sampler.get_chain(flat=True, discard=discard, thin=thin)
+
+        # get smooth time curve for plotting
+        _tmin, _tmax = self.time.min(), self.time.max()
+        _trange = _tmax - _tmin
+        tlin = np.linspace(_tmin-0.01*_trange, _tmax+0.01*_trange, 1000)
+
+        # store the rv for each sample here
+        rv_array = np.zeros((len(samples), len(tlin))) # type: ignore
+
+        # get the free parameter names and fixed parameter values - we don't 
+        # need to call repeatedly this for each sample
+        free_param_names = self.get_free_params_names()
+        fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
+
+        for i,row in tqdm(enumerate(samples)): # type: ignore
+            # Combine fixed and free parameters
+            free_params = dict(zip(free_param_names, row))
+            params = fixed_params_dict | free_params
+            this_row_rv = np.zeros(len(tlin))
+
+            for letter in self.planet_letters:
+                this_planet_params = {}
+                for par in self.parameterisation.pars:
+                    key = f"{par}_{letter}"
+                    this_planet_params[par] = params[key]
+                this_planet = ravest.model.Planet(letter, self.parameterisation, this_planet_params)
+                this_planet_rv = this_planet.radial_velocity(tlin)
+                this_row_rv += this_planet_rv
+            # now we're outside the planet loop, do the trend
+            this_trend = ravest.model.Trend(params={"g": params["g"], "gd": params["gd"], "gdd": params["gdd"]}, t0=self.t0)
+            this_trend_rv = this_trend.radial_velocity(tlin)
+            this_row_rv += this_trend_rv
+            rv_array[i, :] = this_row_rv
+        
+        return rv_array, tlin
+    
+    def plot_posterior_rv(self, discard=0, thin=1, save=False, fname="posterior_rv.png", dpi=100):
+        """Plot the posterior RV model (median & 16-84 percentiles).
+
+        For each sample of parameters in the MCMC chain, calculate the RV. Plot the
+        median RV, and the 16th and 84th percentiles as shaded region. The RVs are 
+        calculated at the times in `tlin`, which is calculated as uniform points 
+        between the minimum and maximum times in the data, with a 1% buffer on either 
+        side.
+
+        Parameters
+        ----------
+        discard : int, optional
+            Discard the first `discard` steps in the chain as burn-in (default: 0)
+        thin : int, optional
+            Use only every `thin` steps from the chain (default: 1)
+        save : bool, optional
+            Save the plot to path `fname` (default: False)
+        fname : str, optional
+            The path to save the plot to (default: "posterior_rv.png")
+        dpi : int, optional
+            The dpi to save the image at (default: 100)
+        """
+        # TODO: should we combine this function with posterior phase, like in model?
+        # That way, we could cut down on (re)calculating posterior RVs.
+
+        # Get the posterior RVs, evaluated at each sample in the chains
+        rv_array, tlin = self._posterior_rv(discard=discard, thin=thin)
+        rv_percentiles = np.percentile(rv_array, [16, 50, 84], axis=0)
+
+        # Get the new errorbars to include jit
+        if "jit" in self.get_fixed_params_names():
+            jit_median = self.get_fixed_params_dict()["jit"].value
+        else:
+            jit_median = np.median(self.get_samples_df()["jit"])
+        verr_with_jit = np.sqrt(self.verr**2 + jit_median**2)
+
+        plt.figure(figsize=(8,3.5))
+        # TODO - multi-instrument support. Need a way to match the color of the +jit errorbars to the data points
+        plt.errorbar(self.time, self.vel, yerr=self.verr, marker=".", color="black", ecolor="black", linestyle="None", zorder=4)
+        plt.errorbar(self.time, self.vel, yerr=verr_with_jit, marker="None", ecolor="black", linestyle="None", alpha=0.5, zorder=3)
+
+        plt.plot(tlin, rv_percentiles[1], label="median", color="tab:blue", zorder=2)
+        plt.xlim(tlin[0], tlin[-1])
+        art = plt.fill_between(tlin, rv_percentiles[0], rv_percentiles[2], color="tab:blue", alpha=0.3, zorder=1)
+        art.set_edgecolor("none")
+        plt.xlabel("Time [days]")
+        plt.ylabel("Radial velocity [m/s]")
+        plt.title("Posterior RV")
+        if save:
+            plt.savefig(fname=fname, dpi=dpi)
+            print(f"Saved {fname}")
+        plt.show()
+
+
+    def _posterior_rv_planet(self, planet_letter, times, discard=0, thin=1):
+        """calculate the posterior rv for a planet, using all samples in the chain"""
+        samples = self.sampler.get_chain(flat=True, discard=discard, thin=thin)
+        this_planet_rvs = np.zeros((len(samples), len(times))) # type: ignore
+        fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
+
+        for i,row in enumerate(samples): # type: ignore
+            # Combine fixed and free parameters
+            free_params = dict(zip(self.get_free_params_names(), row))
+            params = fixed_params_dict | free_params
+
+            # get this planet's params 
+            this_planet_params = {}
+            for par in self.parameterisation.pars:
+                key = f"{par}_{planet_letter}"
+                this_planet_params[par] = params[key]
+            # calculate this planet's RV for each entry in the chain
+            this_planet = ravest.model.Planet(planet_letter, self.parameterisation, this_planet_params)
+            this_planet_rv = this_planet.radial_velocity(times)
+            this_planet_rvs[i, :] = this_planet_rv
+
+        return this_planet_rvs
+    
+    def _posterior_rv_trend(self, times, discard=0, thin=1):
+        """calculate the posterior rv for the trend, using all samples in the chain"""
+        samples = self.sampler.get_chain(flat=True, discard=discard, thin=thin)
+        this_trend_rvs = np.zeros((len(samples), len(times))) # type: ignore
+        fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
+
+        # for each sample in the chain, calculate the RV for the trend
+        for i,row in enumerate(samples): # type: ignore
+            # Combine fixed and free parameters
+            free_params = dict(zip(self.get_free_params_names(), row))
+            params = fixed_params_dict | free_params
+
+            this_trend = ravest.model.Trend(params={"g": params["g"], "gd": params["gd"], "gdd": params["gdd"]}, t0=self.t0)
+            this_trend_rv = this_trend.radial_velocity(times)
+            this_trend_rvs[i, :] = this_trend_rv
+
+        return this_trend_rvs
+    
+    def plot_posterior_phase(self, discard=0, thin=1, save=False, fname="posterior_phase.png", dpi=100):
+        """Plot the posterior RV model (median & 16-84 percentiles) in phase space.
+
+        For each sample of parameters in the MCMC chain, calculate the RV. Fold the 
+        times around the median values of P and t_c for each planet. Plot the median RV 
+        and the 16th and 84th percentiles as shaded region. The RVs are calculated at 
+        the times in `tlin`, which is calculated as uniform points between the minimum 
+        and maximum times in the data, with a 1% buffer on either side.
+
+        Parameters
+        ----------
+        discard : int, optional
+            Discard the first `discard` steps in the chain as burn-in (default: 0)
+        thin : int, optional
+            Use only every `thin` steps from the chain (default: 1)
+        save : bool, optional
+            Save the plot to path `fname` (default: False)
+        fname : str, optional
+            The path to save the plot to (default: "posterior_phase.png")
+        dpi : int, optional
+            The dpi to save the image at (default: 100)
+        """
+        # TODO: should we combine this function with posterior phase, like in model?
+        # That way, we could cut down on (re)calculating posterior RVs.
+
+        # get smooth linear time curve for plotting
+        _tmin, _tmax = self.time.min(), self.time.max()
+        _trange = _tmax - _tmin
+        tlin = np.linspace(_tmin-0.01*_trange, _tmax+0.01*_trange, 1000)
+
+        # Each parameter is either fixed, or has a (flattened) chain of samples.
+        # Construct a dict `params' to store whichever one we have.
+        # Both work for taking a median, (the median of a fixed value is just 
+        # the fixed value) and the RV functions will propagate either a fixed 
+        # value or an array of values through the calculations.
+        fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
+        samples_df = self.get_samples_df(discard=discard, thin=thin)
+        samples_dict = samples_df.to_dict("list")
+        params = fixed_params_dict | samples_dict
+        
+        # For each planet we need to:
+        # 1) calculate the median values of p and tc
+        # 2) fold the times around median p and tc
+        # 2) calculate posterior rvs for each sample, at the data x times
+        # 3) calculate posterior rvs for each sample, at the smooth tlin times
+        
+        # Dicts to store all of these, labelled with the planet letter
+        tc_medians = {}
+        p_medians = {}
+        posterior_rvs = {}
+        posterior_rvs_tlin = {}
+        t_folds = {}
+        tlin_folds = {}
+        inds = {}
+        lin_inds = {}
+
+        for letter in self.planet_letters:
+            ### 1) Calculate median values of p and tc
+            # we (currently) don't ever reparameterise p, so it must be an entry of params dict
+            p = params[f"per_{letter}"]
+
+            # However, we might have tp, not tc, so we may need to convert it.
+            # first check - does planet params contain tc? Otherwise, we need to convert tp to tc
+            if "tc" in self.parameterisation.pars:
+                tc = params[f"tc_{letter}"]
+            # second check - do we have e and w, for converting tp to tc?
+            elif ("e" in self.parameterisation.pars and "w" in self.parameterisation.pars):
+                _e =  params[f"e_{letter}"]
+                _w =  params[f"w_{letter}"]
+                _tp = params[f"tp_{letter}"]
+                tc = self.parameterisation.convert_tp_to_tc(_tp, p, _e, _w)
+            # else, convert to default basis, giving us e and w, then get tc
+            else:
+                # get the parameterisation for this planet. Combine with planet letter
+                _keys = [f"{par}_{letter}" for par in self.parameterisation.pars]
+                _inpars = {key: samples_df[key] for key in _keys}
+                _default_basis = self.parameterisation.convert_pars_to_default_basis(_inpars)  # dict of converted pars
+                tc = _default_basis["tc"]
+            
+            # get the median of the p and tc
+            p_medians[letter] = np.median(p)
+            tc_medians[letter] = np.median(tc)
+
+            ### 2) fold the times using those medians
+            t_fold = (self.time - tc_medians[letter] + 0.5 * p_medians[letter]) % p_medians[letter] - 0.5 * p_medians[letter]
+            tlin_fold = (tlin - tc_medians[letter] + 0.5 * p_medians[letter]) % p_medians[letter] - 0.5 * p_medians[letter]
+            # rather than x axis being [-p, +p] days, we want to scale to [-0.5, 0.5] phase
+            t_fold /= p_medians[letter]
+            tlin_fold /= p_medians[letter]
+
+            # store in the dicts
+            t_folds[letter] = t_fold
+            tlin_folds[letter] = tlin_fold
+            inds[letter] = np.argsort(t_fold)
+            lin_inds[letter] = np.argsort(tlin_fold)
+
+            ### 3) calculate the posterior rv for this planet at the data x times
+            # this generates the matrix (x=times, y=samples) of RVs for this planet
+            posterior_rvs[letter] = self._posterior_rv_planet(letter, times=self.time, discard=discard, thin=thin)
+
+            ### 4) calculate the posterior rv for this planet at the smooth tlin times
+            # this generates the matrix (x=tlin, y=samples) of RVs for this planet
+            posterior_rvs_tlin[letter] = self._posterior_rv_planet(letter, times=tlin, discard=discard, thin=thin)
+
+            # TODO: I'm not convinced that storing this all in dicts is ideal. It's a lot of writing and retrieving.
+            # There might be a better way to do this without looping through planets twice.
+
+        # For the plot, we need:
+        # 1) the overall system trend RV
+        # Then, for each planet:
+        # 2) the posterior RVs for every other planet, at the data x times, summed
+        # 3) add the system trend posterior RV matrix, at the data x times
+        # 4) take the median of this
+        # 5) subtract this median from the data, to get the residual RV for this planet
+        # 6) overplot the jitter additional errorbars
+        # 7) get this planet's posterior RVs at the tlin times (using the tlin_folds indices to fold them)
+        # 8) calculate the 16,50,84 percentiles of the posterior RVs matrix
+        # 9) plot the median RV, and the 16,50,84 percentiles as a shaded region
+
+        fig, axs = plt.subplots(len(self.planet_letters), figsize=(8, len(self.planet_letters)*10/3), sharex=True)
+        fig.subplots_adjust(hspace=0)
+
+        ### 1) we need the system trend RV
+        trend_rv = self._posterior_rv_trend(times=self.time, discard=discard, thin=thin)
+
+        jit_median = np.median(params["jit"])
+        verr_with_jit = np.sqrt(self.verr**2 + jit_median**2)
+
+        for i,letter in enumerate(self.planet_letters):
+            
+            ### 2) sum all of the posterior_rv matrices for the OTHER planets
+            all_other_rvs = np.zeros((len(samples_df), len(self.time)))
+            other_letters = [l for l in self.planet_letters if l != letter]
+            for ol in other_letters:
+                all_other_rvs += posterior_rvs[ol]
+            
+            ### 3) add on the posterior RV matrix for the system trend
+            all_other_rvs += trend_rv
+                
+            ### 4) take the median of this
+            median_all_other_rvs = np.median(all_other_rvs, axis=0)
+                
+            ### 5) subtract this median from the data, to get the residual RV for this planet
+            # plot the t_fold, (data - median), observed errorbars
+            axs[i].errorbar(t_folds[letter], self.vel-median_all_other_rvs, yerr=self.verr, marker=".", linestyle="None", color="black", zorder=4)
+            
+            ### 6) overplot the jitter errorbars
+            axs[i].errorbar(t_folds[letter], self.vel-median_all_other_rvs, yerr=verr_with_jit, marker="None", linestyle="None", color="black", alpha=0.5, zorder=3)
+            
+            ### 7) get this planet's posterior RV matrix at smooth tlin times
+            this_planet_rv = posterior_rvs_tlin[letter]
+
+            # use the lin_inds to fold the RV. We do this so it's already in the
+            # "correct" order to plot folded. Otherwise, matplotlib might 
+            # connect the first and last point with a horizontal line, and the
+            # fill_between doesn't always work correctly. 
+            this_planet_inds = lin_inds[letter]
+            this_planet_rv_folded = this_planet_rv[:,this_planet_inds] # get every sample's posterior RV, but in the order of the inds for folding (not in time order)
+            
+            ### 8) calculate the 16,50,84 percentiles of the posterior RVs matrix
+            rv_percentiles = np.percentile(this_planet_rv_folded, [16, 50, 84], axis=0)
+            
+            ### 9) plot the median RV and the 16,50,84 percentiles as a shaded region
+            axs[i].plot(tlin_folds[letter][lin_inds[letter]], rv_percentiles[1], label="median", color="tab:blue", zorder=2)
+            axs[i].fill_between(tlin_folds[letter][lin_inds[letter]], rv_percentiles[0], rv_percentiles[2], color="tab:blue", alpha=0.3, zorder=1)
+            axs[i].set_xlim(-0.5, 0.5)
+            axs[i].set_ylabel("Radial velocity [m/s]")
+            axs[i].legend(loc="best")
+
+            # annotate plot with planet letter, median P and K values
+            # TODO: e and omega (or parameterisation of) too?
+            # TODO: uncertainties on these values
+            # TODO: jitter in plot title or legend
+            _k =  params[f"k_{letter}"]
+            median_k = np.median(_k)
+            s = f"Planet {letter}\nP={p_medians[letter]:.2f} d\nK={median_k:.2f} m/s"
+            axs[i].annotate(s, xy=(0, 1), xycoords="axes fraction", 
+                            xytext=(+0.5, -0.5), textcoords="offset fontsize", 
+                            va="top")
+            
+            if i==0:
+                axs[i].set_title("Posterior RV Phase plot")
+            if i == len(self.planet_letters)-1:
+                axs[i].set_xlabel("Phase")
+        
+        if save:
+            plt.savefig(fname=fname, dpi=dpi)
+            print(f"Saved {fname}")
+        plt.show()
+
+        return
 
 class LogPosterior:
 
