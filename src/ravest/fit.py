@@ -708,7 +708,6 @@ class LogPosterior:
 
         This does not check that the values are in the correct order, it is
         assumed. As we're dealing with dicts, this hopefully is the case.
-        TODO: add tests to check if this is the case!
 
         Parameters
         ----------
@@ -765,7 +764,21 @@ class LogLikelihood:
                 _key_inside_dict = _this_planet_key[:-2]
                 _this_planet_params[_key_inside_dict] = params[_this_planet_key]
                 # we do this because the Planet object doesn't want the planet letter in the key
+            
             _this_planet = ravest.model.Planet(letter, self.parameterisation, _this_planet_params)
+            # TODO - this isn't the best place to perform this check. Ideally,
+            # we would do this check when the parameters are set/converted, so
+            # we don't waste time calculating the RV when we know we have a bad
+            # parameter (e.g.  e>=1). However, if we do it inside Planet, we can
+            # raise an Exception, but we can't return -np.inf probability, as we
+            # can't return from inside a class. So, we need to do it here, and
+            # return -np.inf if the parameters are bad. Ideally, we should do
+            # some kind of check (and perhaps conversion) when the parameters 
+            # are set, perhaps inside LogPrior. But then we might end up doing
+            # parameter conversion twice.
+            if not _this_planet.is_valid():
+                return -np.inf
+            
             rv_total += _this_planet.radial_velocity(self.time)
 
         # two) calculate RV for trend parameters
