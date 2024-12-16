@@ -111,6 +111,7 @@ class Fitter:
             )
         if set(self.get_free_params_names()) != set(priors):
             raise ValueError(f"Priors must be provided for all free parameters. Missing priors for {set(self.get_free_params_names()) - set(priors)}.")
+
     
         # check that the initial parameter values are within the priors
         for par in self.get_free_params_names():
@@ -171,7 +172,7 @@ class Fitter:
         map_results = minimize(negative_log_posterior, self.get_free_params_val(), method="Powell")
         if map_results.success == False:
             print(map_results)
-            raise Warning("MAP did not converge. Check the initial values of the parameters, and the priors functions.")
+            raise Warning("MAP did not succeed. Check the initial values of the parameters, and the priors functions.")
         self.ndim = len(self.get_free_params_val())
         
         # zip the MAP results with the free parameter names to get a dict
@@ -187,6 +188,7 @@ class Fitter:
             self.nwalkers = nwalkers
 
         mcmc_init = map_results.x + 1e-5 * np.random.randn(self.nwalkers, self.ndim) 
+        # TODO: is passing in parameter_names causing slowdown?
         sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability, 
                                             parameter_names=self.get_free_params_names())
         state = sampler.run_mcmc(initial_state=mcmc_init, nsteps=nsteps, progress=progress)
@@ -194,6 +196,7 @@ class Fitter:
         # TODO: multiprocessing disabled for now as it's causing slowdown
         # I suspect something might be being pickled that shouldn't be, but 
         # this requires further investigation.
+        #
         # with Pool() as pool:
         #     sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability, 
         #                                     parameter_names=self.get_free_params_names(),
@@ -263,7 +266,7 @@ class Fitter:
         return fixed_params_dict | samples_dict
     
     def plot_chains(self, discard=0, thin=1, save=False, fname="chains_plot.png", dpi=100):
-        fig, axes = plt.subplots(self.ndim, figsize=(10,6), sharex=True)
+        fig, axes = plt.subplots(self.ndim, figsize=(10,1+(self.ndim*2/3)), sharex=True)
         # TODO: scale the size of the figure with the number of parameters
         fig.suptitle("Chains plot")
 
@@ -654,7 +657,6 @@ class LogPosterior:
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
         self.priors = priors
-        # self.fixed_params = fixed_params  # parameter objects
         self.fixed_params = {key: fixed_params[key].value for key in fixed_params}
         self.free_params_names = free_params_names
         self.time = time
@@ -702,7 +704,7 @@ class LogPosterior:
     def _negative_log_probability_for_MAP(self, free_params_vals):
         """For MAP: run __call__ only passing in a list, not dict, of params.
 
-        Because scipy.optimize.minimise only allows list of values, not a dict,
+        Because scipy.optimize.minimise only takes list of values, not a dict,
         we need to assign the values back to their corresponding keys, and pass
         that to __call__().
 
@@ -716,8 +718,7 @@ class LogPosterior:
         """
         free_params_dict = dict(zip(self.free_params_names, free_params_vals))
         logprob = self.log_probability(free_params_dict)
-        neglogprob = -1 * logprob
-        return neglogprob
+        return -logprob
     
     def _positive_log_probability_for_MCMC(self, free_params_vals):
         free_params_dict = dict(zip(self.free_params_names, free_params_vals))
@@ -764,8 +765,8 @@ class LogLikelihood:
                 _key_inside_dict = _this_planet_key[:-2]
                 _this_planet_params[_key_inside_dict] = params[_this_planet_key]
                 # we do this because the Planet object doesn't want the planet letter in the key
-            
             _this_planet = ravest.model.Planet(letter, self.parameterisation, _this_planet_params)
+
             # TODO - this isn't the best place to perform this check. Ideally,
             # we would do this check when the parameters are set/converted, so
             # we don't waste time calculating the RV when we know we have a bad
@@ -782,7 +783,6 @@ class LogLikelihood:
             rv_total += _this_planet.radial_velocity(self.time)
 
         # two) calculate RV for trend parameters
-        # TODO: this will later need updating to include multi-instrument support
         _trend_keys = ["g", "gd", "gdd"]
         _trend_params = {key: params[key] for key in _trend_keys}
         _this_trend = ravest.model.Trend(params=_trend_params, t0=self.t0)

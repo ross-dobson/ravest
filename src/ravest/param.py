@@ -46,7 +46,7 @@ class Parameterisation():
 
         return mean_anomaly * (period / (2 * np.pi)) + time_peri
 
-    def convert_tp_to_tc(self, tp, p, e, w):
+    def convert_tp_to_tc(self, time_peri, period, eccentricity, arg_peri):
         """Calculate the time of transit center, given time of periastron passage.
 
         This is only a time of (primary) transit center if the planet is actually
@@ -58,15 +58,10 @@ class Parameterisation():
         `float`
             Time of primary transit center/inferior conjunction (days)
         """
-        arg_peri = w
-        period = p
-        eccentricity = e
-        time_peri = tp
-
-        theta_tc = (np.pi / 2) - arg_peri  # true anomaly at time t_c
+        theta_tc = (np.pi / 2) - arg_peri  # true anomaly at time t_c (Eastman et. al. 2013)
         return self._time_given_true_anomaly(theta_tc, period, eccentricity, time_peri)
 
-    def convert_tc_to_tp(self, tc, p, e, w):
+    def convert_tc_to_tp(self, time_conj, period, eccentricity, arg_peri):
         """Calculate the time of periastron passage, given time of primary transit.
 
         Returns
@@ -74,13 +69,13 @@ class Parameterisation():
         `float`
             Time of periastron passage (days).
         """
-        time_conj = tc
-        period = p
-        eccentricity = e
-        arg_peri = w
-
         theta_tc = (np.pi / 2) - arg_peri  # true anomaly at time t_c
-        eccentric_anomaly = 2 * np.arctan(np.sqrt((1 - eccentricity) / (1 + eccentricity)) * np.tan(theta_tc / 2))
+
+        _1me_over_1pe = (1 - eccentricity) / (1 + eccentricity)
+        _sqrt_term = np.sqrt(_1me_over_1pe)
+        # eccentric_anomaly = 2 * np.arctan(np.sqrt((1 - eccentricity) / (1 + eccentricity)) * np.tan(theta_tc / 2))
+        eccentric_anomaly = 2 * np.arctan(_sqrt_term * np.tan(theta_tc / 2))
+
         mean_anomaly = eccentric_anomaly - (eccentricity * np.sin(eccentric_anomaly))
         return time_conj - (period / (2 * np.pi)) * mean_anomaly
 
@@ -91,7 +86,7 @@ class Parameterisation():
 
     def convert_e_w_to_secosw_sesinw(self, e, w):
         secosw = np.sqrt(e) * np.cos(w)
-        sesinw = np.sqrt(e)  * np.sin(w)
+        sesinw = np.sqrt(e) * np.sin(w)
         return secosw, sesinw
 
     def convert_ecosw_esinw_to_e_w(self, ecosw, esinw):
@@ -108,29 +103,53 @@ class Parameterisation():
 
     def convert_pars_to_default_basis(self, inpars) -> dict:
         if self.parameterisation == "per k e w tp":
-            return {"per": inpars["per"], "k": inpars["k"], "e": inpars["e"], "w": inpars["w"], "tp": inpars["tp"]}
+            return {"per": inpars["per"], 
+                    "k": inpars["k"], 
+                    "e": inpars["e"], 
+                    "w": inpars["w"], 
+                    "tp": inpars["tp"]}
 
         elif self.parameterisation == "per k e w tc":
             tp = self.convert_tc_to_tp(inpars["tc"], inpars["per"], inpars["e"], inpars["w"])
-            return {"per": inpars["per"], "k": inpars["k"], "e": inpars["e"], "w": inpars["w"], "tp": tp}
+            return {"per": inpars["per"], 
+                    "k": inpars["k"], 
+                    "e": inpars["e"], 
+                    "w": inpars["w"], 
+                    "tp": tp}
 
         elif self.parameterisation == "per k ecosw esinw tp":
             e, w = self.convert_ecosw_esinw_to_e_w(inpars["ecosw"], inpars["esinw"])
-            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tp": inpars["tp"]}
+            return {"per": inpars["per"], 
+                    "k": inpars["k"], 
+                    "e": e, 
+                    "w": w, 
+                    "tp": inpars["tp"]}
 
         elif self.parameterisation == "per k ecosw esinw tc":
             e, w = self.convert_ecosw_esinw_to_e_w(inpars["ecosw"], inpars["esinw"])
             tp = self.convert_tc_to_tp(inpars["tc"], inpars["per"], e, w)
-            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tp": tp}
+            return {"per": inpars["per"], 
+                    "k": inpars["k"], 
+                    "e": e, 
+                    "w": w, 
+                    "tp": tp}
 
         elif self.parameterisation == "per k secosw sesinw tp":
             e, w = self.convert_secosw_sesinw_to_e_w(inpars["secosw"], inpars["sesinw"])
-            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tp": inpars["tp"]}
+            return {"per": inpars["per"], 
+                    "k": inpars["k"], 
+                    "e": e, 
+                    "w": w, 
+                    "tp": inpars["tp"]}
 
         elif self.parameterisation == "per k secosw sesinw tc":
             e, w, = self.convert_secosw_sesinw_to_e_w(inpars["secosw"], inpars["sesinw"])
             tp = self.convert_tc_to_tp(inpars["tc"], inpars["per"], e, w)
-            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tp": tp}
+            return {"per": inpars["per"], 
+                    "k": inpars["k"], 
+                    "e": e, 
+                    "w": w, 
+                    "tp": tp}
  
         else:
             raise Exception(f"parameterisation {self.parameterisation} not recognised")
