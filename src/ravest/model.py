@@ -395,6 +395,8 @@ class Star:
             axs[n].set_title(f"Planet {l}")
             axs[n].set_xlabel("Orbital phase")
             axs[n].set_ylabel("Radial velocity [m/s]")
+            axs[n].set_xlim(-0.5, 0.5)
+            axs[n].axhline(y=0, color="k", alpha=0.25, linestyle="--", zorder=1)
 
             this_planet = self.planets[l]
             p = this_planet._rvparams["per"]
