@@ -10,15 +10,36 @@ ALLOWED_PARAMETERISATIONS = ["per k e w tp",
 
 
 class Parameterisation():
-
-    # TODO __str__ and __repr__ method
-    # TODO: docstring
     
     def __init__(self, parameterisation: str):
+        """Parameterisation object handles parameter conversions
+
+        Parameters
+        ----------
+        parameterisation : str
+            The parameterisation you wish to use. Must be one of the following:
+            - "per k e w tp"
+            - "per k e w tc"
+            - "per k ecosw esinw tp"
+            - "per k ecosw esinw tc"
+            - "per k secosw sesinw tp"
+            - "per k secosw sesinw tc"
+
+        Raises
+        ------
+        ValueError
+            If the parameterisation is not one of the allowed parameterisations.
+        """
         if parameterisation not in ALLOWED_PARAMETERISATIONS:
             raise ValueError(f"parameterisation {parameterisation} not recognised. Must be one of {ALLOWED_PARAMETERISATIONS}")
         self.parameterisation = parameterisation
         self.pars = parameterisation.split()
+
+    def __str__(self) -> str:
+        return f"Parameterisation: {self.parameterisation}"
+    
+    def __repr__(self) -> str:
+        return f"Parameterisation({self.parameterisation})"
 
     def _time_given_true_anomaly(self, true_anomaly, period, eccentricity, time_peri):
         """Calculate the time that the star will be at a given true anomaly.
