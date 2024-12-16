@@ -87,8 +87,8 @@ class EccentricityPrior:
     
     Notes
     -----
-    This is just a uniform prior with the lower bound fixed at 0, and enforcing
-    that the upper bound `b` must be 0 < b < 1. 
+    This is useful for eccentricity because the normal Uniform prior lower bound 
+    is exclusive <, whereas this is inclusive <=, allowing eccentricity to be 0.
     """
     def __init__(self, upper):
         if upper >= 1:

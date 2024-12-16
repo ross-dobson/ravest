@@ -92,6 +92,10 @@ class Parameterisation():
         """
         theta_tc = (np.pi / 2) - arg_peri  # true anomaly at time t_c
 
+        # Because the model.Planet.is_valid() check is performed after parameter
+        # conversion, this occasionally will be called with invalid parameters
+        # causing the sqrt to be negative. This is caught later on in is_valid()
+        # so we can leave it as a warning and not Raise it here.
         _1me_over_1pe = (1 - eccentricity) / (1 + eccentricity)
         _sqrt_term = np.sqrt(_1me_over_1pe)
         # eccentric_anomaly = 2 * np.arctan(np.sqrt((1 - eccentricity) / (1 + eccentricity)) * np.tan(theta_tc / 2))
