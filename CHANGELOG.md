@@ -1,6 +1,5 @@
 # Changelog
 
-
 ## v0.2.1 (2024-06-20)
 
 - Added support for different parameterisations to Planet model
