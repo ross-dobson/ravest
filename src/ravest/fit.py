@@ -669,7 +669,6 @@ class LogPosterior:
         for letter in planet_letters:
             for par in parameterisation.pars:
                 self.expected_params.append(par + "_" + letter)
-
         self.expected_params += ["g", "gd", "gdd"]
         self.expected_params += ["jit"]
 
