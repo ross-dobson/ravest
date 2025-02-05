@@ -7,7 +7,7 @@
 # -- Project information -----------------------------------------------------
 
 project = u"ravest"
-copyright = u"2024, Ross Dobson"
+copyright = u"2025, Ross Dobson"
 author = u"Ross Dobson"
 
 # -- General configuration ---------------------------------------------------
@@ -29,6 +29,10 @@ autoapi_dirs = ["../src"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 nb_execution_timeout = 600
+
+myst_enable_extensions = [
+    "dollarmath",
+]
 
 # -- Options for HTML output -------------------------------------------------
 

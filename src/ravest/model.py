@@ -3,7 +3,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import newton
-from ravest.basis import Basis
+from ravest.param import Parameterisation
+from astropy import constants as const
+from scipy import constants
 
 
 class Planet:
@@ -13,26 +15,52 @@ class Planet:
     ----------
     letter : `str`
         The label of the planet, e.g. "b", "c". Must be a single letter.
-    basis : `Basis`
+    parameterisation : `parameterisation`
         The set of planetary parameters used to define the planet.
     params : `dict`
         The orbital parameters, matching the basis.
     """
-    def __init__(self, letter: str, basis: Basis, params: dict):
+    def __init__(self, letter: str, parameterisation: Parameterisation, params: dict):
         if not (letter.isalpha() and (letter == letter[0] * len(letter))):
             raise ValueError(f"Letter {letter} is not a single alphabet character.")
         self.letter = letter
-        self.basis = basis
+        self.parameterisation = parameterisation
         self.params = params
-        # TODO: check that the basis and input params match
+        
+        # Check the input params and parameterisation match
+        if not set(params.keys()) == set(parameterisation.pars):
+            raise ValueError(f"Parameterisation {parameterisation} does not match input params {params}")
 
-        # Convert to the per k e w tp basis that we need for the RV equation        
-        self._rvparams = self.convert_input_pars_to_default_basis(self.params)
+        # Convert to the per k e w tp basis that we need for the RV equation
+        self._rvparams = self.parameterisation.convert_pars_to_default_basis(self.params)
+        self.valid = self.is_valid()
 
+    def is_valid(self) -> bool:
+        """Check if the planet RV parameters (default basis) are valid.
+
+        Checks that the orbital period and RV semi-amplitude are positive, that
+        eccentricity is between 0 and 1, and that the argument of periastron is
+        between -pi and pi.
+
+        Returns
+        -------
+        `bool`
+            True if the planet parameters are valid, False otherwise.
+        """
+        if self._rvparams["per"] <= 0:
+            return False
+        elif self._rvparams["k"] <= 0:
+            return False
+        elif not 0 <= self._rvparams["e"] < 1:
+            return False
+        elif not -np.pi <= self._rvparams["w"] < np.pi:
+            return False
+        else:
+            return True
 
     def __repr__(self):
         class_name = type(self).__name__
-        return f"{class_name}(letter={self.letter!r}, basis={self.basis!r}, params={self.params!r})"
+        return f"{class_name}(letter={self.letter!r}, parameterisation={self.parameterisation!r}, params={self.params!r})"
 
     def __str__(self):
         class_name = type(self).__name__
@@ -197,121 +225,28 @@ class Planet:
 
         return self._radial_velocity(true_anomaly=f, semi_amplitude=K, eccentricity=e, omega_star=w)
 
-    def _time_given_true_anomaly(self, true_anomaly, period, eccentricity, time_peri):
-        """Calculate the time that the star will be at a given true anomaly.
+    def mpsini(self, mass_star, unit="kg"):
+        """Calculate the minimum mass of the planet.
 
         Parameters
         ----------
-        true_anomaly : `float`
-            The true anomaly of the planet at the wanted time
-        period : `float`
-            The orbital period of the planet (day)
-        eccentricity : `float`
-            The eccentricity of the orbit, 0 <= e < 1  (dimensionless).
-        time_peri : `float`
-            The time of periastron (day).
+        mass_star : `float`
+            The mass of the star in solar masses.
+        unit : `str`
+            The unit to return the planetary minimum mass in. Options are "kg", "M_earth", "M_jupiter".
 
         Returns
         -------
         `float`
-            The time corresponding to the given true anomaly (days).
+            The minimum mass of the planet (solar masses).
         """
-        # TODO update this docstring to better reflect it is inverse of other equation (eastman et al)?
-        # and also include in the notes a list of the angles we can get (Eastman et al equation 11)?
-        eccentric_anomaly = 2 * np.arctan(np.sqrt((1 - eccentricity) / (1 + eccentricity)) * np.tan(true_anomaly / 2))
-        mean_anomaly = eccentric_anomaly - (eccentricity * np.sin(eccentric_anomaly))
+        period = self._rvparams["per"]
+        semi_amplitude = self._rvparams["k"]
+        eccentricity = self._rvparams["e"]
 
-        return mean_anomaly * (period / (2 * np.pi)) + time_peri
-
-    def convert_tp_to_tc(self, tp, p, e, w):
-        """Calculate the time of transit center, given time of periastron passage.
-
-        This is only a time of (primary) transit center if the planet is actually
-        transiting the star from the observer's viewpoint/inclination. Therefore
-        technically this is a time of (inferior) conjunction.
-
-        Returns
-        -------
-        `float`
-            Time of primary transit center/inferior conjunction (days)
-        """
-        arg_peri = w
-        period = p
-        eccentricity = e
-        time_peri = tp
-
-        theta_tc = (np.pi / 2) - arg_peri  # true anomaly at time t_c
-        return self._time_given_true_anomaly(theta_tc, period, eccentricity, time_peri)
-
-    def convert_tc_to_tp(self, tc, p, e, w):
-        """Calculate the time of periastron passage, given time of primary transit.
-
-        Returns
-        -------
-        `float`
-            Time of periastron passage (days).
-        """
-        time_conj = tc
-        period = p
-        eccentricity = e
-        arg_peri = w
-
-        theta_tc = (np.pi / 2) - arg_peri  # true anomaly at time t_c
-        eccentric_anomaly = 2 * np.arctan(np.sqrt((1 - eccentricity) / (1 + eccentricity)) * np.tan(theta_tc / 2))
-        mean_anomaly = eccentric_anomaly - (eccentricity * np.sin(eccentric_anomaly))
-        return time_conj - (period / (2 * np.pi)) * mean_anomaly
-
-    def convert_secosw_sesinw_to_e_w(self, secosw, sesinw):
-        e = secosw**2 + sesinw**2
-        w = np.arctan2(sesinw, secosw)
-        return e, w
-
-    def convert_e_w_to_secosw_sesinw(self, e, w):
-        secosw = np.sqrt(e) * np.cos(w)
-        sesinw = np.sqrt(e)  * np.sin(w)
-        return secosw, sesinw
-
-    def convert_ecosw_esinw_to_e_w(self, ecosw, esinw):
-        e2 = ecosw**2 + esinw**2
-        e = np.sqrt(e2)
-        w = np.arctan2(esinw, ecosw)
-        return e, w
-
-    def convert_e_w_to_ecosw_esinw(self, e, w):
-        ecosw = e * np.cos(w)
-        esinw = e * np.sin(w)
-        return ecosw, esinw
-
-    def convert_input_pars_to_default_basis(self, inpars) -> dict:
-        if self.basis.parameterisation == "per k e w tp":
-            return {"per": inpars["per"], "k": inpars["k"], "e": inpars["e"], "w": inpars["w"], "tp": inpars["tp"]}
-
-        elif self.basis.parameterisation == "per k e w tc":
-            tp = self.convert_tc_to_tp(inpars["tc"], inpars["per"], inpars["e"], inpars["w"])
-            return {"per": inpars["per"], "k": inpars["k"], "e": inpars["e"], "w": inpars["w"], "tp": tp}
-
-        elif self.basis.parameterisation == "per k ecosw esinw tp":
-            e, w = self.convert_ecosw_esinw_to_e_w(inpars["ecosw"], inpars["esinw"])
-            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tp": inpars["tp"]}
-
-        elif self.basis.parameterisation == "per k ecosw esinw tc":
-            e, w = self.convert_ecosw_esinw_to_e_w(inpars["ecosw"], inpars["esinw"])
-            tp = self.convert_tc_to_tp(inpars["tc"], inpars["per"], e, w)
-            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tp": tp}
-
-        elif self.basis.parameterisation == "per k secosw sesinw tp":
-            e, w = self.convert_secosw_sesinw_to_e_w(inpars["secosw"], inpars["sesinw"])
-            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tp": inpars["tp"]}
-
-        elif self.basis.parameterisation == "per k secosw sesinw tc":
-            e, w, = self.convert_secosw_sesinw_to_e_w(inpars["secosw"], inpars["sesinw"])
-            tc = self.convert_tp_to_tc(inpars["tp"], inpars["per"], e, w)
-            return {"per": inpars["per"], "k": inpars["k"], "e": e, "w": w, "tc": tc}
-    
-        else:
-            raise Exception(f"Basis parameterisation {self.basis.parameterisation} not recognised")
-
-
+        # convert M_s to kg, and period to s, as the formula is in SI units
+        mpsini = calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit)
+        return mpsini
 
 class Star:
     """Star with orbiting planet(s).
@@ -344,7 +279,10 @@ class Star:
         return f"Star(name={self.name!r}, mass={self.mass!r})"
 
     def __str__(self):
-        return f"Star {self.name!r}, {self.num_planets!r} planets: {[*self.planets]!r}"
+        if hasattr(self, "trend"):
+            return f"Star {self.name}, {self.num_planets} planets: {[*self.planets]}, {self.trend}"
+        else:
+            return f"Star {self.name!r}, {self.num_planets!r} planets: {[*self.planets]!r}"
 
     def add_planet(self, planet):
         """Store `Planet` object in `planets` dict with the key `Planet.letter`.
@@ -396,6 +334,23 @@ class Star:
         rv += self.trend.radial_velocity(t)
 
         return rv
+    
+    def mpsini(self, planet_letter, unit="kg"):
+        """Calculate the minimum mass of a planet in the star system.
+        
+        Parameters
+        ----------
+        planet_letter : `str`
+            The letter of the planet to calculate the minimum mass of.
+        unit : `str`
+            The unit to return the planetary minimum mass in. Options are "kg", "M_earth", "M_jupiter".
+        
+        Returns
+        -------
+        `float`
+            The minimum mass of the planet.
+        """
+        return self.planets[planet_letter].mpsini(self.mass, unit)
 
     def phase_plot(self, t, ydata, yerr):
         """Given RV ``ydata`` at time ``t`` with errorbars ``yerr``, generates a phase
@@ -413,7 +368,7 @@ class Star:
         # TODO use gridspec or subfigures to sort out figure spacing
         N = len(t)
         t = np.sort(t)
-        tplot = np.linspace(t[0], t[-1], 1000)
+        tlin = np.linspace(t[0], t[-1], 1000)
         fig, axs = plt.subplots(2+self.num_planets,1, figsize=(10, (2*10/3)+(self.num_planets*10/3)), constrained_layout=True,)
 
         # First panel: plot the observed data and the combined system model
@@ -422,9 +377,9 @@ class Star:
         axs[0].set_xlabel("Time [days]")
         axs[0].axhline(y=0, color="k", alpha=0.25, linestyle="--", zorder=1)
 
-        modelled_rv_tplot = self.radial_velocity(tplot)
+        modelled_rv_tlin = self.radial_velocity(tlin)
         modelled_rv_tdata = self.radial_velocity(t)
-        axs[0].plot(tplot, modelled_rv_tplot, color="tab:blue", zorder=2)
+        axs[0].plot(tlin, modelled_rv_tlin, color="tab:blue", zorder=2)
         axs[0].errorbar(t, ydata, yerr=yerr, marker=".", color="k", mfc="white", ecolor="tab:gray", markersize=10, linestyle="None", zorder=3)
 
         # Second panel: O-C residuals of the top panel
@@ -438,20 +393,22 @@ class Star:
         for n, l in enumerate(self.planets):
             n+=2  # we already have two subplots
             axs[n].set_title(f"Planet {l}")
-            axs[n].set_xlabel("Phase [days]")
+            axs[n].set_xlabel("Orbital phase")
             axs[n].set_ylabel("Radial velocity [m/s]")
+            axs[n].set_xlim(-0.5, 0.5)
+            axs[n].axhline(y=0, color="k", alpha=0.25, linestyle="--", zorder=1)
 
             this_planet = self.planets[l]
             p = this_planet._rvparams["per"]
             e = this_planet._rvparams["e"]
             w = this_planet._rvparams["w"]
             tp = this_planet._rvparams["tp"]
-            tc = this_planet.convert_tp_to_tc(tp, p, e, w)
+            tc = this_planet.parameterisation.convert_tp_to_tc(tp, p, e, w)
 
-            yplot = this_planet.radial_velocity(tplot)
-            tplot_fold = (tplot - tc + 0.5 * p) % p - 0.5 * p
-            inds = np.argsort(tplot_fold)
-            axs[n].plot(tplot_fold[inds]/p, yplot[inds], label=f"{n},{l}, rvplot", color="tab:blue")
+            yplot = this_planet.radial_velocity(tlin)
+            tlin_fold = (tlin - tc + 0.5 * p) % p - 0.5 * p
+            inds = np.argsort(tlin_fold)
+            axs[n].plot(tlin_fold[inds]/p, yplot[inds], label=f"{n},{l}, rvplot", color="tab:blue")
 
             # model the rv data for all the other planets, to subtract from the observed data
             other_planets_modelled_rv_tdata = np.zeros(len(t))
@@ -466,10 +423,54 @@ class Star:
             axs[n].errorbar(tdata_fold[inds]/p, subtracted_data[inds], yerr=yerr, marker=".", mfc="white", color="k", ecolor="tab:gray", markersize=10, linestyle="None")
 
 class Trend:
-    def __init__(self, params: dict):
+    """Trend in the radial velocity of the star.
+
+    Parameters
+    ----------
+    t0 : `float`
+        The reference zero-point time for the linear and quadratic trend. 
+        Recommended to be the mean of the input times.
+    params : `dict`
+        The parameters of the trend: the constant, linear, and quadratic
+        components. These must be named "g", "gd", and "gdd" respectively (which
+        stands for gamma, gamma-dot, gamma-dot-dot). These are in units of m/s,
+        m/s/day, and m/s/day^2 respectively.
+    
+    Returns
+    -------
+    `float`
+        The radial velocity of the star due to the trend (m/s).
+    
+    Notes
+    -----
+    The radial velocity of the star due to the trend is calculated as the sum of
+    the constant, linear, and quadratic components. The constant component is
+    simply a constant offset of value gamma. The linear and quadratic components
+    are calculated as `gd*(t-t0)` and `gdd*((t-t0)**2)` respectively.
+
+    In general the trend is used to account for any unexpected effects. These 
+    could be due to instrumental effects, or for example a very long-term
+    companion could show as a linear and/or quadratic trend in the data. If you 
+    see a strong linear or quadratic trend in the data, it is worth 
+    investigating.
+    """
+    def __init__(self, t0, params: dict):
         self.gamma = params["g"]
         self.gammadot = params["gd"]
         self.gammadotdot = params["gdd"]
+        
+        # Check the input t0 is a single time, not e.g. the entire time array
+        try:
+            t0 = float(t0)
+            self.t0 = t0
+        except (TypeError, ValueError):
+            raise ValueError(f"t0 must be a float (recommended to be mean or median of times)")
+        
+    def __str__(self):
+        return f"Trend: $\gamma$={self.gamma}, $\dot\gamma$={self.gammadot}, $\ddot\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
+    
+    def __repr__(self):
+        return f"Trend(params={{'g': {self.gamma}, 'gd': {self.gammadot}, 'gdd': {self.gammadotdot} }}, t0={self.t0:.2f})"
 
     def _constant(self, t):
         return self.gamma
@@ -482,13 +483,53 @@ class Trend:
     def _quadratic(self, t, t0):
         if self.gammadotdot == 0:
             return np.zeros(len(t))
-        return self.gammadotdot * (t - t0) ** 2
+        return self.gammadotdot * ((t - t0) ** 2)
 
     def radial_velocity(self, t):
-        t0 = t[0]  # TODO: do we want this to be a separate parameter?
         rv = 0
         rv += self._constant(t)
-        rv += self._linear(t, t0)
-        rv += self._quadratic(t, t0)
+        rv += self._linear(t, self.t0)
+        rv += self._quadratic(t, self.t0)
         return rv
 
+def calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit="kg"):
+    """Calculate the minimum mass of the planet.
+
+    Parameters
+    ----------
+    mass_star : `float`
+        The mass of the star in solar masses.
+    period : `float`
+        The orbital period of the planet in days.
+    semi_amplitude : `float`
+        The semi-amplitude of the radial velocity of the star in m/s.
+    eccentricity : `float`
+        The eccentricity of the orbit, 0 <= e < 1  (dimensionless).
+    unit : `str`
+        The unit to return the planetary minimum mass in. Options are "kg", "M_earth", "M_jupiter".
+
+    Returns
+    -------
+    `float`
+        The minimum mass mpsini of the planet.
+
+    Raises
+    ------
+    ValueError
+        If the unit is not one of "kg", "M_earth", "M_jupiter".
+    """
+    
+    # convert M_s to kg, and period to s, as the formula is in SI units
+    mass_star = mass_star * (1*const.M_sun).value  # type: ignore 
+    period = period * (1*constants.day)
+    
+    mpsini_kg = semi_amplitude * (period/(2*np.pi*constants.G))**(1/3) * (mass_star)**(2/3) * (1-(eccentricity**2))**(1/2)
+    
+    if unit=="kg":
+        return mpsini_kg
+    elif unit=="M_earth":
+        return mpsini_kg / const.M_earth.value # type: ignore
+    elif unit=="M_jupiter":
+        return mpsini_kg / const.M_jup.value # type: ignore
+    else:
+        raise ValueError(f"Unit {unit} not valid. Use 'kg', 'M_Earth' or 'M_Jupiter'")
