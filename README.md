@@ -1,13 +1,16 @@
 # ravest
 
-**Ravest is in-development alpha code, with lots of new features to be released soon. This website will continue to be populated with new code and examples as they get released, so please check back soon for further updates! If you have any questions or ideas, please don't hesitate to contact me.**
+**Ravest is under active development, with lots of new features to be released soon for public use. This website will continue to be populated with new code and examples as they get released, so please check back soon for further updates! If you have any questions or ideas, please don't hesitate to contact me.**
 
+---
 
 **Radial Velocity fitting, simulation and mass precision estimation**
+Features:
 - Model exoplanets and host stars, to simulate RV data for given orbital and instrumental parameters
 - Fit RV data with MCMC to explore posterior distributions for parameters - including Gaussian Processes for stellar activity (coming soon!)
 - Estimate the precision on mass estimate $M_p\sin{i}$: what precision can you expect from N observations, or how many observations are required to reach a target precision?
 - Visualise/animate the star's orbit (coming soon!)
+- Bayesian Model Comparison using `harmonic` (coming soon!)
 
 
 ## Installation
