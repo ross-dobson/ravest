@@ -10,7 +10,7 @@ Features:
 - Fit RV data with MCMC to explore posterior distributions for parameters - including Gaussian Processes for stellar activity (coming soon!)
 - Estimate the precision on mass estimate $M_p\sin{i}$: what precision can you expect from N observations, or how many observations are required to reach a target precision?
 - Visualise/animate the star's orbit (coming soon!)
-- Bayesian Model Comparison using `harmonic` (coming soon!)
+- Bayesian Model Comparison using [harmonic](https://astro-informatics.github.io/harmonic/) (coming soon!)
 
 
 ## Installation
