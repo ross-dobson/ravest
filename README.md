@@ -1,6 +1,6 @@
 # ravest
 
-**Ravest is under active development, with lots of new features to be released soon for public use. This website will continue to be populated with new code and examples as they get released, so please check back soon for further updates! If you have any questions or ideas, please don't hesitate to contact me.**
+**Ravest is under active development, with lots of new features soon to be released for public use. This website will continue to be populated with new code and examples as they get released, so please check back soon for further updates! If you have any questions or ideas, please don't hesitate to contact me via email.**
 
 ---
 
@@ -8,16 +8,19 @@
 Features:
 - Model exoplanets and host stars, to simulate RV data for given orbital and instrumental parameters
 - Fit RV data with MCMC to explore posterior distributions for parameters - including Gaussian Processes for stellar activity (coming soon!)
-- Estimate the precision on mass estimate $M_p\sin{i}$: what precision can you expect from N observations, or how many observations are required to reach a target precision?
 - Visualise/animate the star's orbit (coming soon!)
-- Bayesian Model Comparison using [harmonic](https://astro-informatics.github.io/harmonic/) (coming soon!)
+- Bayesian Model Comparison using [harmonic](https://astro-informatics.github.io/harmonic/) (**coming soon!**)
 
 
 ## Installation
 
+### CPU-only
 ```bash
 $ pip install ravest
 ```
+
+### GPU/TPU support
+Ravest requires JAX, so you may want to consult [the Jax installation docs](https://docs.jax.dev/en/latest/installation.html) if you want GPU or TPU support (tl;dr: install JAX first according to those instructions, then install Ravest on top).
 
 ## Usage
 
