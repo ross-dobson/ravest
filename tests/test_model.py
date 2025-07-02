@@ -30,7 +30,7 @@ def good_planet2():
     return Planet(letter="c", parameterisation=Parameterisation("per k e w tp"), params=known_params2())
 
 def good_trend():
-    return Trend({"g":0, "gd":0, "gdd":0})
+    return Trend(t0=1000, params={"g": 0, "gd": -0, "gdd": 0})
 
 def good_star():
     return Star(name="goodstar", mass=1)
