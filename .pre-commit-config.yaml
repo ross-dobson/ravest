@@ -13,19 +13,13 @@ repos:
     -   id: debug-statements
     -   id: end-of-file-fixer
     -   id: trailing-whitespace
--   repo: https://github.com/pycqa/flake8
-    rev: 7.1.1
+
+-   repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.1
     hooks:
-    -   id: flake8
-        args: [--ignore, "E501,W503,E203,E266"]
--   repo: https://github.com/psf/black
-    rev: 24.10.0
-    hooks:
-    -   id: black
--   repo: https://github.com/pycqa/isort
-    rev: 5.13.2
-    hooks:
-    -   id: isort
-        name: isort
-        language: python
-        args: ["--profile", "black"]
+    -   id: ruff
+        args: [
+            "--fix",               # Enables autofixing
+            "--unsafe-fixes",      # Optional: fixes that may change behaviour (e.g. unused imports)
+            "--line-length=88"     # Match previous black configuration
+        ]

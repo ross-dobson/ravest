@@ -50,6 +50,14 @@ sphinx = "^8.2.3"
 ipykernel = "^6.29.5"
 nbstripout = "^0.8.1"
 
+[tool.ruff]
+line-length = 88
+lint.select = ["E", "F", "I"]  # E = pycodestyle, F = pyflakes, I = isort
+lint.ignore = ["E501", "E266"]
+fix = true
+unsafe-fixes = true
+
+
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
