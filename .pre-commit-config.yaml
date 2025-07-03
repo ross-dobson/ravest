@@ -1,9 +1,13 @@
 repos:
+-   repo: https://github.com/kynan/nbstripout
+    rev: 0.8.1
+    hooks:
+      - id: nbstripout
+        args: ['--keep-output', '--extra-keys=metadata.kernelspec']
+
 -   repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
-    -   id: pretty-format-json
-        args: [--autofix]
     -   id: check-added-large-files
         args: [--maxkb, '50000']
     -   id: check-ast
@@ -21,5 +25,5 @@ repos:
         args: [
             "--fix",               # Enables autofixing
             "--unsafe-fixes",      # Optional: fixes that may change behaviour (e.g. unused imports)
-            "--line-length=88"     # Match previous black configuration
+            "--line-length=88"
         ]
