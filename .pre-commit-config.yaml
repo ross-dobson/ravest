@@ -22,8 +22,3 @@ repos:
     rev: v0.12.1
     hooks:
     -   id: ruff
-        args: [
-            "--fix",               # Enables autofixing
-            "--unsafe-fixes",      # Optional: fixes that may change behaviour (e.g. unused imports)
-            "--line-length=88"
-        ]
