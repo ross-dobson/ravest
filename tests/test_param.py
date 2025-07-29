@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
-from ravest.param import Parameter, Parameterisation
 
+from ravest.param import Parameterisation
 
 # First, test the underlying conversion functions
 
@@ -34,7 +34,7 @@ def test_convert_ecosw_esinw_to_e_w(ecosw, esinw):
     para = Parameterisation("per k ecosw esinw tp")
     expected_e = np.sqrt(ecosw**2 + esinw**2)
     expected_w = np.arctan2(esinw, ecosw)
-    e, w = para.convert_ecosw_esinw_to_e_w(ecosw, esinw) 
+    e, w = para.convert_ecosw_esinw_to_e_w(ecosw, esinw)
     assert np.isclose(e, expected_e)
     assert np.isclose(w, expected_w)
 
@@ -45,7 +45,7 @@ def test_convert_secosw_sesinw_to_e_w(secosw, sesinw):
     para = Parameterisation("per k secosw sesinw tp")
     expected_e = secosw**2 + sesinw**2
     expected_w = np.arctan2(sesinw, secosw)
-    e, w = para.convert_secosw_sesinw_to_e_w(secosw, sesinw) 
+    e, w = para.convert_secosw_sesinw_to_e_w(secosw, sesinw)
     assert np.isclose(e, expected_e)
     assert np.isclose(w, expected_w)
 
@@ -96,7 +96,7 @@ def test_convert_tc_to_tp_eccentric(tc, e, w, tp):
     assert np.isclose(tp, para.convert_tc_to_tp(tc, per, e, w))
 
 
-# Second, test the automatic conversion function, for each of the 
+# Second, test the automatic conversion function, for each of the
 # parameterisations
 
 ALLOWED_PARAMETERISATIONS = ["per k e w tp",
@@ -109,4 +109,3 @@ ALLOWED_PARAMETERISATIONS = ["per k e w tp",
 def test_invalid_parameterisation():
     with pytest.raises(Exception):
         Parameterisation("not a valid parameterisation")
-

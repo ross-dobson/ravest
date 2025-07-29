@@ -6,9 +6,9 @@
 
 # -- Project information -----------------------------------------------------
 
-project = u"ravest"
-copyright = u"2025, Ross Dobson"
-author = u"Ross Dobson"
+project = "ravest"
+copyright = "2025, Ross Dobson"
+author = "Ross Dobson"
 
 # -- General configuration ---------------------------------------------------
 

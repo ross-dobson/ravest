@@ -9,8 +9,8 @@ ALLOWED_PARAMETERISATIONS = ["per k e w tp",
                              "per k secosw sesinw tc"]
 
 
-class Parameterisation():
-    
+class Parameterisation:
+
     def __init__(self, parameterisation: str):
         """Parameterisation object handles parameter conversions
 
@@ -37,7 +37,7 @@ class Parameterisation():
 
     def __str__(self) -> str:
         return f"Parameterisation: {self.parameterisation}"
-    
+
     def __repr__(self) -> str:
         return f"Parameterisation({self.parameterisation})"
 
@@ -95,7 +95,7 @@ class Parameterisation():
         # Because model.Planet.is_valid() check is performed after parameter
         # conversion, this occasionally will be called with invalid parameters
         # causing the sqrt to be negative. This is caught later on in is_valid()
-        # so we can leave it as a warning and not Raise it here. This isn't 
+        # so we can leave it as a warning and not Raise it here. This isn't
         # ideal as it will slow down the code, but it is the best we can do
         # without a refactor.
         _1me_over_1pe = (1 - eccentricity) / (1 + eccentricity)
@@ -127,62 +127,61 @@ class Parameterisation():
         esinw = e * np.sin(w)
         return ecosw, esinw
 
-
     def convert_pars_to_default_basis(self, inpars) -> dict:
         if self.parameterisation == "per k e w tp":
-            return {"per": inpars["per"], 
-                    "k": inpars["k"], 
-                    "e": inpars["e"], 
-                    "w": inpars["w"], 
+            return {"per": inpars["per"],
+                    "k": inpars["k"],
+                    "e": inpars["e"],
+                    "w": inpars["w"],
                     "tp": inpars["tp"]}
 
         elif self.parameterisation == "per k e w tc":
             tp = self.convert_tc_to_tp(inpars["tc"], inpars["per"], inpars["e"], inpars["w"])
-            return {"per": inpars["per"], 
-                    "k": inpars["k"], 
-                    "e": inpars["e"], 
-                    "w": inpars["w"], 
+            return {"per": inpars["per"],
+                    "k": inpars["k"],
+                    "e": inpars["e"],
+                    "w": inpars["w"],
                     "tp": tp}
 
         elif self.parameterisation == "per k ecosw esinw tp":
             e, w = self.convert_ecosw_esinw_to_e_w(inpars["ecosw"], inpars["esinw"])
-            return {"per": inpars["per"], 
-                    "k": inpars["k"], 
-                    "e": e, 
-                    "w": w, 
+            return {"per": inpars["per"],
+                    "k": inpars["k"],
+                    "e": e,
+                    "w": w,
                     "tp": inpars["tp"]}
 
         elif self.parameterisation == "per k ecosw esinw tc":
             e, w = self.convert_ecosw_esinw_to_e_w(inpars["ecosw"], inpars["esinw"])
             tp = self.convert_tc_to_tp(inpars["tc"], inpars["per"], e, w)
-            return {"per": inpars["per"], 
-                    "k": inpars["k"], 
-                    "e": e, 
-                    "w": w, 
+            return {"per": inpars["per"],
+                    "k": inpars["k"],
+                    "e": e,
+                    "w": w,
                     "tp": tp}
 
         elif self.parameterisation == "per k secosw sesinw tp":
             e, w = self.convert_secosw_sesinw_to_e_w(inpars["secosw"], inpars["sesinw"])
-            return {"per": inpars["per"], 
-                    "k": inpars["k"], 
-                    "e": e, 
-                    "w": w, 
+            return {"per": inpars["per"],
+                    "k": inpars["k"],
+                    "e": e,
+                    "w": w,
                     "tp": inpars["tp"]}
 
         elif self.parameterisation == "per k secosw sesinw tc":
             e, w, = self.convert_secosw_sesinw_to_e_w(inpars["secosw"], inpars["sesinw"])
             tp = self.convert_tc_to_tp(inpars["tc"], inpars["per"], e, w)
-            return {"per": inpars["per"], 
-                    "k": inpars["k"], 
-                    "e": e, 
-                    "w": w, 
+            return {"per": inpars["per"],
+                    "k": inpars["k"],
+                    "e": e,
+                    "w": w,
                     "tp": tp}
- 
+
         else:
             raise Exception(f"parameterisation {self.parameterisation} not recognised")
 
 
-class Parameter():
+class Parameter:
 
     def __init__(self, value: float, unit: str, fixed=False):
         """
@@ -193,14 +192,14 @@ class Parameter():
         value : float
             The value of the parameter.
         unit : str
-            The unit of measurement for the parameter. This is only used for 
+            The unit of measurement for the parameter. This is only used for
             display purposes.
         fixed : bool
             Indicates whether the parameter is fixed or free to vary in fitting.
             Default is False.
         """
         self.value = value
-        self.unit = unit 
+        self.unit = unit
         self.fixed = fixed
 
     def __repr__(self):
@@ -210,4 +209,3 @@ class Parameter():
     def __str__(self):
         class_name = type(self).__name__
         return f"{class_name} {self.value} {self.unit}"
-
