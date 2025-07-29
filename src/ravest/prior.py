@@ -3,26 +3,28 @@ import numpy as np
 
 PRIOR_FUNCTIONS = ["Uniform", "Gaussian", "EccentricityPrior", "BoundedGaussian"]
 
+
 class Uniform:
     r"""Log of uniform prior distribution.
-        
+
     The log uniform prior function is defined as:
     .. math::
         -\log{b - a} \quad \text{for} \quad a \leq x \leq b \\
         -\inf \quad \text{otherwise} \\
-    
+
     Parameters
     ----------
     lower : float
         Lower bound of the uniform distribution.
     upper : float
         Upper bound of the uniform distribution.
-    
+
     Returns
     -------
     float
         Logarithm of the prior probability density function.
     """
+
     def __init__(self, lower, upper):
         self.lower = lower
         self.upper = upper
@@ -32,7 +34,8 @@ class Uniform:
         if value < self.lower or value > self.upper:
             return -np.inf
         else:
-            return -np.log(self.upper-self.lower)
+            return -np.log(self.upper - self.lower)
+
     def __repr__(self):
         return f"Uniform({self.lower}, {self.upper})"
 
@@ -50,19 +53,20 @@ class Gaussian:
         Mean of the Gaussian distribution.
     std : float
         Standard deviation of the Gaussian distribution.
-    
+
     Returns
     -------
     float
         Logarithm of the prior probability density function.
     """
+
     def __init__(self, mean, std):
         self.mean = mean
         self.std = std
 
     def __call__(self, value):
         return -0.5 * ((value - self.mean) / self.std)**2 - 0.5*np.log((self.std**2)*2.*np.pi)
-    
+
     def __repr__(self):
         return f"Gaussian({self.mean}, {self.std})"
 
@@ -84,12 +88,13 @@ class EccentricityPrior:
     -------
     float
         Logarithm of the prior probability density function.
-    
+
     Notes
     -----
-    This is useful for eccentricity because the normal Uniform prior lower bound 
+    This is useful for eccentricity because the normal Uniform prior lower bound
     is exclusive <, whereas this is inclusive <=, allowing eccentricity to be 0.
     """
+
     def __init__(self, upper):
         if upper >= 1:
             raise ValueError("Upper bound of eccentricity must be less than 1.")
@@ -109,7 +114,7 @@ class EccentricityPrior:
 
 class BoundedGaussian:
     r"""Log of Gaussian prior distribution, with bounds.
-    
+
     The log bounded Gaussian prior function is defined as:
     .. math::
         -0.5 \left( \frac{x - \mu}{\sigma} \right)^2 - 0.5 \log{2 \pi \sigma^2} \quad \text{for} \quad a \leq x \leq b
@@ -118,7 +123,7 @@ class BoundedGaussian:
     Use cases may include where you have a preferred value for a parameter, but
     you know it is bounded within a certain range due to physical constraints
     (e.g. ensuring a value stays positive).
-        
+
     Parameters
     ----------
     mean : float
@@ -129,12 +134,13 @@ class BoundedGaussian:
         Lower bound of the Gaussian distribution.
     upper : float
         Upper bound of the Gaussian distribution.
-        
+
     Returns
     -------
     float
         Logarithm of the prior probability density function.
     """
+
     def __init__(self, mean, std, lower, upper):
         self.mean = mean
         self.std = std
@@ -147,7 +153,6 @@ class BoundedGaussian:
             return -np.inf
         else:
             return -0.5 * ((value - self.mean) / self.std)**2 - 0.5*np.log((self.std**2)*2.*np.pi)
-        
+
     def __repr__(self):
         return f"BoundedGaussian({self.mean}, {self.std}, {self.lower}, {self.upper})"
-    

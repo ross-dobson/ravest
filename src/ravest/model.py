@@ -1,11 +1,12 @@
 # model.py
 
-import numpy as np
 import matplotlib.pyplot as plt
-from scipy.optimize import newton
-from ravest.param import Parameterisation
+import numpy as np
 from astropy import constants as const
 from scipy import constants
+from scipy.optimize import newton
+
+from ravest.param import Parameterisation
 
 
 class Planet:
@@ -20,13 +21,14 @@ class Planet:
     params : `dict`
         The orbital parameters, matching the basis.
     """
+
     def __init__(self, letter: str, parameterisation: Parameterisation, params: dict):
         if not (letter.isalpha() and (letter == letter[0] * len(letter))):
             raise ValueError(f"Letter {letter} is not a single alphabet character.")
         self.letter = letter
         self.parameterisation = parameterisation
         self.params = params
-        
+
         # Check the input params and parameterisation match
         if not set(params.keys()) == set(parameterisation.pars):
             raise ValueError(f"Parameterisation {parameterisation} does not match input params {params}")
@@ -248,6 +250,7 @@ class Planet:
         mpsini = calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit)
         return mpsini
 
+
 class Star:
     """Star with orbiting planet(s).
 
@@ -311,7 +314,7 @@ class Star:
 
     def radial_velocity(self, t):
         """
-        Calculate the radial velocity of the star at time ``t`` due to the 
+        Calculate the radial velocity of the star at time ``t`` due to the
         planets and the trend (constant velocity, linear, and quadratic.)
         This is a linear sum of the RVs of each of the `Planet` objects stored in
         the `Star`, and the RV of the `Trend` object.
@@ -330,21 +333,21 @@ class Star:
 
         for planet in self.planets:
             rv += self.planets[planet].radial_velocity(t)
-        
+
         rv += self.trend.radial_velocity(t)
 
         return rv
-    
+
     def mpsini(self, planet_letter, unit="kg"):
         """Calculate the minimum mass of a planet in the star system.
-        
+
         Parameters
         ----------
         planet_letter : `str`
             The letter of the planet to calculate the minimum mass of.
         unit : `str`
             The unit to return the planetary minimum mass in. Options are "kg", "M_earth", "M_jupiter".
-        
+
         Returns
         -------
         `float`
@@ -366,13 +369,13 @@ class Star:
             The measurement error of the datapoint ``ydata`` (m/s)
         """
         # TODO use gridspec or subfigures to sort out figure spacing
-        N = len(t)
+        len(t)
         t = np.sort(t)
         tlin = np.linspace(t[0], t[-1], 1000)
         fig, axs = plt.subplots(2+self.num_planets,1, figsize=(10, (2*10/3)+(self.num_planets*10/3)), constrained_layout=True,)
 
         # First panel: plot the observed data and the combined system model
-        axs[0].set_title(f"Stellar radial velocity")
+        axs[0].set_title("Stellar radial velocity")
         axs[0].set_ylabel("Radial Velocity [m/s]")
         axs[0].set_xlabel("Time [days]")
         axs[0].axhline(y=0, color="k", alpha=0.25, linestyle="--", zorder=1)
@@ -383,22 +386,22 @@ class Star:
         axs[0].errorbar(t, ydata, yerr=yerr, marker=".", color="k", mfc="white", ecolor="tab:gray", markersize=10, linestyle="None", zorder=3)
 
         # Second panel: O-C residuals of the top panel
-        axs[1].set_title(f"Observed-Calculated")
+        axs[1].set_title("Observed-Calculated")
         axs[1].set_xlabel("Time [days]")
         axs[1].set_ylabel("Residual [m/s]")
         axs[1].axhline(y=0, color="tab:blue", linestyle="-")
         axs[1].errorbar(t, ydata-modelled_rv_tdata, yerr=yerr, marker=".", mfc="white", color="k", ecolor="tab:gray", markersize=10, linestyle="None")
 
         # Subsequent panels: phase plot, one per planet
-        for n, l in enumerate(self.planets):
-            n+=2  # we already have two subplots
-            axs[n].set_title(f"Planet {l}")
+        for n, letter in enumerate(self.planets):
+            n += 2  # we already have two subplots
+            axs[n].set_title(f"Planet {letter}")
             axs[n].set_xlabel("Orbital phase")
             axs[n].set_ylabel("Radial velocity [m/s]")
             axs[n].set_xlim(-0.5, 0.5)
             axs[n].axhline(y=0, color="k", alpha=0.25, linestyle="--", zorder=1)
 
-            this_planet = self.planets[l]
+            this_planet = self.planets[letter]
             p = this_planet._rvparams["per"]
             e = this_planet._rvparams["e"]
             w = this_planet._rvparams["w"]
@@ -408,15 +411,15 @@ class Star:
             yplot = this_planet.radial_velocity(tlin)
             tlin_fold = (tlin - tc + 0.5 * p) % p - 0.5 * p
             inds = np.argsort(tlin_fold)
-            axs[n].plot(tlin_fold[inds]/p, yplot[inds], label=f"{n},{l}, rvplot", color="tab:blue")
+            axs[n].plot(tlin_fold[inds]/p, yplot[inds], label=f"{n},{letter}, rvplot", color="tab:blue")
 
             # model the rv data for all the other planets, to subtract from the observed data
             other_planets_modelled_rv_tdata = np.zeros(len(t))
-            for _l in self.planets:
-                if _l == l:
+            for _letter in self.planets:
+                if _letter == letter:
                     continue  # don't do anything for this planet
                 else:
-                    other_planets_modelled_rv_tdata += self.planets[_l].radial_velocity(t)
+                    other_planets_modelled_rv_tdata += self.planets[_letter].radial_velocity(t)
             subtracted_data = ydata - other_planets_modelled_rv_tdata
             tdata_fold = (t - tc + 0.5 * p) % p - 0.5 * p
             inds = np.argsort(tdata_fold)
@@ -428,19 +431,19 @@ class Trend:
     Parameters
     ----------
     t0 : `float`
-        The reference zero-point time for the linear and quadratic trend. 
+        The reference zero-point time for the linear and quadratic trend.
         Recommended to be the mean of the input times.
     params : `dict`
         The parameters of the trend: the constant, linear, and quadratic
         components. These must be named "g", "gd", and "gdd" respectively (which
         stands for gamma, gamma-dot, gamma-dot-dot). These are in units of m/s,
         m/s/day, and m/s/day^2 respectively.
-    
+
     Returns
     -------
     `float`
         The radial velocity of the star due to the trend (m/s).
-    
+
     Notes
     -----
     The radial velocity of the star due to the trend is calculated as the sum of
@@ -448,27 +451,28 @@ class Trend:
     simply a constant offset of value gamma. The linear and quadratic components
     are calculated as `gd*(t-t0)` and `gdd*((t-t0)**2)` respectively.
 
-    In general the trend is used to account for any unexpected effects. These 
+    In general the trend is used to account for any unexpected effects. These
     could be due to instrumental effects, or for example a very long-term
-    companion could show as a linear and/or quadratic trend in the data. If you 
-    see a strong linear or quadratic trend in the data, it is worth 
+    companion could show as a linear and/or quadratic trend in the data. If you
+    see a strong linear or quadratic trend in the data, it is worth
     investigating.
     """
+
     def __init__(self, t0, params: dict):
         self.gamma = params["g"]
         self.gammadot = params["gd"]
         self.gammadotdot = params["gdd"]
-        
+
         # Check the input t0 is a single time, not e.g. the entire time array
         try:
             t0 = float(t0)
             self.t0 = t0
         except (TypeError, ValueError):
-            raise ValueError(f"t0 must be a float (recommended to be mean or median of times)")
-        
+            raise ValueError("t0 must be a float (recommended to be mean or median of times)")
+
     def __str__(self):
-        return f"Trend: $\gamma$={self.gamma}, $\dot\gamma$={self.gammadot}, $\ddot\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
-    
+        return f"Trend: $\\gamma$={self.gamma}, $\\dot\\gamma$={self.gammadot}, $\\ddot\\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
+
     def __repr__(self):
         return f"Trend(params={{'g': {self.gamma}, 'gd': {self.gammadot}, 'gdd': {self.gammadotdot} }}, t0={self.t0:.2f})"
 
@@ -491,6 +495,7 @@ class Trend:
         rv += self._linear(t, self.t0)
         rv += self._quadratic(t, self.t0)
         return rv
+
 
 def calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit="kg"):
     """Calculate the minimum mass of the planet.
@@ -518,18 +523,18 @@ def calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit="kg")
     ValueError
         If the unit is not one of "kg", "M_earth", "M_jupiter".
     """
-    
+
     # convert M_s to kg, and period to s, as the formula is in SI units
-    mass_star = mass_star * (1*const.M_sun).value  # type: ignore 
+    mass_star = mass_star * (1*const.M_sun).value  # type: ignore
     period = period * (1*constants.day)
-    
+
     mpsini_kg = semi_amplitude * (period/(2*np.pi*constants.G))**(1/3) * (mass_star)**(2/3) * (1-(eccentricity**2))**(1/2)
-    
+
     if unit=="kg":
         return mpsini_kg
-    elif unit=="M_earth":
-        return mpsini_kg / const.M_earth.value # type: ignore
-    elif unit=="M_jupiter":
-        return mpsini_kg / const.M_jup.value # type: ignore
+    elif unit == "M_earth":
+        return mpsini_kg / const.M_earth.value  # type: ignore
+    elif unit == "M_jupiter":
+        return mpsini_kg / const.M_jup.value  # type: ignore
     else:
         raise ValueError(f"Unit {unit} not valid. Use 'kg', 'M_Earth' or 'M_Jupiter'")
