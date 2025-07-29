@@ -471,7 +471,7 @@ class Trend:
             raise ValueError("t0 must be a float (recommended to be mean or median of times)")
 
     def __str__(self):
-        return f"Trend: $\gamma$={self.gamma}, $\dot\gamma$={self.gammadot}, $\ddot\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
+        return f"Trend: $\\gamma$={self.gamma}, $\\dot\\gamma$={self.gammadot}, $\\ddot\\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
 
     def __repr__(self):
         return f"Trend(params={{'g': {self.gamma}, 'gd': {self.gammadot}, 'gdd': {self.gammadotdot} }}, t0={self.t0:.2f})"
