@@ -786,11 +786,11 @@ class LogLikelihood:
         rv_total += _rv_trend
 
         # three) do the log-likelihood calculation including jitter
-        verr_jitter_quadrature = self.verr**2 + params["jit"]**2  # we don't sqrt here as we would square again in the next line anyway
-        jitter_penalty_term = np.sum(np.log(np.sqrt(2 * np.pi * verr_jitter_quadrature)))
+        verr_jitter_squared = self.verr**2 + params["jit"]**2  # we don't sqrt here as we would square again in the next line anyway
+        penalty_term = np.log(2 * np.pi * verr_jitter_squared)
         residuals = rv_total - self.vel
-        chi2 = np.sum(residuals**2 / verr_jitter_quadrature)
-        ll = (-0.5 * chi2) - jitter_penalty_term
+        chi2 = residuals**2 / verr_jitter_squared
+        ll = -0.5 * np.sum(chi2 + penalty_term)
         return ll
 
 

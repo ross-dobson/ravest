@@ -49,6 +49,7 @@ myst-nb = "^1.2.0"
 sphinx = "^8.2.3"
 ipykernel = "^6.29.5"
 nbstripout = "^0.8.1"
+pre-commit = "^4.2.0"
 
 [tool.ruff]
 line-length = 88
