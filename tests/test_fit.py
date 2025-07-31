@@ -132,6 +132,22 @@ class TestFitter:
         with pytest.raises(ValueError, match="Initial value 25.0 of parameter k_b is invalid"):
             fitter.add_priors(priors)
 
+    def test_add_priors_too_many_warning(self, test_circular_params):
+        """Test warning when too many priors provided (for fixed params)"""
+        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+        params = test_circular_params
+        fitter.add_params(params)
+
+        # Add priors for both free AND fixed parameters
+        priors = {
+            "k_b": ravest.prior.Uniform(0, 20),
+            "jit": ravest.prior.Uniform(0, 5),
+            "per_b": ravest.prior.Uniform(1, 5),  # This is fixed!
+        }
+
+        with pytest.raises(Warning, match="Too many priors provided"):
+            fitter.add_priors(priors)
+
     def test_get_free_params(self, test_circular_params):
         """Test getting free parameters"""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
