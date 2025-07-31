@@ -36,9 +36,9 @@ class Fitter:
         if len(time) != len(vel) or len(time) != len(verr):
             raise ValueError("Time, velocity, and uncertainty arrays must be the same length.")
 
-        self.time = time
-        self.vel = vel
-        self.verr = verr
+        self.time = np.ascontiguousarray(time)
+        self.vel = np.ascontiguousarray(vel)
+        self.verr = np.ascontiguousarray(verr)
         self.t0 = t0
 
     def add_params(self, params):
