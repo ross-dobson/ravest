@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
-from tqdm import tqdm
 
 import ravest.model
 from ravest.param import Parameterisation
@@ -204,65 +203,121 @@ class Fitter:
         print("...MCMC done.")
         self.sampler = sampler
 
-    def get_samples_df(self, discard=0, thin=1):
-        """Returns a dataframe of the (flattened) samples from the MCMC run."""
-        # First, get the flat chains
-        flat_samples = self.sampler.get_chain(flat=True, thin=thin, discard=discard)
-        df = pd.DataFrame(flat_samples, columns=self.get_free_params_names())
-        return df
+    def get_samples_np(self, discard=0, thin=1, flat=False):
+        """Returns a contiguous numpy array of MCMC samples.
 
-    def _get_samples_ndarray_dict(self, discard=0, thin=1):
-        """Returns dict of samples from the MCMC run for each free parameter.
-
-        Each entry in the dict is a numpy array of samples for that parameter.
-        The samples are not flattened, so the shape of each array is
-        (nwalkers, nsteps).
+        This is the foundational method for accessing MCMC samples. All other sample
+        methods build on this for consistency and optimal performance.
 
         Parameters
         ----------
         discard : int, optional
-            Discard the first `discard` steps in the chain as burn-in. (default: 0)
+            Discard the first `discard` steps as burn-in (default: 0)
         thin : int, optional
-            Use only every `thin` steps from the chain. (default: 1)
+            Use only every `thin` steps from the chain (default: 1)
+        flat : bool, optional
+            If True, return flattened array shape (nsteps_after_discard_thin * nwalkers, ndim)
+            If False, return unflattened array shape (nsteps_after_discard_thin, nwalkers, ndim) (default: False)
 
         Returns
         -------
-        dict
-            Dictionary of samples for each free parameter.
+        np.ndarray
+            Contiguous array of MCMC samples. Shape depends on `flat` parameter:
+            - flat=False: (nsteps_after_discard_thin, nwalkers, ndim)
+            - flat=True: (nsteps_after_discard_thin * nwalkers, ndim)
 
         Notes
         -----
-        The samples are not flattened, so the shape of each array is
-        (nwalkers, nsteps).
+        This method wraps emcee's sampler.get_chain() but ensures the returned array
+        is contiguous in memory for optimal performance in computational operations.
+        The default shape (nsteps, nwalkers, ndim) matches emcee's convention.
         """
-        df = self.get_samples_df(discard=discard, thin=thin)
-        return dict(zip(df.T.index, df.T.values))
+        samples = self.sampler.get_chain(discard=discard, thin=thin, flat=flat)
+        return np.ascontiguousarray(samples)
 
-    def get_posterior_params_dict(self, discard=0, thin=1):
-        """Returns dict of samples from the MCMC run, and the fixed parameters.
+    def get_samples_df(self, discard=0, thin=1):
+        """Returns a pandas DataFrame of flattened MCMC samples.
 
-        The free parameter samples are stored in a numpy array, the fixed
-        parameters are floats. This makes it easier to pass the values into
-        other functions, such as calculate_mpsini, which requires all parameters
-        whether they are fixed or free. The `discard` and `thin` parameters are
-        passed into the `get_samples_df` function.
+        Each row represents one sample, columns are parameter names. Built on
+        get_samples_np() for consistent performance.
 
         Parameters
         ----------
         discard : int, optional
-            Discard the first `discard` steps in the chain as burn-in. (default: 0)
+            Discard the first `discard` steps as burn-in (default: 0)
         thin : int, optional
-            Use only every `thin` steps from the chain. (default: 1)
+            Use only every `thin` steps from the chain (default: 1)
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with shape (nsteps_after_discard_thin * nwalkers, ndim).
+            Columns are parameter names.
+        """
+        flat_samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
+        return pd.DataFrame(flat_samples, columns=self.get_free_params_names())
+
+    def get_samples_dict(self, discard=0, thin=1):
+        """Returns dict of MCMC samples for each free parameter.
+
+        Each parameter gets a 1D contiguous array of all its samples. This is more
+        efficient than the previous _get_samples_ndarray_dict method.
+
+        Parameters
+        ----------
+        discard : int, optional
+            Discard the first `discard` steps as burn-in (default: 0)
+        thin : int, optional
+            Use only every `thin` steps from the chain (default: 1)
 
         Returns
         -------
         dict
-            Dictionary of all parameters, float for fixed parameters, ndarray for
-            free parameters.
+            Dictionary mapping parameter names to 1D arrays of samples.
+            Each array has shape (nsteps_after_discard_thin * nwalkers,)
+
+        Examples
+        --------
+        >>> samples_dict = fitter.get_samples_dict(discard=1000)
+        >>> k_b_samples = samples_dict['k_b']  # All samples for k_b parameter
+        """
+        flat_samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
+        param_names = self.get_free_params_names()
+
+        # Direct numpy slicing - much faster than pandas operations
+        return {name: flat_samples[:, i] for i, name in enumerate(param_names)}
+
+    def get_posterior_params_dict(self, discard=0, thin=1):
+        """Returns dict combining fixed parameters and MCMC samples.
+
+        This method creates a unified dictionary containing all model parameters:
+        fixed parameters as single float values, and free parameters as arrays
+        of MCMC samples. This format is ideal for functions like calculate_mpsini
+        that need all parameters and should propagate uncertainties from free parameters.
+
+        Parameters
+        ----------
+        discard : int, optional
+            Discard the first `discard` steps as burn-in (default: 0)
+        thin : int, optional
+            Use only every `thin` steps from the chain (default: 1)
+
+        Returns
+        -------
+        dict
+            Dictionary of all parameters:
+            - Fixed parameters: single float values
+            - Free parameters: 1D arrays of MCMC samples with shape (nsteps_after_discard_thin * nwalkers,)
+
+        Examples
+        --------
+        >>> params = fitter.get_posterior_params_dict(discard=1000)
+        >>> params['per_b']  # Fixed parameter: single float (e.g., 20.8851)
+        >>> params['k_b']    # Free parameter: array of samples (e.g., [10.1, 9.9, ...])
         """
         fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
-        samples_dict = self._get_samples_ndarray_dict(discard=discard, thin=thin)
-        return fixed_params_dict | samples_dict
+        free_samples_dict = self.get_samples_dict(discard=discard, thin=thin)
+        return fixed_params_dict | free_samples_dict
 
     def plot_chains(self, discard=0, thin=1, save=False, fname="chains_plot.png", dpi=100):
         fig, axes = plt.subplots(self.ndim, figsize=(10,1+(self.ndim*2/3)), sharex=True)
@@ -315,7 +370,7 @@ class Fitter:
         np.ndarray
             Array of RVs for each sample in the chain, at the times in `tlin`.
         """
-        samples = self.sampler.get_chain(flat=True, discard=discard, thin=thin)
+        samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
 
         # get smooth time curve for plotting
         _tmin, _tmax = self.time.min(), self.time.max()
@@ -330,7 +385,7 @@ class Fitter:
         free_param_names = self.get_free_params_names()
         fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
 
-        for i, row in tqdm(enumerate(samples)):  # type: ignore
+        for i, row in enumerate(samples):  # type: ignore
             # Combine fixed and free parameters
             free_params = dict(zip(free_param_names, row))
             params = fixed_params_dict | free_params
@@ -407,7 +462,7 @@ class Fitter:
 
     def _posterior_rv_planet(self, planet_letter, times, discard=0, thin=1):
         """calculate the posterior rv for a planet, using all samples in the chain"""
-        samples = self.sampler.get_chain(flat=True, discard=discard, thin=thin)
+        samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
         this_planet_rvs = np.zeros((len(samples), len(times))) # type: ignore
         fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
 
@@ -430,7 +485,7 @@ class Fitter:
 
     def _posterior_rv_trend(self, times, discard=0, thin=1):
         """calculate the posterior rv for the trend, using all samples in the chain"""
-        samples = self.sampler.get_chain(flat=True, discard=discard, thin=thin)
+        samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
         this_trend_rvs = np.zeros((len(samples), len(times))) # type: ignore
         fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
 
