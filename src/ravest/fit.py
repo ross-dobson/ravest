@@ -150,8 +150,34 @@ class Fitter:
         return list(self.get_fixed_params_dict().keys())
 
     def fit_model_to_data(self, nwalkers, nsteps=5000, progress=True):
+        """Fit the model to data using MAP optimization followed by MCMC.
 
-        # create the log-posterior object
+        Performs Maximum A Posteriori (MAP) optimization to find the best-fit
+        parameters, then uses those as starting points for Markov Chain Monte
+        Carlo (MCMC) sampling to explore the parameter space and estimate
+        uncertainties.
+
+        Parameters
+        ----------
+        nwalkers : int
+            Number of MCMC walkers. Should be at least 2 * number of free parameters.
+        nsteps : int, optional
+            Number of MCMC steps to run (default: 5000)
+        progress : bool, optional
+            Whether to show progress bar during MCMC (default: True)
+
+        Returns
+        -------
+        emcee.sampler.SamplerChain
+            The MCMC samples from the emcee sampler
+
+        Raises
+        ------
+        Warning
+            If MAP optimization fails to converge
+        """
+
+        # Initialize log-posterior object for MCMC sampling
         lp = LogPosterior(
             self.planet_letters,
             self.parameterisation,
@@ -769,7 +795,14 @@ class LogPosterior:
         """
         free_params_dict = dict(zip(self.free_params_names, free_params_vals))
         logprob = self.log_probability(free_params_dict)
-        return -logprob
+        neg_logprob = -logprob
+
+        # Handle -inf to prevent scipy RuntimeWarnings during optimization
+        # scipy's optimizer can't handle -inf values in arithmetic operations
+        if not np.isfinite(neg_logprob):
+            return 1e30  # Very large finite number instead of inf
+
+        return neg_logprob
 
     def _positive_log_probability_for_MCMC(self, free_params_vals):
         free_params_dict = dict(zip(self.free_params_names, free_params_vals))
