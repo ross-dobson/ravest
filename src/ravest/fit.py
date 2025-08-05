@@ -102,108 +102,145 @@ class Fitter:
         Warning
             If a parameter is fixed, but a prior is provided
         """
-        if len(self.get_free_params_names()) < len(priors):
+        if len(self.free_params_names) < len(priors):
             raise Warning(
                 "Too many priors provided. Have you accidentally provided a prior for a fixed parameter?"
-                + f"\nReceived unexpected priors for {set(priors) - set(self.get_free_params_names())}."
+                + f"\nReceived unexpected priors for {set(priors) - set(self.free_params_names)}."
             )
-        if set(self.get_free_params_names()) != set(priors):
-            raise ValueError(f"Priors must be provided for all free parameters. Missing priors for {set(self.get_free_params_names()) - set(priors)}.")
+        if set(self.free_params_names) != set(priors):
+            raise ValueError(f"Priors must be provided for all free parameters. Missing priors for {set(self.free_params_names) - set(priors)}.")
 
         # Validate that initial parameter values are within prior bounds
-        for par in self.get_free_params_names():
+        for par in self.free_params_names:
             prior_fn = priors[par]
             log_prior_prob = prior_fn(self.params[par].value)
             if not np.isfinite(log_prior_prob):
                 raise ValueError(f"Initial value {self.params[par].value} of parameter {par} is invalid for prior {priors[par]}.")
 
         self.priors = priors
+        self.ndim = len(self.free_params_values)
 
-    def get_free_params_dict(self):
-        """Return a dictionary of the free parameters."""
-        self._free_pars = {}
+    @property
+    def free_params_dict(self):
+        """Free parameters as dict."""
+        free_pars = {}
         for par in self.params:
             if self.params[par].fixed is False:
-                self._free_pars[par] = self.params[par]
-        return self._free_pars
+                free_pars[par] = self.params[par]
+        return free_pars
 
-    def get_free_params_val(self):
-        _list = list(self.get_free_params_dict().values())
-        return [param.value for param in _list]
+    @property
+    def free_params_values(self):
+        """Values of free parameters as list."""
+        return [param.value for param in self.free_params_dict.values()]
 
-    def get_free_params_names(self):
-        return list(self.get_free_params_dict().keys())
+    @property
+    def free_params_names(self):
+        """Names of free parameters as list."""
+        return list(self.free_params_dict.keys())
 
-    def get_fixed_params_dict(self):
-        """Return a dictionary of the fixed parameters."""
-        self._fixed_pars = {}
+    @property
+    def fixed_params_dict(self):
+        """Fixed parameters as dict."""
+        fixed_pars = {}
         for par in self.params:
             if self.params[par].fixed is True:
-                self._fixed_pars[par] = self.params[par]
-        return self._fixed_pars
+                fixed_pars[par] = self.params[par]
+        return fixed_pars
 
-    def get_fixed_params_val(self):
-        _list = list(self.get_fixed_params_dict().values())
-        return [param.value for param in _list]
+    @property
+    def fixed_params_values(self):
+        """Values of fixed parameters as list."""
+        return [param.value for param in self.fixed_params_dict.values()]
 
-    def get_fixed_params_names(self):
-        return list(self.get_fixed_params_dict().keys())
+    @property
+    def fixed_params_names(self):
+        """Names of fixed parameters as list."""
+        return list(self.fixed_params_dict.keys())
 
-    def fit_model_to_data(self, nwalkers, nsteps=5000, progress=True):
-        """Fit the model to data using MAP optimization followed by MCMC.
+    @property
+    def fixed_params_values_dict(self):
+        """Fixed parameters as dict mapping names to values."""
+        return dict(zip(self.fixed_params_names, self.fixed_params_values))
 
-        Performs Maximum A Posteriori (MAP) optimization to find the best-fit
-        parameters, then uses those as starting points for Markov Chain Monte
-        Carlo (MCMC) sampling to explore the parameter space and estimate
-        uncertainties.
+    def find_map_estimate(self, method="Powell"):
+        """Find Maximum A Posteriori (MAP) estimate of parameters.
 
         Parameters
         ----------
-        nwalkers : int
-            Number of MCMC walkers. Should be at least 2 * number of free parameters.
-        nsteps : int, optional
-            Number of MCMC steps to run (default: 5000)
-        progress : bool, optional
-            Whether to show progress bar during MCMC (default: True)
+        method : str, optional
+            Optimization method to use (default: "Powell")
 
         Returns
         -------
-        emcee.sampler.SamplerChain
-            The MCMC samples from the emcee sampler
+        scipy.optimize.OptimizeResult
+            The optimization result containing the MAP estimate
 
         Raises
         ------
         Warning
             If MAP optimization fails to converge
         """
-
-        # Initialize log-posterior object for MCMC sampling
+        # Initialize log-posterior object
         lp = LogPosterior(
             self.planet_letters,
             self.parameterisation,
             self.priors,
-            self.get_fixed_params_dict(),
-            self.get_free_params_names(),
+            self.fixed_params_dict,
+            self.free_params_names,
             self.time,
             self.vel,
             self.verr,
             self.t0,
         )
 
-        # Step 1: Maximum A Posteriori (MAP) optimization for MCMC initialization
+        initial_guess = self.free_params_values
+
+        # Perform MAP optimization
         def negative_log_posterior(*args):
             return lp._negative_log_probability_for_MAP(*args)
-        map_results = minimize(negative_log_posterior, self.get_free_params_val(), method="Powell")
+
+        map_results = minimize(negative_log_posterior, initial_guess, method=method)
+
         if map_results.success is False:
             print(map_results)
             raise Warning("MAP did not succeed. Check the initial values of the parameters, and the priors functions.")
-        self.ndim = len(self.get_free_params_val())
 
-        # zip the MAP results with the free parameter names to get a dict
-        map_results_dict = dict(zip(self.get_free_params_names(), map_results.x))
+        # Return results as dictionary for easy access
+        map_results_dict = dict(zip(self.free_params_names, map_results.x))
         print("MAP results:", map_results_dict)
 
-        # Step 2: MCMC sampling using MAP results as starting points
+        return map_results
+
+
+    def run_mcmc(self, initial_values, nwalkers, nsteps=5000, progress=True):
+        """Run MCMC sampling from given initial parameter values.
+
+        Parameters
+        ----------
+        initial_values : array-like
+            Starting parameter values for MCMC. Should match the order of
+            free parameters from get_free_params_names()
+        nwalkers : int
+            Number of MCMC walkers
+        nsteps : int, optional
+            Number of MCMC steps to run (default: 5000)
+        progress : bool, optional
+            Whether to show progress bar during MCMC (default: True)
+        """
+        # Initialize log-posterior object for MCMC sampling
+        lp = LogPosterior(
+            self.planet_letters,
+            self.parameterisation,
+            self.priors,
+            self.fixed_params_dict,
+            self.free_params_names,
+            self.time,
+            self.vel,
+            self.verr,
+            self.t0,
+        )
+
         print("Starting MCMC...")
         if nwalkers < 2 * self.ndim:
             print(f"Warning: nwalkers should be at least 2 * ndim. You have {nwalkers} walkers and {self.ndim} dimensions. Setting nwalkers to {2 * self.ndim}.")
@@ -211,10 +248,10 @@ class Fitter:
         else:
             self.nwalkers = nwalkers
 
-        mcmc_init = map_results.x + 1e-5 * np.random.randn(self.nwalkers, self.ndim)
+        mcmc_init = initial_values + 1e-5 * np.random.randn(self.nwalkers, self.ndim)
         # TODO: benchmark if parameter_names argument impacts MCMC performance
         sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
-                                            parameter_names=self.get_free_params_names())
+                                            parameter_names=self.free_params_names)
         sampler.run_mcmc(initial_state=mcmc_init, nsteps=nsteps, progress=progress)
 
         # TODO: multiprocessing disabled for now as it's causing slowdown
@@ -223,7 +260,7 @@ class Fitter:
         #
         # with Pool() as pool:
         #     sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
-        #                                     parameter_names=self.get_free_params_names(),
+        #                                     parameter_names=self.free_params_names,
         #                                     pool=pool)
         #     state = sampler.run_mcmc(mcmc_init, 10000, progress=True)
         print("...MCMC done.")
@@ -281,7 +318,7 @@ class Fitter:
             Columns are parameter names.
         """
         flat_samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
-        return pd.DataFrame(flat_samples, columns=self.get_free_params_names())
+        return pd.DataFrame(flat_samples, columns=self.free_params_names)
 
     def get_samples_dict(self, discard=0, thin=1):
         """Returns dict of MCMC samples for each free parameter.
@@ -308,7 +345,7 @@ class Fitter:
         >>> k_b_samples = samples_dict['k_b']  # All samples for k_b parameter
         """
         flat_samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
-        param_names = self.get_free_params_names()
+        param_names = self.free_params_names
 
         # Direct numpy slicing - much faster than pandas operations
         return {name: flat_samples[:, i] for i, name in enumerate(param_names)}
@@ -341,7 +378,7 @@ class Fitter:
         >>> params['per_b']  # Fixed parameter: single float (e.g., 20.8851)
         >>> params['k_b']    # Free parameter: array of samples (e.g., [10.1, 9.9, ...])
         """
-        fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
+        fixed_params_dict = self.fixed_params_values_dict
         free_samples_dict = self.get_samples_dict(discard=discard, thin=thin)
         return fixed_params_dict | free_samples_dict
 
@@ -357,7 +394,7 @@ class Fitter:
 
             ax.plot(to_plot, "k", alpha=0.3)
             ax.set_xlim(0, len(samples))  # type: ignore
-            ax.set_ylabel(self.get_free_params_names()[i])
+            ax.set_ylabel(self.free_params_names[i])
             ax.yaxis.set_label_coords(-0.1, 0.5)
             axes[-1].set_xlabel("Step number")
         if save:
@@ -368,7 +405,7 @@ class Fitter:
     def plot_corner(self, discard=0, thin=1, save=False, fname="corner_plot.png", dpi=100):
         flat_samples = self.sampler.get_chain(flat=True, discard=discard, thin=thin)
         fig = corner.corner(
-        flat_samples, labels=self.get_free_params_names(), show_titles=True,
+        flat_samples, labels=self.free_params_names, show_titles=True,
         plot_datapoints=False, quantiles=[0.16, 0.5, 0.84],
         )
         fig.suptitle("Corner plots")
@@ -408,8 +445,8 @@ class Fitter:
 
         # get the free parameter names and fixed parameter values
         # we don't need to call this repeatedly for each sample
-        free_param_names = self.get_free_params_names()
-        fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
+        free_param_names = self.free_params_names
+        fixed_params_dict = self.fixed_params_values_dict
 
         for i, row in enumerate(samples):  # type: ignore
             # Combine fixed and free parameters
@@ -463,8 +500,8 @@ class Fitter:
         rv_percentiles = np.percentile(rv_array, [16, 50, 84], axis=0)
 
         # Get the new errorbars to include jit
-        if "jit" in self.get_fixed_params_names():
-            jit_median = self.get_fixed_params_dict()["jit"].value
+        if "jit" in self.fixed_params_names:
+            jit_median = self.fixed_params_dict["jit"].value
         else:
             jit_median = np.median(self.get_samples_df()["jit"])
         verr_with_jit = np.sqrt(self.verr**2 + jit_median**2)
@@ -490,11 +527,11 @@ class Fitter:
         """calculate the posterior rv for a planet, using all samples in the chain"""
         samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
         this_planet_rvs = np.zeros((len(samples), len(times))) # type: ignore
-        fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
+        fixed_params_dict = self.fixed_params_values_dict
 
         for i, row in enumerate(samples):  # type: ignore
             # Combine fixed and free parameters
-            free_params = dict(zip(self.get_free_params_names(), row))
+            free_params = dict(zip(self.free_params_names, row))
             params = fixed_params_dict | free_params
 
             # get this planet's params
@@ -513,12 +550,12 @@ class Fitter:
         """calculate the posterior rv for the trend, using all samples in the chain"""
         samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
         this_trend_rvs = np.zeros((len(samples), len(times))) # type: ignore
-        fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
+        fixed_params_dict = self.fixed_params_values_dict
 
         # for each sample in the chain, calculate the RV for the trend
         for i, row in enumerate(samples):  # type: ignore
             # Combine fixed and free parameters
-            free_params = dict(zip(self.get_free_params_names(), row))
+            free_params = dict(zip(self.free_params_names, row))
             params = fixed_params_dict | free_params
 
             this_trend = ravest.model.Trend(params={"g": params["g"], "gd": params["gd"], "gdd": params["gdd"]}, t0=self.t0)
@@ -562,7 +599,7 @@ class Fitter:
         # Both work for taking a median, (the median of a fixed value is just
         # the fixed value) and the RV functions will propagate either a fixed
         # value or an array of values through the calculations.
-        fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
+        fixed_params_dict = self.fixed_params_values_dict
         samples_df = self.get_samples_df(discard=discard, thin=thin)
         samples_dict = samples_df.to_dict("list")
         params = fixed_params_dict | samples_dict
