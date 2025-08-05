@@ -53,14 +53,14 @@ class Fitter:
         ValueError
             If the expected parameters are not present in the params dict
         """
-        # first check - do we have the right number of parameters?
+        # First check: verify correct number of parameters
         expected_length = 4 + (5 * len(self.planet_letters))  # 3 trend pars (g, gd, gdd) + jit, then 5 pars per planet
         if len(params) != expected_length:
             raise ValueError(
                 f"Expected {expected_length} parameters, got {len(params)} parameters"
             )
 
-        # second check - are all the parameters in the list?
+        # Second check: verify all expected parameters are present
         for planet_letter in self.planet_letters:  # for each planet
             for par_name in self.parameterisation.pars:  # and for each parameter we expect from the parameterisation
                 expected_par = par_name + "_" + planet_letter
@@ -110,7 +110,7 @@ class Fitter:
         if set(self.get_free_params_names()) != set(priors):
             raise ValueError(f"Priors must be provided for all free parameters. Missing priors for {set(self.get_free_params_names()) - set(priors)}.")
 
-        # check that the initial parameter values are within the priors
+        # Validate that initial parameter values are within prior bounds
         for par in self.get_free_params_names():
             prior_fn = priors[par]
             log_prior_prob = prior_fn(self.params[par].value)
@@ -190,7 +190,7 @@ class Fitter:
             self.t0,
         )
 
-        # 1) Maximum A Posteriori to get the initial points for MCMC
+        # Step 1: Maximum A Posteriori (MAP) optimization for MCMC initialization
         def negative_log_posterior(*args):
             return lp._negative_log_probability_for_MAP(*args)
         map_results = minimize(negative_log_posterior, self.get_free_params_val(), method="Powell")
@@ -203,7 +203,7 @@ class Fitter:
         map_results_dict = dict(zip(self.get_free_params_names(), map_results.x))
         print("MAP results:", map_results_dict)
 
-        # 2) MCMC
+        # Step 2: MCMC sampling using MAP results as starting points
         print("Starting MCMC...")
         if nwalkers < 2 * self.ndim:
             print(f"Warning: nwalkers should be at least 2 * ndim. You have {nwalkers} walkers and {self.ndim} dimensions. Setting nwalkers to {2 * self.ndim}.")
@@ -212,7 +212,7 @@ class Fitter:
             self.nwalkers = nwalkers
 
         mcmc_init = map_results.x + 1e-5 * np.random.randn(self.nwalkers, self.ndim)
-        # TODO: is passing in parameter_names causing slowdown?
+        # TODO: benchmark if parameter_names argument impacts MCMC performance
         sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
                                             parameter_names=self.get_free_params_names())
         sampler.run_mcmc(initial_state=mcmc_init, nsteps=nsteps, progress=progress)
@@ -347,7 +347,7 @@ class Fitter:
 
     def plot_chains(self, discard=0, thin=1, save=False, fname="chains_plot.png", dpi=100):
         fig, axes = plt.subplots(self.ndim, figsize=(10,1+(self.ndim*2/3)), sharex=True)
-        # TODO: scale the size of the figure with the number of parameters
+        # TODO: dynamically scale figure height based on number of parameters
         fig.suptitle("Chains plot")
 
         samples = self.sampler.get_chain(flat=False, thin=thin, discard=discard)
@@ -455,8 +455,8 @@ class Fitter:
         dpi : int, optional
             The dpi to save the image at (default: 100)
         """
-        # TODO: should we combine this function with posterior phase, like in model?
-        # That way, we could cut down on (re)calculating posterior RVs.
+        # TODO: could combine with plot_posterior_phase() to avoid recalculating posterior RVs
+        # This would improve performance for large MCMC chains
 
         # Get the posterior RVs, evaluated at each sample in the chains
         rv_array, tlin = self._posterior_rv(discard=discard, thin=thin)
@@ -549,8 +549,8 @@ class Fitter:
         dpi : int, optional
             The dpi to save the image at (default: 100)
         """
-        # TODO: should we combine this function with posterior phase, like in model?
-        # That way, we could cut down on (re)calculating posterior RVs.
+        # TODO: could combine with plot_posterior_phase() to avoid recalculating posterior RVs
+        # This would improve performance for large MCMC chains
 
         # get smooth linear time curve for plotting
         _tmin, _tmax = self.time.min(), self.time.max()
@@ -623,33 +623,32 @@ class Fitter:
             inds[letter] = np.argsort(t_fold)
             lin_inds[letter] = np.argsort(tlin_fold)
 
-            ### 3) calculate the posterior rv for this planet at the data x times
-            # this generates the matrix (x=times, y=samples) of RVs for this planet
+            # Step 3: Calculate posterior RV matrix for current planet at data times
+            # Generates matrix with shape (times, samples) for this planet's contribution
             posterior_rvs[letter] = self._posterior_rv_planet(letter, times=self.time, discard=discard, thin=thin)
 
-            ### 4) calculate the posterior rv for this planet at the smooth tlin times
-            # this generates the matrix (x=tlin, y=samples) of RVs for this planet
+            # Step 4: Calculate posterior RV matrix for current planet at smooth times
+            # Used for plotting smooth model curve with uncertainties
             posterior_rvs_tlin[letter] = self._posterior_rv_planet(letter, times=tlin, discard=discard, thin=thin)
 
             # TODO: I'm not convinced that storing this all in dicts is ideal. It's a lot of writing and retrieving.
             # There might be a better way to do this without looping through planets twice.
 
-        # For the plot, we need:
-        # 1) the overall system trend RV
-        # Then, for each planet:
-        # 2) the posterior RVs for every other planet, at the data x times, summed
-        # 3) add the system trend posterior RV matrix, at the data x times
-        # 4) take the median of this
-        # 5) subtract this median from the data, to get the residual RV for this planet
-        # 6) overplot the jitter additional errorbars
-        # 7) get this planet's posterior RVs at the tlin times (using the tlin_folds indices to fold them)
-        # 8) calculate the 16,50,84 percentiles of the posterior RVs matrix
-        # 9) plot the median RV, and the 16,50,84 percentiles as a shaded region
+        # Phase plot procedure:
+        # 1. Calculate overall system trend RV
+        # 2. For each planet, calculate posterior RVs for all other planets at data times
+        # 3. Add system trend posterior RV matrix at data times
+        # 4. Take median to create composite model excluding target planet
+        # 5. Subtract composite model from data to isolate target planet signal
+        # 6. Add jitter error bars to account for additional scatter
+        # 7. Calculate target planet's posterior RVs at smooth time grid (tlin)
+        # 8. Compute 16th, 50th, 84th percentiles of posterior RV matrix
+        # 9. Plot median curve with uncertainty shaded region
 
         fig, axs = plt.subplots(len(self.planet_letters), figsize=(8, len(self.planet_letters)*10/3), sharex=True)
         fig.subplots_adjust(hspace=0)
 
-        ### 1) we need the system trend RV
+        # 1) we need the system trend RV
         trend_rv = self._posterior_rv_trend(times=self.time, discard=discard, thin=thin)
 
         jit_median = np.median(params["jit"])
@@ -657,26 +656,26 @@ class Fitter:
 
         for i, letter in enumerate(self.planet_letters):
 
-            ### 2) sum all of the posterior_rv matrices for the OTHER planets
+            # 2) sum all of the posterior_rv matrices for the OTHER planets
             all_other_rvs = np.zeros((len(samples_df), len(self.time)))
             other_letters = [pl for pl in self.planet_letters if pl != letter]
             for ol in other_letters:
                 all_other_rvs += posterior_rvs[ol]
 
-            ### 3) add on the posterior RV matrix for the system trend
+            # 3) add on the posterior RV matrix for the system trend
             all_other_rvs += trend_rv
 
-            ### 4) take the median of this
+            # 4) take the median of this
             median_all_other_rvs = np.median(all_other_rvs, axis=0)
 
-            ### 5) subtract this median from the data, to get the residual RV for this planet
+            # 5) subtract this median from the data, to get the residual RV for this planet
             # plot the t_fold, (data - median), observed errorbars
             axs[i].errorbar(t_folds[letter], self.vel-median_all_other_rvs, yerr=self.verr, marker=".", linestyle="None", color="black", zorder=4)
 
-            ### 6) overplot the jitter errorbars
+            # 6) overplot the jitter errorbars
             axs[i].errorbar(t_folds[letter], self.vel-median_all_other_rvs, yerr=verr_with_jit, marker="None", linestyle="None", color="black", alpha=0.5, zorder=3)
 
-            ### 7) get this planet's posterior RV matrix at smooth tlin times
+            # 7) get this planet's posterior RV matrix at smooth tlin times
             this_planet_rv = posterior_rvs_tlin[letter]
 
             # use the lin_inds to fold the RV. We do this so it's already in the
@@ -686,10 +685,10 @@ class Fitter:
             this_planet_inds = lin_inds[letter]
             this_planet_rv_folded = this_planet_rv[:,this_planet_inds] # get every sample's posterior RV, but in the order of the inds for folding (not in time order)
 
-            ### 8) calculate the 16,50,84 percentiles of the posterior RVs matrix
+            # 8) calculate the 16,50,84 percentiles of the posterior RVs matrix
             rv_percentiles = np.percentile(this_planet_rv_folded, [16, 50, 84], axis=0)
 
-            ### 9) plot the median RV and the 16,50,84 percentiles as a shaded region
+            # 9) plot the median RV and the 16,50,84 percentiles as a shaded region
             axs[i].plot(tlin_folds[letter][lin_inds[letter]], rv_percentiles[1], label="median", color="tab:blue", zorder=2)
             axs[i].fill_between(tlin_folds[letter][lin_inds[letter]], rv_percentiles[0], rv_percentiles[2], color="tab:blue", alpha=0.3, zorder=1)
             axs[i].set_xlim(-0.5, 0.5)
@@ -697,9 +696,9 @@ class Fitter:
             axs[i].legend(loc="best")
 
             # annotate plot with planet letter, median P and K values
-            # TODO: e and omega (or parameterisation of) too?
-            # TODO: uncertainties on these values
-            # TODO: jitter in plot title or legend
+            # TODO: add eccentricity and argument of periastron to annotations
+            # TODO: add uncertainties to parameter values
+            # TODO: display jitter value in plot title or legend
             _k = params[f"k_{letter}"]
             median_k = np.median(_k)
             s = f"Planet {letter}\nP={p_medians[letter]:.2f} d\nK={median_k:.2f} m/s"
@@ -763,18 +762,18 @@ class LogPosterior:
         self.log_prior = LogPrior(self.priors)
 
     def log_probability(self, free_params_dict):
-        # one) sort out the fixed and free values so that we can actually pass them into the LL object
-
-        # 2) Calculate priors. If any are infinite, return -inf (saves us wasting time calculating LL too)
+        # Evaluate priors on the free parameters. If any parameters are outside priors
+        # (i.e. priors are infinite), then fail fast returning -infty early, so we
+        # don't waste time calculating LogLikelihood when we know this step will be rejected.
         lp = self.log_prior(free_params_dict)
         if not np.isfinite(lp):
             return -np.inf
 
-        # 3) Calculate the log-likelihood
+        # Calculate log-likelihood with all parameters
         _all_params_for_ll = self.fixed_params | free_params_dict
         ll = self.log_likelihood(_all_params_for_ll)
 
-        # 4) return log-likehood + log-prior
+        # Return combined log-posterior (log-likelihood + log-prior)
         logprob = ll + lp
         return logprob
 
@@ -838,7 +837,7 @@ class LogLikelihood:
     def __call__(self, params: dict):
         rv_total = np.zeros(len(self.time))
 
-        # one) calculate RV for each planet
+        # Step 1: Calculate RV contributions from each planet
         # TODO: could we rely on dict maintaining order to just get each planet
         # by getting 5 params each time? rather than doing this loop yet again?
         # TODO: or is there a better way to use the list of keys that Parameterisation provides?
@@ -848,7 +847,7 @@ class LogLikelihood:
             for _this_planet_key in _this_planet_keys:
                 _key_inside_dict = _this_planet_key[:-2]
                 _this_planet_params[_key_inside_dict] = params[_this_planet_key]
-                # we do this because the Planet object doesn't want the planet letter in the key
+                # Remove planet letter suffix since Planet class expects parameter names without it
 
             try:
                 _this_planet = ravest.model.Planet(letter, self.parameterisation, _this_planet_params)
@@ -858,15 +857,15 @@ class LogLikelihood:
 
             rv_total += _this_planet.radial_velocity(self.time)
 
-        # two) calculate RV for trend parameters
+        # Step 2: Calculate RV contribution from trend parameters
         _trend_keys = ["g", "gd", "gdd"]
         _trend_params = {key: params[key] for key in _trend_keys}
         _this_trend = ravest.model.Trend(params=_trend_params, t0=self.t0)
         _rv_trend = _this_trend.radial_velocity(self.time)
         rv_total += _rv_trend
 
-        # three) do the log-likelihood calculation including jitter
-        verr_jitter_squared = self.verr**2 + params["jit"]**2  # we don't sqrt here as we would square again in the next line anyway
+        # Step 3: Calculate log-likelihood including jitter term
+        verr_jitter_squared = self.verr**2 + params["jit"]**2
         penalty_term = np.log(2 * np.pi * verr_jitter_squared)
         residuals = rv_total - self.vel
         chi2 = residuals**2 / verr_jitter_squared

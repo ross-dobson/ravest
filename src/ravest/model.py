@@ -227,7 +227,8 @@ class Planet:
         semi_amplitude = self._rvparams["k"]
         eccentricity = self._rvparams["e"]
 
-        # convert M_s to kg, and period to s, as the formula is in SI units
+        # Convert stellar mass to kg and period to seconds for SI unit consistency
+        # Formula requires SI units: M_s [kg], P [s], K [m/s]
         mpsini = calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit)
         return mpsini
 
@@ -355,7 +356,7 @@ class Star:
         tlin = np.linspace(t[0], t[-1], 1000)
         fig, axs = plt.subplots(2+self.num_planets,1, figsize=(10, (2*10/3)+(self.num_planets*10/3)), constrained_layout=True,)
 
-        # First panel: plot the observed data and the combined system model
+        # Panel 1: Observed data with complete system model overlay
         axs[0].set_title("Stellar radial velocity")
         axs[0].set_ylabel("Radial Velocity [m/s]")
         axs[0].set_xlabel("Time [days]")
@@ -366,14 +367,14 @@ class Star:
         axs[0].plot(tlin, modelled_rv_tlin, color="tab:blue", zorder=2)
         axs[0].errorbar(t, ydata, yerr=yerr, marker=".", color="k", mfc="white", ecolor="tab:gray", markersize=10, linestyle="None", zorder=3)
 
-        # Second panel: O-C residuals of the top panel
+        # Panel 2: Observed minus calculated (O-C) residuals
         axs[1].set_title("Observed-Calculated")
         axs[1].set_xlabel("Time [days]")
         axs[1].set_ylabel("Residual [m/s]")
         axs[1].axhline(y=0, color="tab:blue", linestyle="-")
         axs[1].errorbar(t, ydata-modelled_rv_tdata, yerr=yerr, marker=".", mfc="white", color="k", ecolor="tab:gray", markersize=10, linestyle="None")
 
-        # Subsequent panels: phase plot, one per planet
+        # Panels 3+: Individual planet phase plots
         for n, letter in enumerate(self.planets):
             n += 2  # we already have two subplots
             axs[n].set_title(f"Planet {letter}")
@@ -394,7 +395,8 @@ class Star:
             inds = np.argsort(tlin_fold)
             axs[n].plot(tlin_fold[inds]/p, yplot[inds], label=f"{n},{letter}, rvplot", color="tab:blue")
 
-            # model the rv data for all the other planets, to subtract from the observed data
+            # Calculate RV contributions from all other planets
+            # Subtract from observed data to isolate the current planet's signal
             other_planets_modelled_rv_tdata = np.zeros(len(t))
             for _letter in self.planets:
                 if _letter == letter:
@@ -444,12 +446,11 @@ class Trend:
         self.gammadot = params["gd"]
         self.gammadotdot = params["gdd"]
 
-        # Check the input t0 is a single time, not e.g. the entire time array
+        # Validate and store reference time t0
         try:
-            t0 = float(t0)
-            self.t0 = t0
-        except (TypeError, ValueError):
-            raise ValueError("t0 must be a float (recommended to be mean or median of times)")
+            self.t0 = float(t0)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"t0 must be a numeric value (recommend mean or median of observation times), but got {type(t0).__name__}: {t0}") from e
 
     def __str__(self):
         return f"Trend: $\\gamma$={self.gamma}, $\\dot\\gamma$={self.gammadot}, $\\ddot\\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"

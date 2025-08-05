@@ -137,7 +137,7 @@ class Parameterisation:
         """
         theta_tc = (np.pi / 2) - arg_peri  # true anomaly at time t_c
 
-        # Validate eccentricity before sqrt operations to prevent RuntimeWarnings
+        # Validate eccentricity before sqrt operations (prevents RuntimeWarnings)
         self._validate_eccentricity(eccentricity)
 
         _1me_over_1pe = (1 - eccentricity) / (1 + eccentricity)
@@ -154,7 +154,7 @@ class Parameterisation:
         return e, w
 
     def convert_e_w_to_secosw_sesinw(self, e, w):
-        # Validate eccentricity before sqrt operations
+        # Validate eccentricity before sqrt operations (prevents RuntimeWarnings)
         self._validate_eccentricity(e)
         secosw = np.sqrt(e) * np.cos(w)
         sesinw = np.sqrt(e) * np.sin(w)
@@ -163,7 +163,7 @@ class Parameterisation:
     def convert_ecosw_esinw_to_e_w(self, ecosw, esinw):
         e2 = ecosw**2 + esinw**2
         e = np.sqrt(e2)
-        # Validate output eccentricity
+        # Validate computed eccentricity is within valid range 0 <= e < 1
         self._validate_eccentricity(e)
         w = np.arctan2(esinw, ecosw)
         return e, w
