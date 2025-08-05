@@ -11,6 +11,51 @@ ALLOWED_PARAMETERISATIONS = ["per k e w tp",
 
 class Parameterisation:
 
+    @staticmethod
+    def _validate_period(per):
+        """Validate orbital period."""
+        if per <= 0:
+            raise ValueError(f"Invalid period: {per} <= 0")
+
+    @staticmethod
+    def _validate_semi_amplitude(k):
+        """Validate RV semi-amplitude."""
+        if k <= 0:
+            raise ValueError(f"Invalid semi-amplitude: {k} <= 0")
+
+    @staticmethod
+    def _validate_eccentricity(e):
+        """Validate orbital eccentricity."""
+        if e < 0:
+            raise ValueError(f"Invalid eccentricity: {e} < 0")
+        if e >= 1.0:
+            raise ValueError(f"Invalid eccentricity: {e} >= 1.0")
+
+    @staticmethod
+    def _validate_argument_periastron(w):
+        """Validate argument of periastron."""
+        if not -np.pi <= w < np.pi:
+            raise ValueError(f"Invalid argument of periastron: {w} not in [-pi, +pi)")
+
+    def validate_default_basis_params(self, params_dict):
+        """Validate all parameters in default basis (per k e w tp).
+
+        Parameters
+        ----------
+        params_dict : dict
+            Dictionary with keys: per, k, e, w, tp
+
+        Raises
+        ------
+        ValueError
+            If any parameter is invalid
+        """
+        self._validate_period(params_dict["per"])
+        self._validate_semi_amplitude(params_dict["k"])
+        self._validate_eccentricity(params_dict["e"])
+        self._validate_argument_periastron(params_dict["w"])
+        # Note: tp (time of periastron) can be any real number, so no validation needed
+
     def __init__(self, parameterisation: str):
         """Parameterisation object handles parameter conversions
 
@@ -92,12 +137,9 @@ class Parameterisation:
         """
         theta_tc = (np.pi / 2) - arg_peri  # true anomaly at time t_c
 
-        # Because model.Planet.is_valid() check is performed after parameter
-        # conversion, this occasionally will be called with invalid parameters
-        # causing the sqrt to be negative. This is caught later on in is_valid()
-        # so we can leave it as a warning and not Raise it here. This isn't
-        # ideal as it will slow down the code, but it is the best we can do
-        # without a refactor.
+        # Validate eccentricity before sqrt operations to prevent RuntimeWarnings
+        self._validate_eccentricity(eccentricity)
+
         _1me_over_1pe = (1 - eccentricity) / (1 + eccentricity)
         _sqrt_term = np.sqrt(_1me_over_1pe)
         # eccentric_anomaly = 2 * np.arctan(np.sqrt((1 - eccentricity) / (1 + eccentricity)) * np.tan(theta_tc / 2))
@@ -112,6 +154,8 @@ class Parameterisation:
         return e, w
 
     def convert_e_w_to_secosw_sesinw(self, e, w):
+        # Validate eccentricity before sqrt operations
+        self._validate_eccentricity(e)
         secosw = np.sqrt(e) * np.cos(w)
         sesinw = np.sqrt(e) * np.sin(w)
         return secosw, sesinw
@@ -119,6 +163,8 @@ class Parameterisation:
     def convert_ecosw_esinw_to_e_w(self, ecosw, esinw):
         e2 = ecosw**2 + esinw**2
         e = np.sqrt(e2)
+        # Validate output eccentricity
+        self._validate_eccentricity(e)
         w = np.arctan2(esinw, ecosw)
         return e, w
 

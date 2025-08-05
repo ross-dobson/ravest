@@ -35,30 +35,11 @@ class Planet:
 
         # Convert to the per k e w tp basis that we need for the RV equation
         self._rvparams = self.parameterisation.convert_pars_to_default_basis(self.params)
-        self.valid = self.is_valid()
 
-    def is_valid(self) -> bool:
-        """Check if the planet RV parameters (default basis) are valid.
+        # Validate parameters immediately after conversion to avoid invalid parameters
+        # Raises a ValueError if any parameter is invalid
+        self.parameterisation.validate_default_basis_params(self._rvparams)
 
-        Checks that the orbital period and RV semi-amplitude are positive, that
-        eccentricity is between 0 and 1, and that the argument of periastron is
-        between -pi and pi.
-
-        Returns
-        -------
-        `bool`
-            True if the planet parameters are valid, False otherwise.
-        """
-        if self._rvparams["per"] <= 0:
-            return False
-        elif self._rvparams["k"] <= 0:
-            return False
-        elif not 0 <= self._rvparams["e"] < 1:
-            return False
-        elif not -np.pi <= self._rvparams["w"] < np.pi:
-            return False
-        else:
-            return True
 
     def __repr__(self):
         class_name = type(self).__name__
