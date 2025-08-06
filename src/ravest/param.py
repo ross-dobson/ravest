@@ -154,8 +154,9 @@ class Parameterisation:
     def convert_e_w_to_secosw_sesinw(self, e, w):
         # Validate eccentricity before sqrt operations (prevents RuntimeWarnings)
         self._validate_eccentricity(e)
-        secosw = np.sqrt(e) * np.cos(w)
-        sesinw = np.sqrt(e) * np.sin(w)
+        sqrt_e = np.sqrt(e)  # Calculate once, use twice
+        secosw = sqrt_e * np.cos(w)
+        sesinw = sqrt_e * np.sin(w)
         return secosw, sesinw
 
     def convert_ecosw_esinw_to_e_w(self, ecosw, esinw):
@@ -222,7 +223,7 @@ class Parameterisation:
                     "tp": tp}
 
         else:
-            raise Exception(f"parameterisation {self.parameterisation} not recognised")
+            raise ValueError(f"parameterisation {self.parameterisation} not recognised")
 
 
 class Parameter:
