@@ -323,8 +323,7 @@ class Fitter:
     def get_samples_dict(self, discard=0, thin=1):
         """Returns dict of MCMC samples for each free parameter.
 
-        Each parameter gets a 1D contiguous array of all its samples. This is more
-        efficient than the previous _get_samples_ndarray_dict method.
+        Each parameter gets a 1D contiguous array of all its samples.
 
         Parameters
         ----------
@@ -349,6 +348,27 @@ class Fitter:
 
         # Direct numpy slicing - much faster than pandas operations
         return {name: flat_samples[:, i] for i, name in enumerate(param_names)}
+
+    def get_sampler_lnprob(self, discard=0, thin=1, flat=False):
+        """Returns the log probability of the samples from the sampler.
+
+        Parameters
+        ----------
+        discard : int, optional
+            Discard the first `discard` steps as burn-in (default: 0)
+        thin : int, optional
+            Use only every `thin` steps from the chain (default: 1)
+        flat : bool, optional
+            If True, return flattened array shape (nsteps_after_discard_thin * nwalkers)
+            If False, return unflattened array shape (nsteps_after_discard_thin, nwalkers) (default: False)
+
+        Returns
+        -------
+        np.ndarray
+            Array of log probabilities of the function at each sample.
+        """
+        lnprob = self.sampler.get_log_prob(discard=discard, thin=thin, flat=flat)
+        return np.ascontiguousarray(lnprob)
 
     def get_posterior_params_dict(self, discard=0, thin=1):
         """Returns dict combining fixed parameters and MCMC samples.
