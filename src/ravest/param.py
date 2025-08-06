@@ -140,10 +140,8 @@ class Parameterisation:
         # Validate eccentricity before sqrt operations (prevents RuntimeWarnings)
         self._validate_eccentricity(eccentricity)
 
-        _1me_over_1pe = (1 - eccentricity) / (1 + eccentricity)
-        _sqrt_term = np.sqrt(_1me_over_1pe)
-        # eccentric_anomaly = 2 * np.arctan(np.sqrt((1 - eccentricity) / (1 + eccentricity)) * np.tan(theta_tc / 2))
-        eccentric_anomaly = 2 * np.arctan(_sqrt_term * np.tan(theta_tc / 2))
+        # Calculate eccentric anomaly using the relation: E = 2*arctan(sqrt((1-e)/(1+e)) * tan(θ_tc/2))
+        eccentric_anomaly = 2 * np.arctan(np.sqrt((1 - eccentricity) / (1 + eccentricity)) * np.tan(theta_tc / 2))
 
         mean_anomaly = eccentric_anomaly - (eccentricity * np.sin(eccentric_anomaly))
         return time_conj - (period / (2 * np.pi)) * mean_anomaly
