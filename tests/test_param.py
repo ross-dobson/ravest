@@ -29,14 +29,24 @@ def test_convert_e_w_to_ecosw_esinw(e, w):
 
 @pytest.mark.parametrize("ecosw, esinw", [
     (ecosw, esinw) for ecosw in np.arange(0, 1, 0.1) for esinw in np.arange(0, 1, 0.1)
+    if np.sqrt(ecosw**2 + esinw**2) < 1.0  # Only test valid combinations where e < 1
 ])
-def test_convert_ecosw_esinw_to_e_w(ecosw, esinw):
+def test_convert_ecosw_esinw_to_e_w_valid(ecosw, esinw):
     para = Parameterisation("per k ecosw esinw tp")
     expected_e = np.sqrt(ecosw**2 + esinw**2)
     expected_w = np.arctan2(esinw, ecosw)
     e, w = para.convert_ecosw_esinw_to_e_w(ecosw, esinw)
     assert np.isclose(e, expected_e)
     assert np.isclose(w, expected_w)
+
+@pytest.mark.parametrize("ecosw, esinw", [
+    (ecosw, esinw) for ecosw in np.arange(0, 1, 0.1) for esinw in np.arange(0, 1, 0.1)
+    if np.sqrt(ecosw**2 + esinw**2) >= 1.0  # Test invalid combinations where e >= 1
+])
+def test_convert_ecosw_esinw_to_e_w_invalid(ecosw, esinw):
+    para = Parameterisation("per k ecosw esinw tp")
+    with pytest.raises(ValueError, match="Invalid eccentricity.*>= 1.0"):
+        para.convert_ecosw_esinw_to_e_w(ecosw, esinw)
 
 @pytest.mark.parametrize("secosw, sesinw", [
     (secosw, sesinw) for secosw in np.arange(0, 1, 0.1) for sesinw in np.arange(0, 1, 0.1)

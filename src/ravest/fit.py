@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
-from tqdm import tqdm
 
 import ravest.model
 from ravest.param import Parameterisation
@@ -36,9 +35,9 @@ class Fitter:
         if len(time) != len(vel) or len(time) != len(verr):
             raise ValueError("Time, velocity, and uncertainty arrays must be the same length.")
 
-        self.time = time
-        self.vel = vel
-        self.verr = verr
+        self.time = np.ascontiguousarray(time)
+        self.vel = np.ascontiguousarray(vel)
+        self.verr = np.ascontiguousarray(verr)
         self.t0 = t0
 
     def add_params(self, params):
@@ -54,14 +53,14 @@ class Fitter:
         ValueError
             If the expected parameters are not present in the params dict
         """
-        # first check - do we have the right number of parameters?
+        # First check: verify correct number of parameters
         expected_length = 4 + (5 * len(self.planet_letters))  # 3 trend pars (g, gd, gdd) + jit, then 5 pars per planet
         if len(params) != expected_length:
             raise ValueError(
                 f"Expected {expected_length} parameters, got {len(params)} parameters"
             )
 
-        # second check - are all the parameters in the list?
+        # Second check: verify all expected parameters are present
         for planet_letter in self.planet_letters:  # for each planet
             for par_name in self.parameterisation.pars:  # and for each parameter we expect from the parameterisation
                 expected_par = par_name + "_" + planet_letter
@@ -103,82 +102,145 @@ class Fitter:
         Warning
             If a parameter is fixed, but a prior is provided
         """
-        if len(self.get_free_params_names()) < len(priors):
+        if len(self.free_params_names) < len(priors):
             raise Warning(
                 "Too many priors provided. Have you accidentally provided a prior for a fixed parameter?"
-                + f"\nReceived unexpected priors for {set(priors) - set(self.get_free_params_names())}."
+                + f"\nReceived unexpected priors for {set(priors) - set(self.free_params_names)}."
             )
-        if set(self.get_free_params_names()) != set(priors):
-            raise ValueError(f"Priors must be provided for all free parameters. Missing priors for {set(self.get_free_params_names()) - set(priors)}.")
+        if set(self.free_params_names) != set(priors):
+            raise ValueError(f"Priors must be provided for all free parameters. Missing priors for {set(self.free_params_names) - set(priors)}.")
 
-        # check that the initial parameter values are within the priors
-        for par in self.get_free_params_names():
+        # Validate that initial parameter values are within prior bounds
+        for par in self.free_params_names:
             prior_fn = priors[par]
             log_prior_prob = prior_fn(self.params[par].value)
             if not np.isfinite(log_prior_prob):
                 raise ValueError(f"Initial value {self.params[par].value} of parameter {par} is invalid for prior {priors[par]}.")
 
         self.priors = priors
+        self.ndim = len(self.free_params_values)
 
-    def get_free_params_dict(self):
-        """Return a dictionary of the free parameters."""
-        self._free_pars = {}
+    @property
+    def free_params_dict(self):
+        """Free parameters as dict."""
+        free_pars = {}
         for par in self.params:
             if self.params[par].fixed is False:
-                self._free_pars[par] = self.params[par]
-        return self._free_pars
+                free_pars[par] = self.params[par]
+        return free_pars
 
-    def get_free_params_val(self):
-        _list = list(self.get_free_params_dict().values())
-        return [param.value for param in _list]
+    @property
+    def free_params_values(self):
+        """Values of free parameters as list."""
+        return [param.value for param in self.free_params_dict.values()]
 
-    def get_free_params_names(self):
-        return list(self.get_free_params_dict().keys())
+    @property
+    def free_params_names(self):
+        """Names of free parameters as list."""
+        return list(self.free_params_dict.keys())
 
-    def get_fixed_params_dict(self):
-        """Return a dictionary of the fixed parameters."""
-        self._fixed_pars = {}
+    @property
+    def fixed_params_dict(self):
+        """Fixed parameters as dict."""
+        fixed_pars = {}
         for par in self.params:
             if self.params[par].fixed is True:
-                self._fixed_pars[par] = self.params[par]
-        return self._fixed_pars
+                fixed_pars[par] = self.params[par]
+        return fixed_pars
 
-    def get_fixed_params_val(self):
-        _list = list(self.get_fixed_params_dict().values())
-        return [param.value for param in _list]
+    @property
+    def fixed_params_values(self):
+        """Values of fixed parameters as list."""
+        return [param.value for param in self.fixed_params_dict.values()]
 
-    def get_fixed_params_names(self):
-        return list(self.get_fixed_params_dict().keys())
+    @property
+    def fixed_params_names(self):
+        """Names of fixed parameters as list."""
+        return list(self.fixed_params_dict.keys())
 
-    def fit_model_to_data(self, nwalkers, nsteps=5000, progress=True):
+    @property
+    def fixed_params_values_dict(self):
+        """Fixed parameters as dict mapping names to values."""
+        return dict(zip(self.fixed_params_names, self.fixed_params_values))
 
-        # create the log-posterior object
+    def find_map_estimate(self, method="Powell"):
+        """Find Maximum A Posteriori (MAP) estimate of parameters.
+
+        Parameters
+        ----------
+        method : str, optional
+            Optimization method to use (default: "Powell")
+
+        Returns
+        -------
+        scipy.optimize.OptimizeResult
+            The optimization result containing the MAP estimate
+
+        Raises
+        ------
+        Warning
+            If MAP optimization fails to converge
+        """
+        # Initialize log-posterior object
         lp = LogPosterior(
             self.planet_letters,
             self.parameterisation,
             self.priors,
-            self.get_fixed_params_dict(),
-            self.get_free_params_names(),
+            self.fixed_params_dict,
+            self.free_params_names,
             self.time,
             self.vel,
             self.verr,
             self.t0,
         )
 
-        # 1) Maximum A Posteriori to get the initial points for MCMC
+        initial_guess = self.free_params_values
+
+        # Perform MAP optimization
         def negative_log_posterior(*args):
             return lp._negative_log_probability_for_MAP(*args)
-        map_results = minimize(negative_log_posterior, self.get_free_params_val(), method="Powell")
+
+        map_results = minimize(negative_log_posterior, initial_guess, method=method)
+
         if map_results.success is False:
             print(map_results)
             raise Warning("MAP did not succeed. Check the initial values of the parameters, and the priors functions.")
-        self.ndim = len(self.get_free_params_val())
 
-        # zip the MAP results with the free parameter names to get a dict
-        map_results_dict = dict(zip(self.get_free_params_names(), map_results.x))
+        # Return results as dictionary for easy access
+        map_results_dict = dict(zip(self.free_params_names, map_results.x))
         print("MAP results:", map_results_dict)
 
-        # 2) MCMC
+        return map_results
+
+
+    def run_mcmc(self, initial_values, nwalkers, nsteps=5000, progress=True):
+        """Run MCMC sampling from given initial parameter values.
+
+        Parameters
+        ----------
+        initial_values : array-like
+            Starting parameter values for MCMC. Should match the order of
+            free parameters from get_free_params_names()
+        nwalkers : int
+            Number of MCMC walkers
+        nsteps : int, optional
+            Number of MCMC steps to run (default: 5000)
+        progress : bool, optional
+            Whether to show progress bar during MCMC (default: True)
+        """
+        # Initialize log-posterior object for MCMC sampling
+        lp = LogPosterior(
+            self.planet_letters,
+            self.parameterisation,
+            self.priors,
+            self.fixed_params_dict,
+            self.free_params_names,
+            self.time,
+            self.vel,
+            self.verr,
+            self.t0,
+        )
+
         print("Starting MCMC...")
         if nwalkers < 2 * self.ndim:
             print(f"Warning: nwalkers should be at least 2 * ndim. You have {nwalkers} walkers and {self.ndim} dimensions. Setting nwalkers to {2 * self.ndim}.")
@@ -186,10 +248,10 @@ class Fitter:
         else:
             self.nwalkers = nwalkers
 
-        mcmc_init = map_results.x + 1e-5 * np.random.randn(self.nwalkers, self.ndim)
-        # TODO: is passing in parameter_names causing slowdown?
+        mcmc_init = initial_values + 1e-5 * np.random.randn(self.nwalkers, self.ndim)
+        # TODO: benchmark if parameter_names argument impacts MCMC performance
         sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
-                                            parameter_names=self.get_free_params_names())
+                                            parameter_names=self.free_params_names)
         sampler.run_mcmc(initial_state=mcmc_init, nsteps=nsteps, progress=progress)
 
         # TODO: multiprocessing disabled for now as it's causing slowdown
@@ -198,75 +260,151 @@ class Fitter:
         #
         # with Pool() as pool:
         #     sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
-        #                                     parameter_names=self.get_free_params_names(),
+        #                                     parameter_names=self.free_params_names,
         #                                     pool=pool)
         #     state = sampler.run_mcmc(mcmc_init, 10000, progress=True)
         print("...MCMC done.")
         self.sampler = sampler
 
-    def get_samples_df(self, discard=0, thin=1):
-        """Returns a dataframe of the (flattened) samples from the MCMC run."""
-        # First, get the flat chains
-        flat_samples = self.sampler.get_chain(flat=True, thin=thin, discard=discard)
-        df = pd.DataFrame(flat_samples, columns=self.get_free_params_names())
-        return df
+    def get_samples_np(self, discard=0, thin=1, flat=False):
+        """Returns a contiguous numpy array of MCMC samples.
 
-    def _get_samples_ndarray_dict(self, discard=0, thin=1):
-        """Returns dict of samples from the MCMC run for each free parameter.
-
-        Each entry in the dict is a numpy array of samples for that parameter.
-        The samples are not flattened, so the shape of each array is
-        (nwalkers, nsteps).
+        This is the foundational method for accessing MCMC samples. All other sample
+        methods build on this for consistency and optimal performance.
 
         Parameters
         ----------
         discard : int, optional
-            Discard the first `discard` steps in the chain as burn-in. (default: 0)
+            Discard the first `discard` steps as burn-in (default: 0)
         thin : int, optional
-            Use only every `thin` steps from the chain. (default: 1)
+            Use only every `thin` steps from the chain (default: 1)
+        flat : bool, optional
+            If True, return flattened array shape (nsteps_after_discard_thin * nwalkers, ndim)
+            If False, return unflattened array shape (nsteps_after_discard_thin, nwalkers, ndim) (default: False)
 
         Returns
         -------
-        dict
-            Dictionary of samples for each free parameter.
+        np.ndarray
+            Contiguous array of MCMC samples. Shape depends on `flat` parameter:
+            - flat=False: (nsteps_after_discard_thin, nwalkers, ndim)
+            - flat=True: (nsteps_after_discard_thin * nwalkers, ndim)
 
         Notes
         -----
-        The samples are not flattened, so the shape of each array is
-        (nwalkers, nsteps).
+        This method wraps emcee's sampler.get_chain() but ensures the returned array
+        is contiguous in memory for optimal performance in computational operations.
+        The default shape (nsteps, nwalkers, ndim) matches emcee's convention.
         """
-        df = self.get_samples_df(discard=discard, thin=thin)
-        return dict(zip(df.T.index, df.T.values))
+        samples = self.sampler.get_chain(discard=discard, thin=thin, flat=flat)
+        return np.ascontiguousarray(samples)
 
-    def get_posterior_params_dict(self, discard=0, thin=1):
-        """Returns dict of samples from the MCMC run, and the fixed parameters.
+    def get_samples_df(self, discard=0, thin=1):
+        """Returns a pandas DataFrame of flattened MCMC samples.
 
-        The free parameter samples are stored in a numpy array, the fixed
-        parameters are floats. This makes it easier to pass the values into
-        other functions, such as calculate_mpsini, which requires all parameters
-        whether they are fixed or free. The `discard` and `thin` parameters are
-        passed into the `get_samples_df` function.
+        Each row represents one sample, columns are parameter names. Built on
+        get_samples_np() for consistent performance.
 
         Parameters
         ----------
         discard : int, optional
-            Discard the first `discard` steps in the chain as burn-in. (default: 0)
+            Discard the first `discard` steps as burn-in (default: 0)
         thin : int, optional
-            Use only every `thin` steps from the chain. (default: 1)
+            Use only every `thin` steps from the chain (default: 1)
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with shape (nsteps_after_discard_thin * nwalkers, ndim).
+            Columns are parameter names.
+        """
+        flat_samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
+        return pd.DataFrame(flat_samples, columns=self.free_params_names)
+
+    def get_samples_dict(self, discard=0, thin=1):
+        """Returns dict of MCMC samples for each free parameter.
+
+        Each parameter gets a 1D contiguous array of all its samples.
+
+        Parameters
+        ----------
+        discard : int, optional
+            Discard the first `discard` steps as burn-in (default: 0)
+        thin : int, optional
+            Use only every `thin` steps from the chain (default: 1)
 
         Returns
         -------
         dict
-            Dictionary of all parameters, float for fixed parameters, ndarray for
-            free parameters.
+            Dictionary mapping parameter names to 1D arrays of samples.
+            Each array has shape (nsteps_after_discard_thin * nwalkers,)
+
+        Examples
+        --------
+        >>> samples_dict = fitter.get_samples_dict(discard=1000)
+        >>> k_b_samples = samples_dict['k_b']  # All samples for k_b parameter
         """
-        fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
-        samples_dict = self._get_samples_ndarray_dict(discard=discard, thin=thin)
-        return fixed_params_dict | samples_dict
+        flat_samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
+        param_names = self.free_params_names
+
+        # Direct numpy slicing - much faster than pandas operations
+        return {name: flat_samples[:, i] for i, name in enumerate(param_names)}
+
+    def get_sampler_lnprob(self, discard=0, thin=1, flat=False):
+        """Returns the log probability of the samples from the sampler.
+
+        Parameters
+        ----------
+        discard : int, optional
+            Discard the first `discard` steps as burn-in (default: 0)
+        thin : int, optional
+            Use only every `thin` steps from the chain (default: 1)
+        flat : bool, optional
+            If True, return flattened array shape (nsteps_after_discard_thin * nwalkers)
+            If False, return unflattened array shape (nsteps_after_discard_thin, nwalkers) (default: False)
+
+        Returns
+        -------
+        np.ndarray
+            Array of log probabilities of the function at each sample.
+        """
+        lnprob = self.sampler.get_log_prob(discard=discard, thin=thin, flat=flat)
+        return np.ascontiguousarray(lnprob)
+
+    def get_posterior_params_dict(self, discard=0, thin=1):
+        """Returns dict combining fixed parameters and MCMC samples.
+
+        This method creates a unified dictionary containing all model parameters:
+        fixed parameters as single float values, and free parameters as arrays
+        of MCMC samples. This format is ideal for functions like calculate_mpsini
+        that need all parameters and should propagate uncertainties from free parameters.
+
+        Parameters
+        ----------
+        discard : int, optional
+            Discard the first `discard` steps as burn-in (default: 0)
+        thin : int, optional
+            Use only every `thin` steps from the chain (default: 1)
+
+        Returns
+        -------
+        dict
+            Dictionary of all parameters:
+            - Fixed parameters: single float values
+            - Free parameters: 1D arrays of MCMC samples with shape (nsteps_after_discard_thin * nwalkers,)
+
+        Examples
+        --------
+        >>> params = fitter.get_posterior_params_dict(discard=1000)
+        >>> params['per_b']  # Fixed parameter: single float (e.g., 20.8851)
+        >>> params['k_b']    # Free parameter: array of samples (e.g., [10.1, 9.9, ...])
+        """
+        fixed_params_dict = self.fixed_params_values_dict
+        free_samples_dict = self.get_samples_dict(discard=discard, thin=thin)
+        return fixed_params_dict | free_samples_dict
 
     def plot_chains(self, discard=0, thin=1, save=False, fname="chains_plot.png", dpi=100):
         fig, axes = plt.subplots(self.ndim, figsize=(10,1+(self.ndim*2/3)), sharex=True)
-        # TODO: scale the size of the figure with the number of parameters
+        # TODO: dynamically scale figure height based on number of parameters
         fig.suptitle("Chains plot")
 
         samples = self.sampler.get_chain(flat=False, thin=thin, discard=discard)
@@ -276,7 +414,7 @@ class Fitter:
 
             ax.plot(to_plot, "k", alpha=0.3)
             ax.set_xlim(0, len(samples))  # type: ignore
-            ax.set_ylabel(self.get_free_params_names()[i])
+            ax.set_ylabel(self.free_params_names[i])
             ax.yaxis.set_label_coords(-0.1, 0.5)
             axes[-1].set_xlabel("Step number")
         if save:
@@ -287,7 +425,7 @@ class Fitter:
     def plot_corner(self, discard=0, thin=1, save=False, fname="corner_plot.png", dpi=100):
         flat_samples = self.sampler.get_chain(flat=True, discard=discard, thin=thin)
         fig = corner.corner(
-        flat_samples, labels=self.get_free_params_names(), show_titles=True,
+        flat_samples, labels=self.free_params_names, show_titles=True,
         plot_datapoints=False, quantiles=[0.16, 0.5, 0.84],
         )
         fig.suptitle("Corner plots")
@@ -315,7 +453,7 @@ class Fitter:
         np.ndarray
             Array of RVs for each sample in the chain, at the times in `tlin`.
         """
-        samples = self.sampler.get_chain(flat=True, discard=discard, thin=thin)
+        samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
 
         # get smooth time curve for plotting
         _tmin, _tmax = self.time.min(), self.time.max()
@@ -327,10 +465,10 @@ class Fitter:
 
         # get the free parameter names and fixed parameter values
         # we don't need to call this repeatedly for each sample
-        free_param_names = self.get_free_params_names()
-        fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
+        free_param_names = self.free_params_names
+        fixed_params_dict = self.fixed_params_values_dict
 
-        for i, row in tqdm(enumerate(samples)):  # type: ignore
+        for i, row in enumerate(samples):  # type: ignore
             # Combine fixed and free parameters
             free_params = dict(zip(free_param_names, row))
             params = fixed_params_dict | free_params
@@ -374,16 +512,16 @@ class Fitter:
         dpi : int, optional
             The dpi to save the image at (default: 100)
         """
-        # TODO: should we combine this function with posterior phase, like in model?
-        # That way, we could cut down on (re)calculating posterior RVs.
+        # TODO: could combine with plot_posterior_phase() to avoid recalculating posterior RVs
+        # This would improve performance for large MCMC chains
 
         # Get the posterior RVs, evaluated at each sample in the chains
         rv_array, tlin = self._posterior_rv(discard=discard, thin=thin)
         rv_percentiles = np.percentile(rv_array, [16, 50, 84], axis=0)
 
         # Get the new errorbars to include jit
-        if "jit" in self.get_fixed_params_names():
-            jit_median = self.get_fixed_params_dict()["jit"].value
+        if "jit" in self.fixed_params_names:
+            jit_median = self.fixed_params_dict["jit"].value
         else:
             jit_median = np.median(self.get_samples_df()["jit"])
         verr_with_jit = np.sqrt(self.verr**2 + jit_median**2)
@@ -407,13 +545,13 @@ class Fitter:
 
     def _posterior_rv_planet(self, planet_letter, times, discard=0, thin=1):
         """calculate the posterior rv for a planet, using all samples in the chain"""
-        samples = self.sampler.get_chain(flat=True, discard=discard, thin=thin)
+        samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
         this_planet_rvs = np.zeros((len(samples), len(times))) # type: ignore
-        fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
+        fixed_params_dict = self.fixed_params_values_dict
 
         for i, row in enumerate(samples):  # type: ignore
             # Combine fixed and free parameters
-            free_params = dict(zip(self.get_free_params_names(), row))
+            free_params = dict(zip(self.free_params_names, row))
             params = fixed_params_dict | free_params
 
             # get this planet's params
@@ -430,14 +568,14 @@ class Fitter:
 
     def _posterior_rv_trend(self, times, discard=0, thin=1):
         """calculate the posterior rv for the trend, using all samples in the chain"""
-        samples = self.sampler.get_chain(flat=True, discard=discard, thin=thin)
+        samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
         this_trend_rvs = np.zeros((len(samples), len(times))) # type: ignore
-        fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
+        fixed_params_dict = self.fixed_params_values_dict
 
         # for each sample in the chain, calculate the RV for the trend
         for i, row in enumerate(samples):  # type: ignore
             # Combine fixed and free parameters
-            free_params = dict(zip(self.get_free_params_names(), row))
+            free_params = dict(zip(self.free_params_names, row))
             params = fixed_params_dict | free_params
 
             this_trend = ravest.model.Trend(params={"g": params["g"], "gd": params["gd"], "gdd": params["gdd"]}, t0=self.t0)
@@ -468,8 +606,8 @@ class Fitter:
         dpi : int, optional
             The dpi to save the image at (default: 100)
         """
-        # TODO: should we combine this function with posterior phase, like in model?
-        # That way, we could cut down on (re)calculating posterior RVs.
+        # TODO: could combine with plot_posterior_phase() to avoid recalculating posterior RVs
+        # This would improve performance for large MCMC chains
 
         # get smooth linear time curve for plotting
         _tmin, _tmax = self.time.min(), self.time.max()
@@ -481,7 +619,7 @@ class Fitter:
         # Both work for taking a median, (the median of a fixed value is just
         # the fixed value) and the RV functions will propagate either a fixed
         # value or an array of values through the calculations.
-        fixed_params_dict = dict(zip(self.get_fixed_params_names(), self.get_fixed_params_val()))
+        fixed_params_dict = self.fixed_params_values_dict
         samples_df = self.get_samples_df(discard=discard, thin=thin)
         samples_dict = samples_df.to_dict("list")
         params = fixed_params_dict | samples_dict
@@ -542,33 +680,32 @@ class Fitter:
             inds[letter] = np.argsort(t_fold)
             lin_inds[letter] = np.argsort(tlin_fold)
 
-            ### 3) calculate the posterior rv for this planet at the data x times
-            # this generates the matrix (x=times, y=samples) of RVs for this planet
+            # Step 3: Calculate posterior RV matrix for current planet at data times
+            # Generates matrix with shape (times, samples) for this planet's contribution
             posterior_rvs[letter] = self._posterior_rv_planet(letter, times=self.time, discard=discard, thin=thin)
 
-            ### 4) calculate the posterior rv for this planet at the smooth tlin times
-            # this generates the matrix (x=tlin, y=samples) of RVs for this planet
+            # Step 4: Calculate posterior RV matrix for current planet at smooth times
+            # Used for plotting smooth model curve with uncertainties
             posterior_rvs_tlin[letter] = self._posterior_rv_planet(letter, times=tlin, discard=discard, thin=thin)
 
             # TODO: I'm not convinced that storing this all in dicts is ideal. It's a lot of writing and retrieving.
             # There might be a better way to do this without looping through planets twice.
 
-        # For the plot, we need:
-        # 1) the overall system trend RV
-        # Then, for each planet:
-        # 2) the posterior RVs for every other planet, at the data x times, summed
-        # 3) add the system trend posterior RV matrix, at the data x times
-        # 4) take the median of this
-        # 5) subtract this median from the data, to get the residual RV for this planet
-        # 6) overplot the jitter additional errorbars
-        # 7) get this planet's posterior RVs at the tlin times (using the tlin_folds indices to fold them)
-        # 8) calculate the 16,50,84 percentiles of the posterior RVs matrix
-        # 9) plot the median RV, and the 16,50,84 percentiles as a shaded region
+        # Phase plot procedure:
+        # 1. Calculate overall system trend RV
+        # 2. For each planet, calculate posterior RVs for all other planets at data times
+        # 3. Add system trend posterior RV matrix at data times
+        # 4. Take median to create composite model excluding target planet
+        # 5. Subtract composite model from data to isolate target planet signal
+        # 6. Add jitter error bars to account for additional scatter
+        # 7. Calculate target planet's posterior RVs at smooth time grid (tlin)
+        # 8. Compute 16th, 50th, 84th percentiles of posterior RV matrix
+        # 9. Plot median curve with uncertainty shaded region
 
         fig, axs = plt.subplots(len(self.planet_letters), figsize=(8, len(self.planet_letters)*10/3), sharex=True)
         fig.subplots_adjust(hspace=0)
 
-        ### 1) we need the system trend RV
+        # 1) we need the system trend RV
         trend_rv = self._posterior_rv_trend(times=self.time, discard=discard, thin=thin)
 
         jit_median = np.median(params["jit"])
@@ -576,26 +713,26 @@ class Fitter:
 
         for i, letter in enumerate(self.planet_letters):
 
-            ### 2) sum all of the posterior_rv matrices for the OTHER planets
+            # 2) sum all of the posterior_rv matrices for the OTHER planets
             all_other_rvs = np.zeros((len(samples_df), len(self.time)))
             other_letters = [pl for pl in self.planet_letters if pl != letter]
             for ol in other_letters:
                 all_other_rvs += posterior_rvs[ol]
 
-            ### 3) add on the posterior RV matrix for the system trend
+            # 3) add on the posterior RV matrix for the system trend
             all_other_rvs += trend_rv
 
-            ### 4) take the median of this
+            # 4) take the median of this
             median_all_other_rvs = np.median(all_other_rvs, axis=0)
 
-            ### 5) subtract this median from the data, to get the residual RV for this planet
+            # 5) subtract this median from the data, to get the residual RV for this planet
             # plot the t_fold, (data - median), observed errorbars
             axs[i].errorbar(t_folds[letter], self.vel-median_all_other_rvs, yerr=self.verr, marker=".", linestyle="None", color="black", zorder=4)
 
-            ### 6) overplot the jitter errorbars
+            # 6) overplot the jitter errorbars
             axs[i].errorbar(t_folds[letter], self.vel-median_all_other_rvs, yerr=verr_with_jit, marker="None", linestyle="None", color="black", alpha=0.5, zorder=3)
 
-            ### 7) get this planet's posterior RV matrix at smooth tlin times
+            # 7) get this planet's posterior RV matrix at smooth tlin times
             this_planet_rv = posterior_rvs_tlin[letter]
 
             # use the lin_inds to fold the RV. We do this so it's already in the
@@ -605,10 +742,10 @@ class Fitter:
             this_planet_inds = lin_inds[letter]
             this_planet_rv_folded = this_planet_rv[:,this_planet_inds] # get every sample's posterior RV, but in the order of the inds for folding (not in time order)
 
-            ### 8) calculate the 16,50,84 percentiles of the posterior RVs matrix
+            # 8) calculate the 16,50,84 percentiles of the posterior RVs matrix
             rv_percentiles = np.percentile(this_planet_rv_folded, [16, 50, 84], axis=0)
 
-            ### 9) plot the median RV and the 16,50,84 percentiles as a shaded region
+            # 9) plot the median RV and the 16,50,84 percentiles as a shaded region
             axs[i].plot(tlin_folds[letter][lin_inds[letter]], rv_percentiles[1], label="median", color="tab:blue", zorder=2)
             axs[i].fill_between(tlin_folds[letter][lin_inds[letter]], rv_percentiles[0], rv_percentiles[2], color="tab:blue", alpha=0.3, zorder=1)
             axs[i].set_xlim(-0.5, 0.5)
@@ -616,9 +753,9 @@ class Fitter:
             axs[i].legend(loc="best")
 
             # annotate plot with planet letter, median P and K values
-            # TODO: e and omega (or parameterisation of) too?
-            # TODO: uncertainties on these values
-            # TODO: jitter in plot title or legend
+            # TODO: add eccentricity and argument of periastron to annotations
+            # TODO: add uncertainties to parameter values
+            # TODO: display jitter value in plot title or legend
             _k = params[f"k_{letter}"]
             median_k = np.median(_k)
             s = f"Planet {letter}\nP={p_medians[letter]:.2f} d\nK={median_k:.2f} m/s"
@@ -682,18 +819,18 @@ class LogPosterior:
         self.log_prior = LogPrior(self.priors)
 
     def log_probability(self, free_params_dict):
-        # one) sort out the fixed and free values so that we can actually pass them into the LL object
-
-        # 2) Calculate priors. If any are infinite, return -inf (saves us wasting time calculating LL too)
+        # Evaluate priors on the free parameters. If any parameters are outside priors
+        # (i.e. priors are infinite), then fail fast returning -infty early, so we
+        # don't waste time calculating LogLikelihood when we know this step will be rejected.
         lp = self.log_prior(free_params_dict)
         if not np.isfinite(lp):
             return -np.inf
 
-        # 3) Calculate the log-likelihood
+        # Calculate log-likelihood with all parameters
         _all_params_for_ll = self.fixed_params | free_params_dict
         ll = self.log_likelihood(_all_params_for_ll)
 
-        # 4) return log-likehood + log-prior
+        # Return combined log-posterior (log-likelihood + log-prior)
         logprob = ll + lp
         return logprob
 
@@ -714,7 +851,14 @@ class LogPosterior:
         """
         free_params_dict = dict(zip(self.free_params_names, free_params_vals))
         logprob = self.log_probability(free_params_dict)
-        return -logprob
+        neg_logprob = -logprob
+
+        # Handle -inf to prevent scipy RuntimeWarnings during optimization
+        # scipy's optimizer can't handle -inf values in arithmetic operations
+        if not np.isfinite(neg_logprob):
+            return 1e30  # Very large finite number instead of inf
+
+        return neg_logprob
 
     def _positive_log_probability_for_MCMC(self, free_params_vals):
         free_params_dict = dict(zip(self.free_params_names, free_params_vals))
@@ -750,7 +894,7 @@ class LogLikelihood:
     def __call__(self, params: dict):
         rv_total = np.zeros(len(self.time))
 
-        # one) calculate RV for each planet
+        # Step 1: Calculate RV contributions from each planet
         # TODO: could we rely on dict maintaining order to just get each planet
         # by getting 5 params each time? rather than doing this loop yet again?
         # TODO: or is there a better way to use the list of keys that Parameterisation provides?
@@ -760,33 +904,25 @@ class LogLikelihood:
             for _this_planet_key in _this_planet_keys:
                 _key_inside_dict = _this_planet_key[:-2]
                 _this_planet_params[_key_inside_dict] = params[_this_planet_key]
-                # we do this because the Planet object doesn't want the planet letter in the key
-            _this_planet = ravest.model.Planet(letter, self.parameterisation, _this_planet_params)
+                # Remove planet letter suffix since Planet class expects parameter names without it
 
-            # TODO - this isn't the best place to perform this check. Ideally,
-            # we would do this check when the parameters are set/converted, so
-            # we don't waste time calculating the RV when we know we have a bad
-            # parameter (e.g.  e>=1). However, if we do it inside Planet, we can
-            # raise an Exception, but we can't return -np.inf probability, as we
-            # can't return from inside a class. So, we need to do it here, and
-            # return -np.inf if the parameters are bad. Ideally, we should do
-            # some kind of check (and perhaps conversion) when the parameters
-            # are set, perhaps inside LogPrior. But then we might end up doing
-            # parameter conversion twice.
-            if not _this_planet.is_valid():
+            try:
+                _this_planet = ravest.model.Planet(letter, self.parameterisation, _this_planet_params)
+            except ValueError:
+                # Planet.__init__ validates parameters and raises ValueError for invalid params
                 return -np.inf
 
             rv_total += _this_planet.radial_velocity(self.time)
 
-        # two) calculate RV for trend parameters
+        # Step 2: Calculate RV contribution from trend parameters
         _trend_keys = ["g", "gd", "gdd"]
         _trend_params = {key: params[key] for key in _trend_keys}
         _this_trend = ravest.model.Trend(params=_trend_params, t0=self.t0)
         _rv_trend = _this_trend.radial_velocity(self.time)
         rv_total += _rv_trend
 
-        # three) do the log-likelihood calculation including jitter
-        verr_jitter_squared = self.verr**2 + params["jit"]**2  # we don't sqrt here as we would square again in the next line anyway
+        # Step 3: Calculate log-likelihood including jitter term
+        verr_jitter_squared = self.verr**2 + params["jit"]**2
         penalty_term = np.log(2 * np.pi * verr_jitter_squared)
         residuals = rv_total - self.vel
         chi2 = residuals**2 / verr_jitter_squared

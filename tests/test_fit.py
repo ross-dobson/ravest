@@ -154,9 +154,9 @@ class TestFitter:
         params = test_circular_params
         fitter.add_params(params)
 
-        free_params = fitter.get_free_params_dict()
-        free_names = fitter.get_free_params_names()
-        free_vals = fitter.get_free_params_val()
+        free_params = fitter.free_params_dict
+        free_names = fitter.free_params_names
+        free_vals = fitter.free_params_values
 
         assert len(free_params) == 2  # k_b and jit
         assert "k_b" in free_names
@@ -171,9 +171,9 @@ class TestFitter:
         params = test_circular_params
         fitter.add_params(params)
 
-        fixed_params = fitter.get_fixed_params_dict()
-        fixed_names = fitter.get_fixed_params_names()
-        fixed_vals = fitter.get_fixed_params_val()
+        fixed_params = fitter.fixed_params_dict
+        fixed_names = fitter.fixed_params_names
+        fixed_vals = fitter.fixed_params_values
 
         assert len(fixed_params) == 7  # All except k_b and jit
         assert "per_b" in fixed_names
@@ -424,8 +424,8 @@ class TestFitterIntegration:
         # Verify everything is set up correctly
         assert len(fitter.params) == 9
         assert len(fitter.priors) == 2
-        assert len(fitter.get_free_params_names()) == 2
-        assert len(fitter.get_fixed_params_names()) == 7
+        assert len(fitter.free_params_names) == 2
+        assert len(fitter.fixed_params_names) == 7
 
     def test_multi_planet_setup(self, test_data):
         """Test setup with multiple planets"""
@@ -464,4 +464,4 @@ class TestFitterIntegration:
 
         assert len(fitter.params) == 14  # 5*2 planets + 4 system
         assert len(fitter.priors) == 3   # k_b, k_c, jit
-        assert len(fitter.get_free_params_names()) == 3
+        assert len(fitter.free_params_names) == 3

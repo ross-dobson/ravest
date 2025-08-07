@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from astropy import constants as const
 from scipy import constants
-from scipy.optimize import newton
 
 from ravest.param import Parameterisation
 
@@ -35,30 +34,11 @@ class Planet:
 
         # Convert to the per k e w tp basis that we need for the RV equation
         self._rvparams = self.parameterisation.convert_pars_to_default_basis(self.params)
-        self.valid = self.is_valid()
 
-    def is_valid(self) -> bool:
-        """Check if the planet RV parameters (default basis) are valid.
+        # Validate parameters immediately after conversion to avoid invalid parameters
+        # Raises a ValueError if any parameter is invalid
+        self.parameterisation.validate_default_basis_params(self._rvparams)
 
-        Checks that the orbital period and RV semi-amplitude are positive, that
-        eccentricity is between 0 and 1, and that the argument of periastron is
-        between -pi and pi.
-
-        Returns
-        -------
-        `bool`
-            True if the planet parameters are valid, False otherwise.
-        """
-        if self._rvparams["per"] <= 0:
-            return False
-        elif self._rvparams["k"] <= 0:
-            return False
-        elif not 0 <= self._rvparams["e"] < 1:
-            return False
-        elif not -np.pi <= self._rvparams["w"] < np.pi:
-            return False
-        else:
-            return True
 
     def __repr__(self):
         class_name = type(self).__name__
@@ -112,45 +92,59 @@ class Planet:
         return n * (t - time_peri)
 
     def _solve_keplerian_equation(self, eccentricity: float, M: np.ndarray) -> np.ndarray:
-        """Solve the Keplerian equation for eccentric anomaly E.
+        """Solve the Keplerian equation for eccentric anomaly E using vectorized Halley's method.
 
         The eccentric anomaly is the corresponding angle for the true anomaly on
         the auxiliary circle, rather than the real elliptical orbit. Therefore, if
         the ``eccentricity`` e=0, then the eccentric anomaly E is equivalent to the
         mean anomaly ``M``. However, for eccentric cases, the equation is
-        E(t) = M(t) + e*sin(E(t)), which requires solving iteratively. This
-        function achieves this via Newton-Raphson iteration.
+        E(t) = M(t) + e*sin(E(t)), which requires solving iteratively.
+
+        This implementation uses Halley's method for cubic convergence with identical
+        tolerance and convergence criteria to scipy's newton solver (tol=1.48e-08,
+        maxiter=50).
 
         Parameters
         ----------
-        M : `float`
-            The mean anomaly at time t.
+        M : `np.ndarray`
+            The mean anomaly at time t (array).
         eccentricity : `float`
             The eccentricity of the orbit, 0 <= e < 1  (dimensionless).
 
         Returns
         -------
-        `float`
-            The eccentric anomaly at time t.
+        `np.ndarray`
+            The eccentric anomaly at time t (array).
         """
-        # TODO add Notes to docstring explaining Newton-Raphson, and choice of E0=M
         if eccentricity == 0:
             return M
 
-        # Newton-Raphson finds roots, so solving E-(M+e*sinE) finds E
-        E0 = M  # initial guess for E0. # TODO: reference for this initial choice?
+        E = M.copy()  # Initial guess: E0 = M
 
-        def f(E: float, eccentricity: float, M: float) -> float:
-            return E - (eccentricity * np.sin(E)) - M
+        # Halley's method iteration with scipy's exact parameters
+        tol = 1.48e-08  # scipy default tolerance
+        maxiter = 50    # scipy default max iterations
 
-        def fp(E: float, eccentricity: float, M: float) -> float:
-            return 1 - eccentricity * np.cos(E)
+        for iteration in range(maxiter):
+            sin_E = np.sin(E)
+            cos_E = np.cos(E)
 
-        def fpp(E: float, eccentricity: float, M: float) -> float:
-            return eccentricity * np.sin(E)
+            # Function and derivatives for Kepler's equation: f(E) = E - e*sin(E) - M
+            f = E - eccentricity * sin_E - M        # f(E)
+            fp = 1 - eccentricity * cos_E           # f'(E)
+            fpp = eccentricity * sin_E              # f''(E)
 
-        # TODO: fix typing here
-        return newton(func=f, fprime=fp, fprime2=fpp, args=(eccentricity, M), x0=E0)  # type: ignore
+            # Halley's method update: E_new = E - f / (f' - f*f''/(2*f'))
+            denominator = fp - ((f * fpp) / (2 * fp))
+            E_new = E - (f / denominator)
+
+            # Check convergence using scipy's absolute tolerance on step size
+            if np.all(np.abs(E_new - E) < tol):
+                break
+
+            E = E_new
+
+        return E
 
     def _true_anomaly(self, E: np.ndarray, eccentricity: float) -> np.ndarray:
         """Calculate true anomaly at time t.
@@ -246,7 +240,8 @@ class Planet:
         semi_amplitude = self._rvparams["k"]
         eccentricity = self._rvparams["e"]
 
-        # convert M_s to kg, and period to s, as the formula is in SI units
+        # Convert stellar mass to kg and period to seconds for SI unit consistency
+        # Formula requires SI units: M_s [kg], P [s], K [m/s]
         mpsini = calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit)
         return mpsini
 
@@ -374,7 +369,7 @@ class Star:
         tlin = np.linspace(t[0], t[-1], 1000)
         fig, axs = plt.subplots(2+self.num_planets,1, figsize=(10, (2*10/3)+(self.num_planets*10/3)), constrained_layout=True,)
 
-        # First panel: plot the observed data and the combined system model
+        # Panel 1: Observed data with complete system model overlay
         axs[0].set_title("Stellar radial velocity")
         axs[0].set_ylabel("Radial Velocity [m/s]")
         axs[0].set_xlabel("Time [days]")
@@ -385,14 +380,14 @@ class Star:
         axs[0].plot(tlin, modelled_rv_tlin, color="tab:blue", zorder=2)
         axs[0].errorbar(t, ydata, yerr=yerr, marker=".", color="k", mfc="white", ecolor="tab:gray", markersize=10, linestyle="None", zorder=3)
 
-        # Second panel: O-C residuals of the top panel
+        # Panel 2: Observed minus calculated (O-C) residuals
         axs[1].set_title("Observed-Calculated")
         axs[1].set_xlabel("Time [days]")
         axs[1].set_ylabel("Residual [m/s]")
         axs[1].axhline(y=0, color="tab:blue", linestyle="-")
         axs[1].errorbar(t, ydata-modelled_rv_tdata, yerr=yerr, marker=".", mfc="white", color="k", ecolor="tab:gray", markersize=10, linestyle="None")
 
-        # Subsequent panels: phase plot, one per planet
+        # Panels 3+: Individual planet phase plots
         for n, letter in enumerate(self.planets):
             n += 2  # we already have two subplots
             axs[n].set_title(f"Planet {letter}")
@@ -413,7 +408,8 @@ class Star:
             inds = np.argsort(tlin_fold)
             axs[n].plot(tlin_fold[inds]/p, yplot[inds], label=f"{n},{letter}, rvplot", color="tab:blue")
 
-            # model the rv data for all the other planets, to subtract from the observed data
+            # Calculate RV contributions from all other planets
+            # Subtract from observed data to isolate the current planet's signal
             other_planets_modelled_rv_tdata = np.zeros(len(t))
             for _letter in self.planets:
                 if _letter == letter:
@@ -463,12 +459,11 @@ class Trend:
         self.gammadot = params["gd"]
         self.gammadotdot = params["gdd"]
 
-        # Check the input t0 is a single time, not e.g. the entire time array
+        # Validate and store reference time t0
         try:
-            t0 = float(t0)
-            self.t0 = t0
-        except (TypeError, ValueError):
-            raise ValueError("t0 must be a float (recommended to be mean or median of times)")
+            self.t0 = float(t0)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"t0 must be a numeric value (recommend mean or median of observation times), but got {type(t0).__name__}: {t0}") from e
 
     def __str__(self):
         return f"Trend: $\\gamma$={self.gamma}, $\\dot\\gamma$={self.gammadot}, $\\ddot\\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
