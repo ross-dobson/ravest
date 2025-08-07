@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from astropy import constants as const
 from scipy import constants
-from scipy.optimize import newton
 
 from ravest.param import Parameterisation
 
@@ -93,45 +92,59 @@ class Planet:
         return n * (t - time_peri)
 
     def _solve_keplerian_equation(self, eccentricity: float, M: np.ndarray) -> np.ndarray:
-        """Solve the Keplerian equation for eccentric anomaly E.
+        """Solve the Keplerian equation for eccentric anomaly E using vectorized Halley's method.
 
         The eccentric anomaly is the corresponding angle for the true anomaly on
         the auxiliary circle, rather than the real elliptical orbit. Therefore, if
         the ``eccentricity`` e=0, then the eccentric anomaly E is equivalent to the
         mean anomaly ``M``. However, for eccentric cases, the equation is
-        E(t) = M(t) + e*sin(E(t)), which requires solving iteratively. This
-        function achieves this via Newton-Raphson iteration.
+        E(t) = M(t) + e*sin(E(t)), which requires solving iteratively.
+
+        This implementation uses Halley's method for cubic convergence with identical
+        tolerance and convergence criteria to scipy's newton solver (tol=1.48e-08,
+        maxiter=50).
 
         Parameters
         ----------
-        M : `float`
-            The mean anomaly at time t.
+        M : `np.ndarray`
+            The mean anomaly at time t (array).
         eccentricity : `float`
             The eccentricity of the orbit, 0 <= e < 1  (dimensionless).
 
         Returns
         -------
-        `float`
-            The eccentric anomaly at time t.
+        `np.ndarray`
+            The eccentric anomaly at time t (array).
         """
-        # TODO add Notes to docstring explaining Newton-Raphson, and choice of E0=M
         if eccentricity == 0:
             return M
 
-        # Newton-Raphson finds roots, so solving E-(M+e*sinE) finds E
-        E0 = M  # initial guess for E0. # TODO: reference for this initial choice?
+        E = M.copy()  # Initial guess: E0 = M
 
-        def f(E: float, eccentricity: float, M: float) -> float:
-            return E - (eccentricity * np.sin(E)) - M
+        # Halley's method iteration with scipy's exact parameters
+        tol = 1.48e-08  # scipy default tolerance
+        maxiter = 50    # scipy default max iterations
 
-        def fp(E: float, eccentricity: float, M: float) -> float:
-            return 1 - eccentricity * np.cos(E)
+        for iteration in range(maxiter):
+            sin_E = np.sin(E)
+            cos_E = np.cos(E)
 
-        def fpp(E: float, eccentricity: float, M: float) -> float:
-            return eccentricity * np.sin(E)
+            # Function and derivatives for Kepler's equation: f(E) = E - e*sin(E) - M
+            f = E - eccentricity * sin_E - M        # f(E)
+            fp = 1 - eccentricity * cos_E           # f'(E)
+            fpp = eccentricity * sin_E              # f''(E)
 
-        # TODO: fix typing here
-        return newton(func=f, fprime=fp, fprime2=fpp, args=(eccentricity, M), x0=E0)  # type: ignore
+            # Halley's method update: E_new = E - f / (f' - f*f''/(2*f'))
+            denominator = fp - ((f * fpp) / (2 * fp))
+            E_new = E - (f / denominator)
+
+            # Check convergence using scipy's absolute tolerance on step size
+            if np.all(np.abs(E_new - E) < tol):
+                break
+
+            E = E_new
+
+        return E
 
     def _true_anomaly(self, E: np.ndarray, eccentricity: float) -> np.ndarray:
         """Calculate true anomaly at time t.
