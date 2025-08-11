@@ -479,6 +479,47 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
+    def plot_lnprob(self, discard_start=0, discard_end=0, thin=1, save=False, fname="lnprob_plot.png", dpi=100):
+        """Plot log probability traces for all walkers.
+
+        Useful for diagnosing MCMC convergence and identifying problematic
+        walkers/parameters. You can use `discard_start` and `discard_end` to
+        focus in on specific steps in the chains.
+
+        Parameters
+        ----------
+        discard_start : int, optional
+            Discard the first `discard_start` steps from the start of the chain (default: 0)
+        discard_end : int, optional
+            Discard the last `discard_end` steps from the end of the chain (default: 0)
+        thin : int, optional
+            Use only every `thin` steps from the chain (default: 1)
+        save : bool, optional
+            Save the plot to path `fname` (default: False)
+        fname : str, optional
+            The path to save the plot to (default: "lnprob_plot.png")
+        dpi : int, optional
+            The dpi to save the image at (default: 100)
+        """
+        fig, ax = plt.subplots(1, figsize=(10, 6))
+        fig.suptitle("Log Probability Traces")
+
+        lnprobs = self.get_sampler_lnprob(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=False)
+
+        nsteps, nwalkers = lnprobs.shape
+        for i in range(nwalkers):
+            to_plot = lnprobs[:, i]
+            ax.plot(to_plot, "k", alpha=0.3)
+
+        ax.set_xlim(0, nsteps)
+        ax.set_xlabel("Step number")
+        ax.set_ylabel("Log probability")
+
+        if save:
+            plt.savefig(fname=fname, dpi=dpi)
+            print(f"Saved {fname}")
+        plt.show()
+
     def plot_corner(self, discard_start=0, discard_end=0, thin=1, save=False, fname="corner_plot.png", dpi=100):
         flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         fig = corner.corner(
