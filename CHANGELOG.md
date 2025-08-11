@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.2.4 (2025-08-11)
+- Add discard_start and discard_end arguments to samples, allowing user to focus on specific part of chain
+- Add plot_lnprob method to easily inspect the log-probability at each step in the chain
+
 ## v0.2.3 (2025-08-07)
 - Significant performance increase by ensuring contiguous arrays in RV data
 - Replaced scipy Newton-Raphson/Halley with a vectorised Halley method that is a bit faster
