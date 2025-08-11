@@ -266,21 +266,28 @@ class Fitter:
         print("...MCMC done.")
         self.sampler = sampler
 
-    def get_samples_np(self, discard=0, thin=1, flat=False):
+    def get_samples_np(self, discard_start=0, discard_end=0, thin=1, flat=False):
         """Returns a contiguous numpy array of MCMC samples.
 
-        This is the foundational method for accessing MCMC samples. All other sample
-        methods build on this for consistency and optimal performance.
+        Samples can be discarded from the start and/or the end of the array. You can
+        also thin (take only every n-th sample), and you can flatten the array
+        so that each walker's chain is merged into one chain.
+
+        This is the foundational method for accessing MCMC samples. All the other
+        sample methods build on this.
 
         Parameters
         ----------
-        discard : int, optional
-            Discard the first `discard` steps as burn-in (default: 0)
+        discard_start : int, optional
+            Discard the first `discard_start` steps from the start of the chain (default: 0)
+        discard_end : int, optional
+            Discard the last `discard_end` steps from the end of the chain (default: 0)
         thin : int, optional
             Use only every `thin` steps from the chain (default: 1)
         flat : bool, optional
-            If True, return flattened array shape (nsteps_after_discard_thin * nwalkers, ndim)
-            If False, return unflattened array shape (nsteps_after_discard_thin, nwalkers, ndim) (default: False)
+            Whether to flatten each walker's chain into one chain. (default: False)
+            If True, return flattened array with shape (nsteps_after_discard_thin * nwalkers, ndim)
+            If False, return unflattened array with shape (nsteps_after_discard_thin, nwalkers, ndim)
 
         Returns
         -------
@@ -291,23 +298,48 @@ class Fitter:
 
         Notes
         -----
-        This method wraps emcee's sampler.get_chain() but ensures the returned array
-        is contiguous in memory for optimal performance in computational operations.
-        The default shape (nsteps, nwalkers, ndim) matches emcee's convention.
+        We enforce np.ascontiguousarray() on the return, because np.reshape() does
+        not guarantee a contiguous array in memory.
         """
-        samples = self.sampler.get_chain(discard=discard, thin=thin, flat=flat)
+        # Get the full chain from emcee without any processing
+        full_samples = self.sampler.get_chain(discard=0, thin=1, flat=False)
+
+        # Match emcee's slicing logic: [discard + thin - 1 : end : thin]
+        # But adapted - we also allow for discarding from the end
+        start_idx = discard_start + thin - 1
+        if discard_end == 0:
+            end_idx = full_samples.shape[0]
+        else:
+            end_idx = full_samples.shape[0] - discard_end
+
+        # Sanity check the start and end points
+        if start_idx >= end_idx:
+            raise ValueError(f"Invalid parameters: start_idx ({start_idx}) >= end_idx ({end_idx}). "
+                            f"Try reducing discard_start ({discard_start}), discard_end ({discard_end}), or thin ({thin}).")
+
+        # Apply the slicing
+        samples = full_samples[start_idx:end_idx:thin]
+
+        # Flatten if requested (after discarding) - flatten steps and walkers into single dimension
+        if flat:
+            # (steps, walkers, ndim) -> (steps*walkers, ndim)
+            nsteps, nwalkers, ndim = samples.shape
+            samples = samples.reshape(nsteps * nwalkers, ndim)
+
         return np.ascontiguousarray(samples)
 
-    def get_samples_df(self, discard=0, thin=1):
+    def get_samples_df(self, discard_start=0, discard_end=0, thin=1):
         """Returns a pandas DataFrame of flattened MCMC samples.
 
-        Each row represents one sample, columns are parameter names. Built on
-        get_samples_np() for consistent performance.
+        Each row represents one sample, each column represents one parameter.
+        Built on get_samples_np().
 
         Parameters
         ----------
-        discard : int, optional
-            Discard the first `discard` steps as burn-in (default: 0)
+        discard_start : int, optional
+            Discard the first `discard_start` steps from the start of the chain (default: 0)
+        discard_end : int, optional
+            Discard the last `discard_end` steps from the end of the chain (default: 0)
         thin : int, optional
             Use only every `thin` steps from the chain (default: 1)
 
@@ -317,18 +349,20 @@ class Fitter:
             DataFrame with shape (nsteps_after_discard_thin * nwalkers, ndim).
             Columns are parameter names.
         """
-        flat_samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
+        flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         return pd.DataFrame(flat_samples, columns=self.free_params_names)
 
-    def get_samples_dict(self, discard=0, thin=1):
-        """Returns dict of MCMC samples for each free parameter.
+    def get_samples_dict(self, discard_start=0, discard_end=0, thin=1):
+        """Returns a dict of flattened MCMC samples.
 
-        Each parameter gets a 1D contiguous array of all its samples.
+        Each parameter gets a 1D (flattened) contiguous array of all its samples.
 
         Parameters
         ----------
-        discard : int, optional
-            Discard the first `discard` steps as burn-in (default: 0)
+        discard_start : int, optional
+            Discard the first `discard_start` steps from the start of the chain (default: 0)
+        discard_end : int, optional
+            Discard the last `discard_end` steps from the end of the chain (default: 0)
         thin : int, optional
             Use only every `thin` steps from the chain (default: 1)
 
@@ -340,22 +374,24 @@ class Fitter:
 
         Examples
         --------
-        >>> samples_dict = fitter.get_samples_dict(discard=1000)
-        >>> k_b_samples = samples_dict['k_b']  # All samples for k_b parameter
+        >>> samples_dict = fitter.get_samples_dict(discard_start=1000)
+        >>> k_b_samples = samples_dict['k_b']  # All samples for parameter k for planet b
         """
-        flat_samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
+        flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         param_names = self.free_params_names
 
         # Direct numpy slicing - much faster than pandas operations
         return {name: flat_samples[:, i] for i, name in enumerate(param_names)}
 
-    def get_sampler_lnprob(self, discard=0, thin=1, flat=False):
-        """Returns the log probability of the samples from the sampler.
+    def get_sampler_lnprob(self, discard_start=0, discard_end=0, thin=1, flat=False):
+        """Returns the log probability at each step of the sampler.
 
         Parameters
         ----------
-        discard : int, optional
-            Discard the first `discard` steps as burn-in (default: 0)
+        discard_start : int, optional
+            Discard the first `discard_start` steps from the start of the chain (default: 0)
+        discard_end : int, optional
+            Discard the last `discard_end` steps from the end of the chain (default: 0)
         thin : int, optional
             Use only every `thin` steps from the chain (default: 1)
         flat : bool, optional
@@ -367,21 +403,48 @@ class Fitter:
         np.ndarray
             Array of log probabilities of the function at each sample.
         """
-        lnprob = self.sampler.get_log_prob(discard=discard, thin=thin, flat=flat)
+        # Get the full log prob chain from emcee without any processing
+        full_lnprob = self.sampler.get_log_prob(discard=0, thin=1, flat=False)
+
+        # Match emcee's slicing logic: [discard + thin - 1 : end : thin]
+        # But adapted - we also allow for discarding from the end
+        start_idx = discard_start + thin - 1
+        if discard_end == 0:
+            end_idx = full_lnprob.shape[0]
+        else:
+            end_idx = full_lnprob.shape[0] - discard_end
+
+        # Sanity check the start and end points
+        if start_idx >= end_idx:
+            raise ValueError(f"Invalid parameters: start_idx ({start_idx}) >= end_idx ({end_idx}). "
+                            f"Try reducing discard_start ({discard_start}), discard_end ({discard_end}), or thin ({thin}).")
+
+        # Apply the slicing
+        lnprob = full_lnprob[start_idx:end_idx:thin]
+
+        # Flatten if requested (after discarding) - flatten steps and walkers into single dimension
+        if flat:
+            # (steps, walkers) -> (steps*walkers,)
+            nsteps, nwalkers = lnprob.shape
+            lnprob = lnprob.reshape(nsteps * nwalkers)
+
         return np.ascontiguousarray(lnprob)
 
-    def get_posterior_params_dict(self, discard=0, thin=1):
+    def get_posterior_params_dict(self, discard_start=0, discard_end=0, thin=1):
         """Returns dict combining fixed parameters and MCMC samples.
 
         This method creates a unified dictionary containing all model parameters:
         fixed parameters as single float values, and free parameters as arrays
         of MCMC samples. This format is ideal for functions like calculate_mpsini
-        that need all parameters and should propagate uncertainties from free parameters.
+        that need all parameters, and that should propagate uncertainties from
+        the free parameters samples.
 
         Parameters
         ----------
-        discard : int, optional
-            Discard the first `discard` steps as burn-in (default: 0)
+        discard_start : int, optional
+            Discard the first `discard_start` steps from the start of the chain (default: 0)
+        discard_end : int, optional
+            Discard the last `discard_end` steps from the end of the chain (default: 0)
         thin : int, optional
             Use only every `thin` steps from the chain (default: 1)
 
@@ -391,23 +454,17 @@ class Fitter:
             Dictionary of all parameters:
             - Fixed parameters: single float values
             - Free parameters: 1D arrays of MCMC samples with shape (nsteps_after_discard_thin * nwalkers,)
-
-        Examples
-        --------
-        >>> params = fitter.get_posterior_params_dict(discard=1000)
-        >>> params['per_b']  # Fixed parameter: single float (e.g., 20.8851)
-        >>> params['k_b']    # Free parameter: array of samples (e.g., [10.1, 9.9, ...])
         """
         fixed_params_dict = self.fixed_params_values_dict
-        free_samples_dict = self.get_samples_dict(discard=discard, thin=thin)
+        free_samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
         return fixed_params_dict | free_samples_dict
 
-    def plot_chains(self, discard=0, thin=1, save=False, fname="chains_plot.png", dpi=100):
+    def plot_chains(self, discard_start=0, discard_end=0, thin=1, save=False, fname="chains_plot.png", dpi=100):
         fig, axes = plt.subplots(self.ndim, figsize=(10,1+(self.ndim*2/3)), sharex=True)
         # TODO: dynamically scale figure height based on number of parameters
         fig.suptitle("Chains plot")
 
-        samples = self.sampler.get_chain(flat=False, thin=thin, discard=discard)
+        samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=False)
         for i in range(self.ndim):
             ax = axes[i]
             to_plot = samples[:, :, i]  # type: ignore
@@ -422,8 +479,49 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_corner(self, discard=0, thin=1, save=False, fname="corner_plot.png", dpi=100):
-        flat_samples = self.sampler.get_chain(flat=True, discard=discard, thin=thin)
+    def plot_lnprob(self, discard_start=0, discard_end=0, thin=1, save=False, fname="lnprob_plot.png", dpi=100):
+        """Plot log probability traces for all walkers.
+
+        Useful for diagnosing MCMC convergence and identifying problematic
+        walkers/parameters. You can use `discard_start` and `discard_end` to
+        focus in on specific steps in the chains.
+
+        Parameters
+        ----------
+        discard_start : int, optional
+            Discard the first `discard_start` steps from the start of the chain (default: 0)
+        discard_end : int, optional
+            Discard the last `discard_end` steps from the end of the chain (default: 0)
+        thin : int, optional
+            Use only every `thin` steps from the chain (default: 1)
+        save : bool, optional
+            Save the plot to path `fname` (default: False)
+        fname : str, optional
+            The path to save the plot to (default: "lnprob_plot.png")
+        dpi : int, optional
+            The dpi to save the image at (default: 100)
+        """
+        fig, ax = plt.subplots(1, figsize=(10, 6))
+        fig.suptitle("Log Probability Traces")
+
+        lnprobs = self.get_sampler_lnprob(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=False)
+
+        nsteps, nwalkers = lnprobs.shape
+        for i in range(nwalkers):
+            to_plot = lnprobs[:, i]
+            ax.plot(to_plot, "k", alpha=0.3)
+
+        ax.set_xlim(0, nsteps)
+        ax.set_xlabel("Step number")
+        ax.set_ylabel("Log probability")
+
+        if save:
+            plt.savefig(fname=fname, dpi=dpi)
+            print(f"Saved {fname}")
+        plt.show()
+
+    def plot_corner(self, discard_start=0, discard_end=0, thin=1, save=False, fname="corner_plot.png", dpi=100):
+        flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         fig = corner.corner(
         flat_samples, labels=self.free_params_names, show_titles=True,
         plot_datapoints=False, quantiles=[0.16, 0.5, 0.84],
@@ -434,17 +532,20 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def _posterior_rv(self, discard=0, thin=1):
-        """For each parameter sample in the MCMC chain, calculate the RV.
+    def _posterior_rv(self, discard_start=0, discard_end=0, thin=1):
+        """For each step in the MCMC chain, calculate the RV.
 
-        The RVs are calculated at the times in `tlin`, which is calculated as
-        uniform points between the minimum and maximum times in the data, with
-        a 1% buffer on either side.
+        The RVs are calculated at the times in `tlin`, which is a smooth time
+        array generated for plotting purposes. This array consists of 1000
+        uniformly spaced points spanning from the minimum to maximum of the
+        observed `time` array, with a 1% buffer added to both ends.
 
         Parameters
         ----------
-        discard : int, optional
-            Discard the first `discard` steps in the chain as burn-in. (default: 0)
+        discard_start : int, optional
+            Discard the first `discard_start` steps from the start of the chain (default: 0)
+        discard_end : int, optional
+            Discard the last `discard_end` steps from the end of the chain (default: 0)
         thin : int, optional
             Use only every `thin` steps from the chain. (default: 1)
 
@@ -453,7 +554,7 @@ class Fitter:
         np.ndarray
             Array of RVs for each sample in the chain, at the times in `tlin`.
         """
-        samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
+        samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
 
         # get smooth time curve for plotting
         _tmin, _tmax = self.time.min(), self.time.max()
@@ -461,7 +562,7 @@ class Fitter:
         tlin = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
 
         # store the rv for each sample here
-        rv_array = np.zeros((len(samples), len(tlin)))  # type: ignore
+        rv_array = np.zeros((len(samples), len(tlin)))
 
         # get the free parameter names and fixed parameter values
         # we don't need to call this repeatedly for each sample
@@ -490,19 +591,22 @@ class Fitter:
 
         return rv_array, tlin
 
-    def plot_posterior_rv(self, discard=0, thin=1, save=False, fname="posterior_rv.png", dpi=100):
+    def plot_posterior_rv(self, discard_start=0, discard_end=0, thin=1, save=False, fname="posterior_rv.png", dpi=100):
         """Plot the posterior RV model (median & 16-84 percentiles).
 
-        For each sample of parameters in the MCMC chain, calculate the RV. Plot the
-        median RV, and the 16th and 84th percentiles as shaded region. The RVs are
-        calculated at the times in `tlin`, which is calculated as uniform points
-        between the minimum and maximum times in the data, with a 1% buffer on either
-        side.
+        For each step in the MCMC chain, calculate the RV. Plot the median RV,
+        and the 16th and 84th percentiles as shaded region. The RVs are
+        calculated at the times in `tlin`, which is a smooth time array
+        generated for plotting purposes. This array consists of 1000 uniformly
+        spaced points spanning from the minimum to maximum of the observed
+        `time` array, with a 1% buffer added to both ends.
 
         Parameters
         ----------
-        discard : int, optional
-            Discard the first `discard` steps in the chain as burn-in (default: 0)
+        discard_start : int, optional
+            Discard the first `discard_start` steps from the start of the chain (default: 0)
+        discard_end : int, optional
+            Discard the last `discard_end` steps from the end of the chain (default: 0)
         thin : int, optional
             Use only every `thin` steps from the chain (default: 1)
         save : bool, optional
@@ -516,14 +620,14 @@ class Fitter:
         # This would improve performance for large MCMC chains
 
         # Get the posterior RVs, evaluated at each sample in the chains
-        rv_array, tlin = self._posterior_rv(discard=discard, thin=thin)
+        rv_array, tlin = self._posterior_rv(discard_start=discard_start, discard_end=discard_end, thin=thin)
         rv_percentiles = np.percentile(rv_array, [16, 50, 84], axis=0)
 
         # Get the new errorbars to include jit
         if "jit" in self.fixed_params_names:
             jit_median = self.fixed_params_dict["jit"].value
         else:
-            jit_median = np.median(self.get_samples_df()["jit"])
+            jit_median = np.median(self.get_samples_df(discard_start=discard_start, discard_end=discard_end, thin=thin)["jit"])
         verr_with_jit = np.sqrt(self.verr**2 + jit_median**2)
 
         plt.figure(figsize=(8,3.5))
@@ -543,9 +647,9 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def _posterior_rv_planet(self, planet_letter, times, discard=0, thin=1):
+    def _posterior_rv_planet(self, planet_letter, times, discard_start=0, discard_end=0, thin=1):
         """calculate the posterior rv for a planet, using all samples in the chain"""
-        samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
+        samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         this_planet_rvs = np.zeros((len(samples), len(times))) # type: ignore
         fixed_params_dict = self.fixed_params_values_dict
 
@@ -566,9 +670,9 @@ class Fitter:
 
         return this_planet_rvs
 
-    def _posterior_rv_trend(self, times, discard=0, thin=1):
+    def _posterior_rv_trend(self, times, discard_start=0, discard_end=0, thin=1):
         """calculate the posterior rv for the trend, using all samples in the chain"""
-        samples = self.get_samples_np(discard=discard, thin=thin, flat=True)
+        samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         this_trend_rvs = np.zeros((len(samples), len(times))) # type: ignore
         fixed_params_dict = self.fixed_params_values_dict
 
@@ -584,19 +688,24 @@ class Fitter:
 
         return this_trend_rvs
 
-    def plot_posterior_phase(self, discard=0, thin=1, save=False, fname="posterior_phase.png", dpi=100):
+    def plot_posterior_phase(self, discard_start=0, discard_end=0, thin=1, save=False, fname="posterior_phase.png", dpi=100):
         """Plot the posterior RV model (median & 16-84 percentiles) in phase space.
 
         For each sample of parameters in the MCMC chain, calculate the RV. Fold the
         times around the median values of P and t_c for each planet. Plot the median RV
-        and the 16th and 84th percentiles as shaded region. The RVs are calculated at
-        the times in `tlin`, which is calculated as uniform points between the minimum
-        and maximum times in the data, with a 1% buffer on either side.
+        and the 16th and 84th percentiles as shaded region. The RVs are
+        calculated at the times in `tlin`, which is a smooth time array
+        generated for plotting purposes. This array consists of 1000 uniformly
+        spaced points spanning from the minimum to maximum of the observed
+        `time` array, with a 1% buffer added to both ends.
+
 
         Parameters
         ----------
-        discard : int, optional
-            Discard the first `discard` steps in the chain as burn-in (default: 0)
+        discard_start : int, optional
+            Discard the first `discard_start` steps from the start of the chain (default: 0)
+        discard_end : int, optional
+            Discard the last `discard_end` steps from the end of the chain (default: 0)
         thin : int, optional
             Use only every `thin` steps from the chain (default: 1)
         save : bool, optional
@@ -620,7 +729,7 @@ class Fitter:
         # the fixed value) and the RV functions will propagate either a fixed
         # value or an array of values through the calculations.
         fixed_params_dict = self.fixed_params_values_dict
-        samples_df = self.get_samples_df(discard=discard, thin=thin)
+        samples_df = self.get_samples_df(discard_start=discard_start, discard_end=discard_end, thin=thin)
         samples_dict = samples_df.to_dict("list")
         params = fixed_params_dict | samples_dict
 
@@ -682,11 +791,11 @@ class Fitter:
 
             # Step 3: Calculate posterior RV matrix for current planet at data times
             # Generates matrix with shape (times, samples) for this planet's contribution
-            posterior_rvs[letter] = self._posterior_rv_planet(letter, times=self.time, discard=discard, thin=thin)
+            posterior_rvs[letter] = self._posterior_rv_planet(letter, times=self.time, discard_start=discard_start, discard_end=discard_end, thin=thin)
 
             # Step 4: Calculate posterior RV matrix for current planet at smooth times
             # Used for plotting smooth model curve with uncertainties
-            posterior_rvs_tlin[letter] = self._posterior_rv_planet(letter, times=tlin, discard=discard, thin=thin)
+            posterior_rvs_tlin[letter] = self._posterior_rv_planet(letter, times=tlin, discard_start=discard_start, discard_end=discard_end, thin=thin)
 
             # TODO: I'm not convinced that storing this all in dicts is ideal. It's a lot of writing and retrieving.
             # There might be a better way to do this without looping through planets twice.
@@ -706,7 +815,7 @@ class Fitter:
         fig.subplots_adjust(hspace=0)
 
         # 1) we need the system trend RV
-        trend_rv = self._posterior_rv_trend(times=self.time, discard=discard, thin=thin)
+        trend_rv = self._posterior_rv_trend(times=self.time, discard_start=discard_start, discard_end=discard_end, thin=thin)
 
         jit_median = np.median(params["jit"])
         verr_with_jit = np.sqrt(self.verr**2 + jit_median**2)
