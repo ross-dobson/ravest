@@ -814,6 +814,10 @@ class Fitter:
         fig, axs = plt.subplots(len(self.planet_letters), figsize=(8, len(self.planet_letters)*10/3), sharex=True)
         fig.subplots_adjust(hspace=0)
 
+        # Ensure axs is always an array for consistent indexing
+        if len(self.planet_letters) == 1:
+            axs = [axs]
+
         # 1) we need the system trend RV
         trend_rv = self._posterior_rv_trend(times=self.time, discard_start=discard_start, discard_end=discard_end, thin=thin)
 
