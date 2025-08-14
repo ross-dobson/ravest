@@ -1,7 +1,8 @@
 # prior.py
 import numpy as np
+from scipy.stats import beta as scipy_beta
 
-PRIOR_FUNCTIONS = ["Uniform", "Gaussian", "EccentricityPrior", "BoundedGaussian"]
+PRIOR_FUNCTIONS = ["Uniform", "Gaussian", "EccentricityPrior", "BoundedGaussian", "Beta"]
 
 
 class Uniform:
@@ -156,3 +157,42 @@ class BoundedGaussian:
 
     def __repr__(self):
         return f"BoundedGaussian({self.mean}, {self.std}, {self.lower}, {self.upper})"
+
+
+class Beta:
+    r"""Log of Beta prior distribution, for parameter x where 0 <= x <= 1.
+
+    The log Beta prior function is defined as:
+    .. math::
+        (a - 1) \log{x} + (b - 1) \log{(1-x)} - \log{B(a, b)} \quad \text{for} \quad 0 \leq x \leq 1 \\
+        -\inf \quad \text{otherwise} \\
+
+    Parameters
+    ----------
+    a : float
+        Shape parameter a of the Beta distribution. Must be > 0.
+    b : float
+        Shape parameter b of the Beta distribution. Must be > 0.
+
+    Returns
+    -------
+    float
+        Logarithm of the prior probability density function.
+    """
+
+    def __init__(self, a: float, b: float):
+        if a <= 0:
+            raise ValueError(f"Value of a > 0 required, got {a}")
+        if b <= 0:
+            raise ValueError(f"Value of b > 0 required, got {b}")
+        self.a = a
+        self.b = b
+
+    def __call__(self, value):
+        if value < 0.0 or value > 1.0:
+            return -np.inf
+        else:
+            return scipy_beta.logpdf(value, self.a, self.b)
+
+    def __repr__(self):
+        return f"Beta({self.a}, {self.b})"
