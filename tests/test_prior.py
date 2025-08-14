@@ -170,3 +170,65 @@ class TestBoundedGaussian:
         """Test string representation"""
         prior = ravest.prior.BoundedGaussian(1.0, 0.5, -2.0, 4.0)
         assert repr(prior) == "BoundedGaussian(1.0, 0.5, -2.0, 4.0)"
+
+
+class TestBeta:
+    """Tests for the Beta prior class"""
+
+    def test_beta_init(self):
+        """Test Beta prior initialization"""
+        prior = ravest.prior.Beta(2.0, 5.0)
+        assert prior.a == 2.0
+        assert prior.b == 5.0
+
+    def test_beta_init_invalid_a(self):
+        """Test invalid a parameter"""
+        with pytest.raises(ValueError, match="Value of a > 0 required"):
+            ravest.prior.Beta(0.0, 5.0)
+
+        with pytest.raises(ValueError, match="Value of a > 0 required"):
+            ravest.prior.Beta(-1.0, 5.0)
+
+    def test_beta_init_invalid_b(self):
+        """Test invalid b parameter"""
+        with pytest.raises(ValueError, match="Value of b > 0 required"):
+            ravest.prior.Beta(2.0, 0.0)
+
+        with pytest.raises(ValueError, match="Value of b > 0 required"):
+            ravest.prior.Beta(2.0, -1.0)
+
+    def test_beta_valid_values(self):
+        """Test log probability for valid values"""
+        prior = ravest.prior.Beta(2.0, 5.0)
+
+        # Should return finite values for values in (0,1)
+        assert np.isfinite(prior(0.1))
+        assert np.isfinite(prior(0.5))
+        assert np.isfinite(prior(0.9))
+
+    def test_beta_out_of_bounds(self):
+        """Test behavior for values outside [0,1]"""
+        prior = ravest.prior.Beta(2.0, 3.0)
+
+        # Below lower bound
+        assert prior(-0.5) == -np.inf
+        assert prior(-0.001) == -np.inf
+
+        # Above upper bound
+        assert prior(1.001) == -np.inf
+        assert prior(1.5) == -np.inf
+
+    def test_beta_uniform_case(self):
+        """Test Beta(1,1) which should be uniform on [0,1]"""
+        uniform_beta = ravest.prior.Beta(1.0, 1.0)
+
+        # Should return 0.0 (log of 1.0) for all values in [0,1]
+        test_values = [0.1, 0.5, 0.9]
+        for x in test_values:
+            result = uniform_beta(x)
+            assert np.isclose(result, 0.0), f"Beta(1,1) should return 0.0 for x={x}, got {result}"
+
+    def test_beta_repr(self):
+        """Test string representation"""
+        prior = ravest.prior.Beta(1.58, 4.4)
+        assert repr(prior) == "Beta(1.58, 4.4)"
