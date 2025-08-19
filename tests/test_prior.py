@@ -125,51 +125,79 @@ class TestEccentricityPrior:
         assert repr(prior) == "EccentricityPrior(0.7)"
 
 
-class TestBoundedGaussian:
-    """Tests for the BoundedGaussian prior class"""
+class TestTruncatedGaussian:
+    """Tests for the TruncatedGaussian prior class"""
 
-    def test_bounded_gaussian_init(self):
-        """Test BoundedGaussian prior initialization"""
-        prior = ravest.prior.BoundedGaussian(5.0, 1.0, 0.0, 10.0)
+    def test_truncated_gaussian_init(self):
+        """Test TruncatedGaussian prior initialization"""
+        prior = ravest.prior.TruncatedGaussian(5.0, 1.0, 0.0, 10.0)
         assert prior.mean == 5.0
         assert prior.std == 1.0
         assert prior.lower == 0.0
         assert prior.upper == 10.0
 
-    def test_bounded_gaussian_within_bounds(self):
+    def test_truncated_gaussian_init_invalid_std(self):
+        """Test invalid standard deviation"""
+        with pytest.raises(ValueError, match="Standard deviation must be positive"):
+            ravest.prior.TruncatedGaussian(5.0, 0.0, 0.0, 10.0)
+
+        with pytest.raises(ValueError, match="Standard deviation must be positive"):
+            ravest.prior.TruncatedGaussian(5.0, -1.0, 0.0, 10.0)
+
+    def test_truncated_gaussian_init_invalid_bounds(self):
+        """Test invalid bounds"""
+        with pytest.raises(ValueError, match="Lower bound must be less than upper bound"):
+            ravest.prior.TruncatedGaussian(5.0, 1.0, 10.0, 0.0)
+
+        with pytest.raises(ValueError, match="Lower bound must be less than upper bound"):
+            ravest.prior.TruncatedGaussian(5.0, 1.0, 5.0, 5.0)
+
+    def test_truncated_gaussian_within_bounds(self):
         """Test log probability for values within bounds"""
-        prior = ravest.prior.BoundedGaussian(5.0, 1.0, 0.0, 10.0)
+        prior = ravest.prior.TruncatedGaussian(5.0, 1.0, 0.0, 10.0)
 
-        # At mean, should match regular Gaussian
-        expected_at_mean = -0.5 * np.log(2 * np.pi * 1.0)
-        assert np.isclose(prior(5.0), expected_at_mean)
+        # Should return finite values within bounds
+        assert np.isfinite(prior(5.0))  # At mean
+        assert np.isfinite(prior(6.0))  # Near mean
+        assert np.isfinite(prior(1.0))  # Lower side
+        assert np.isfinite(prior(9.0))  # Upper side
 
-        # At other points within bounds
-        expected_at_6 = -0.5 * ((6.0 - 5.0) / 1.0)**2 - 0.5 * np.log(2 * np.pi * 1.0)
-        assert np.isclose(prior(6.0), expected_at_6)
-
-    def test_bounded_gaussian_outside_bounds(self):
+    def test_truncated_gaussian_outside_bounds(self):
         """Test log probability for values outside bounds"""
-        prior = ravest.prior.BoundedGaussian(5.0, 1.0, 0.0, 10.0)
+        prior = ravest.prior.TruncatedGaussian(5.0, 1.0, 0.0, 10.0)
 
         assert prior(-1.0) == -np.inf  # Below lower bound
         assert prior(11.0) == -np.inf  # Above upper bound
 
-    def test_bounded_gaussian_at_bounds(self):
+    def test_truncated_gaussian_at_bounds(self):
         """Test log probability at the boundary values"""
-        prior = ravest.prior.BoundedGaussian(5.0, 1.0, 0.0, 10.0)
+        prior = ravest.prior.TruncatedGaussian(5.0, 1.0, 0.0, 10.0)
 
-        # At boundaries, should behave like regular Gaussian
-        expected_at_0 = -0.5 * ((0.0 - 5.0) / 1.0)**2 - 0.5 * np.log(2 * np.pi * 1.0)
-        expected_at_10 = -0.5 * ((10.0 - 5.0) / 1.0)**2 - 0.5 * np.log(2 * np.pi * 1.0)
+        # At boundaries, should return finite values
+        assert np.isfinite(prior(0.0))
+        assert np.isfinite(prior(10.0))
 
-        assert np.isclose(prior(0.0), expected_at_0)
-        assert np.isclose(prior(10.0), expected_at_10)
+    def test_truncated_gaussian_normalization(self):
+        """Test that truncated Gaussian gives higher probabilities than unbounded (due to normalization)"""
+        # Compare truncated vs regular Gaussian - truncated should have higher density due to renormalization
 
-    def test_bounded_gaussian_repr(self):
+        mean, std = 0.0, 1.0
+        lower, upper = -1.0, 1.0  # Narrow truncation
+
+        truncated = ravest.prior.TruncatedGaussian(mean, std, lower, upper)
+        regular_gaussian = ravest.prior.Gaussian(mean, std)
+
+        # At the mean, truncated should give higher log probability due to renormalization
+        x = 0.0
+        trunc_logprob = truncated(x)
+        regular_logprob = regular_gaussian(x)
+
+        assert trunc_logprob > regular_logprob, "Truncated Gaussian should have higher density due to renormalization"
+
+    def test_truncated_gaussian_repr(self):
         """Test string representation"""
-        prior = ravest.prior.BoundedGaussian(1.0, 0.5, -2.0, 4.0)
-        assert repr(prior) == "BoundedGaussian(1.0, 0.5, -2.0, 4.0)"
+        prior = ravest.prior.TruncatedGaussian(1.0, 0.5, -2.0, 4.0)
+        assert repr(prior) == "TruncatedGaussian(1.0, 0.5, -2.0, 4.0)"
 
 
 class TestBeta:
