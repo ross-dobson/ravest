@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -260,3 +263,55 @@ class TestBeta:
         """Test string representation"""
         prior = ravest.prior.Beta(1.58, 4.4)
         assert repr(prior) == "Beta(1.58, 4.4)"
+
+    @pytest.fixture(scope="class")
+    def beta_reference_data(self):
+        """Load reference test data generated from external Log Beta prior"""
+        data_file = Path(__file__).parent / "data" / "beta_reference.json"
+        with open(data_file, 'r') as f:
+            return json.load(f)
+
+    def test_beta_against_external_reference(self, beta_reference_data):
+        """Test Beta implementation against external reference values for numerical accuracy"""
+
+        for case in beta_reference_data:
+            alpha = case['alpha']
+            beta = case['beta']
+            description = case['description']
+
+            # Create our Beta prior instance
+            prior = ravest.prior.Beta(alpha, beta)
+
+            for x, expected_result in case['test_results']:
+                if expected_result == '-inf':
+                    expected = -np.inf
+                elif expected_result == '+inf':
+                    expected = +np.inf
+                else:
+                    expected = expected_result
+
+                actual = prior(x)
+
+                # Use appropriate comparison for infinite vs finite values
+                if np.isinf(expected):
+                    assert np.isinf(actual), (
+                        f"Beta({alpha}, {beta}) [{description}] at x={x}: "
+                        f"expected {expected}, got {actual}"
+                    )
+                    # Check sign of infinity matches
+                    if np.isposinf(expected):
+                        assert np.isposinf(actual), (
+                            f"Beta({alpha}, {beta}) [{description}] at x={x}: "
+                            f"expected +inf, got {actual}"
+                        )
+                    elif np.isneginf(expected):
+                        assert np.isneginf(actual), (
+                            f"Beta({alpha}, {beta}) [{description}] at x={x}: "
+                            f"expected -inf, got {actual}"
+                        )
+                else:
+                    assert np.isclose(actual, expected, rtol=1e-14, atol=1e-14), (
+                        f"Beta({alpha}, {beta}) [{description}] at x={x}: "
+                        f"expected {expected:.15e}, got {actual:.15e}, "
+                        f"diff={abs(actual - expected):.2e}"
+                    )
