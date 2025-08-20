@@ -1,6 +1,6 @@
 # prior.py
 import numpy as np
-from scipy.stats import beta as scipy_beta
+from scipy.special import gammaln, xlog1py, xlogy
 from scipy.stats import truncnorm
 
 PRIOR_FUNCTIONS = ["Uniform", "Gaussian", "EccentricityPrior", "TruncatedGaussian", "Beta"]
@@ -196,18 +196,22 @@ class Beta:
     """
 
     def __init__(self, a: float, b: float):
-        if a <= 0:
+        if not a > 0:
             raise ValueError(f"Value of a > 0 required, got {a}")
-        if b <= 0:
+        if not b > 0:
             raise ValueError(f"Value of b > 0 required, got {b}")
-        self.a = a
-        self.b = b
+        self.a = float(a)
+        self.b = float(b)
+        # Pre-compute log(B(a,b)) = log(Γ(a)) + log(Γ(b)) - log(Γ(a+b))
+        self._log_beta = gammaln(self.a) + gammaln(self.b) - gammaln(self.a + self.b)
 
     def __call__(self, value):
         if value < 0.0 or value > 1.0:
             return -np.inf
         else:
-            return scipy_beta.logpdf(value, self.a, self.b)
+            # Use xlogy and xlog1py for numerical stability
+            # (a-1) * log(x) + (b-1) * log(1-x) - log(B(a,b))
+            return xlogy(self.a - 1, value) + xlog1py(self.b - 1, -value) - self._log_beta
 
     def __repr__(self):
         return f"Beta({self.a}, {self.b})"
