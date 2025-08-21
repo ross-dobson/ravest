@@ -1,9 +1,9 @@
 # prior.py
 import numpy as np
 from scipy.special import gammaln, xlog1py, xlogy
-from scipy.stats import truncnorm
+from scipy.stats import halfnorm, truncnorm
 
-PRIOR_FUNCTIONS = ["Uniform", "Gaussian", "EccentricityPrior", "TruncatedGaussian", "Beta"]
+PRIOR_FUNCTIONS = ["Uniform", "Gaussian", "EccentricityPrior", "TruncatedGaussian", "Beta", "HalfGaussian"]
 
 
 class Uniform:
@@ -215,3 +215,43 @@ class Beta:
 
     def __repr__(self):
         return f"Beta({self.a}, {self.b})"
+
+
+class HalfGaussian:
+    r"""Log of half-Gaussian prior distribution.
+
+    The log half-Gaussian prior function is defined as:
+    .. math::
+        \log \left( \frac{2}{\sigma \sqrt{2\pi}} \exp\left(-\frac{x^2}{2\sigma^2}\right) \right) \quad \text{for} \quad x \geq 0 \\
+        -\inf \quad \text{otherwise}
+
+    This is equivalent to a Gaussian distribution with mean=0 that has been
+    folded about zero (or truncated at zero with the remaining mass redistributed).
+
+    Commonly used for scale parameters that must be positive, such as
+    standard deviations, measurement uncertainties, or jitter terms.
+
+    Parameters
+    ----------
+    scale : float
+        Scale parameter σ (sigma) of the half-Gaussian distribution. Must be > 0.
+
+    Returns
+    -------
+    float
+        Logarithm of the prior probability density function.
+    """
+
+    def __init__(self, scale: float):
+        if scale <= 0:
+            raise ValueError(f"Scale parameter must be positive, got {scale}")
+        self.scale = float(scale)
+
+    def __call__(self, value):
+        if value < 0.0:
+            return -np.inf
+        else:
+            return halfnorm.logpdf(value, scale=self.scale)
+
+    def __repr__(self):
+        return f"HalfGaussian({self.scale})"

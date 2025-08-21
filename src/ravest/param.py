@@ -37,8 +37,8 @@ class Parameterisation:
         if not -np.pi <= w < np.pi:
             raise ValueError(f"Invalid argument of periastron: {w} not in [-pi, +pi)")
 
-    def validate_default_basis_params(self, params_dict):
-        """Validate all parameters in default basis (per k e w tp).
+    def validate_default_parameterisation_params(self, params_dict):
+        """Validate all parameters in default parameterisation (per k e w tp).
 
         Parameters
         ----------
@@ -172,7 +172,7 @@ class Parameterisation:
         esinw = e * np.sin(w)
         return ecosw, esinw
 
-    def convert_pars_to_default_basis(self, inpars) -> dict:
+    def convert_pars_to_default_parameterisation(self, inpars) -> dict:
         if self.parameterisation == "per k e w tp":
             return {"per": inpars["per"],
                     "k": inpars["k"],
@@ -221,6 +221,70 @@ class Parameterisation:
                     "e": e,
                     "w": w,
                     "tp": tp}
+
+        else:
+            raise ValueError(f"parameterisation {self.parameterisation} not recognised")
+
+    def convert_pars_from_default_parameterisation(self, default_pars) -> dict:
+        """Convert parameters from default (per k e w tp) to this parameterisation.
+
+        Parameters
+        ----------
+        default_pars : dict
+            Dictionary with keys: per, k, e, w, tp
+
+        Returns
+        -------
+        dict
+            Parameters in this parameterisation
+        """
+        if self.parameterisation == "per k e w tp":
+            return {key: default_pars[key] for key in self.pars}
+
+        elif self.parameterisation == "per k e w tc":
+            tc = self.convert_tp_to_tc(default_pars["tp"], default_pars["per"],
+                                      default_pars["e"], default_pars["w"])
+            return {"per": default_pars["per"],
+                    "k": default_pars["k"],
+                    "e": default_pars["e"],
+                    "w": default_pars["w"],
+                    "tc": tc}
+
+        elif self.parameterisation == "per k ecosw esinw tp":
+            ecosw, esinw = self.convert_e_w_to_ecosw_esinw(default_pars["e"], default_pars["w"])
+            return {"per": default_pars["per"],
+                    "k": default_pars["k"],
+                    "ecosw": ecosw,
+                    "esinw": esinw,
+                    "tp": default_pars["tp"]}
+
+        elif self.parameterisation == "per k ecosw esinw tc":
+            ecosw, esinw = self.convert_e_w_to_ecosw_esinw(default_pars["e"], default_pars["w"])
+            tc = self.convert_tp_to_tc(default_pars["tp"], default_pars["per"],
+                                      default_pars["e"], default_pars["w"])
+            return {"per": default_pars["per"],
+                    "k": default_pars["k"],
+                    "ecosw": ecosw,
+                    "esinw": esinw,
+                    "tc": tc}
+
+        elif self.parameterisation == "per k secosw sesinw tp":
+            secosw, sesinw = self.convert_e_w_to_secosw_sesinw(default_pars["e"], default_pars["w"])
+            return {"per": default_pars["per"],
+                    "k": default_pars["k"],
+                    "secosw": secosw,
+                    "sesinw": sesinw,
+                    "tp": default_pars["tp"]}
+
+        elif self.parameterisation == "per k secosw sesinw tc":
+            secosw, sesinw = self.convert_e_w_to_secosw_sesinw(default_pars["e"], default_pars["w"])
+            tc = self.convert_tp_to_tc(default_pars["tp"], default_pars["per"],
+                                      default_pars["e"], default_pars["w"])
+            return {"per": default_pars["per"],
+                    "k": default_pars["k"],
+                    "secosw": secosw,
+                    "sesinw": sesinw,
+                    "tc": tc}
 
         else:
             raise ValueError(f"parameterisation {self.parameterisation} not recognised")

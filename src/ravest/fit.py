@@ -827,13 +827,13 @@ class Fitter:
                 _w =  params[f"w_{letter}"]
                 _tp = params[f"tp_{letter}"]
                 tc = self.parameterisation.convert_tp_to_tc(_tp, p, _e, _w)
-            # else, convert to default basis, giving us e and w, then get tc
+            # else, convert to default parameterisation, giving us e and w, then get tc
             else:
                 # get the parameterisation for this planet. Combine with planet letter
                 _keys = [f"{par}_{letter}" for par in self.parameterisation.pars]
                 _inpars = {key: samples_df[key] for key in _keys}
-                _default_basis = self.parameterisation.convert_pars_to_default_basis(_inpars)  # dict of converted pars
-                tc = _default_basis["tc"]
+                _default_parameterisation = self.parameterisation.convert_pars_to_default_parameterisation(_inpars)  # dict of converted pars
+                tc = _default_parameterisation["tc"]
 
             # get the median of the p and tc
             p_medians[letter] = np.median(p)
