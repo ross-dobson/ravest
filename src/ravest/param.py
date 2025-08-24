@@ -1,7 +1,7 @@
 # parameterisation.py
 import numpy as np
 
-ALLOWED_PARAMETERISATIONS = ["per k e w tp",
+ALLOWED_PARAMETERISATIONS = ["per k e w tp",   # default - the one used in Keplerian RV equation
                              "per k e w tc",
                              "per k ecosw esinw tp",
                              "per k ecosw esinw tc",
@@ -55,6 +55,47 @@ class Parameterisation:
         self._validate_eccentricity(params_dict["e"])
         self._validate_argument_periastron(params_dict["w"])
         # Note: tp (time of periastron) can be any real number, so no validation needed
+
+    def validate_planetary_params(self, params_dict):
+        """Validate planetary parameters are astrophysically valid, in any parameterisation.
+
+        Parameters
+        ----------
+        params_dict : dict
+            Dictionary with planetary parameters in current parameterisation
+
+        Raises
+        ------
+        ValueError
+            If any parameter is invalid for this parameterisation
+        """
+        # Always validate period and semi-amplitude (present in all parameterisations)
+        self._validate_period(params_dict["per"])
+        self._validate_semi_amplitude(params_dict["k"])
+
+        if self.parameterisation in ["per k e w tp", "per k e w tc"]:
+            self._validate_eccentricity(params_dict["e"])
+            self._validate_argument_periastron(params_dict["w"])
+
+        elif self.parameterisation in ["per k ecosw esinw tp", "per k ecosw esinw tc"]:
+            # For ecosw/esinw: check that ecosw² + esinw² < 1 (valid eccentricity)
+            e_squared = params_dict["ecosw"]**2 + params_dict["esinw"]**2
+            if e_squared >= 1.0:
+                raise ValueError(f"Invalid ecosw/esinw: ecosw²+esinw² = {e_squared:.6f} >= 1.0")
+
+        elif self.parameterisation in ["per k secosw sesinw tp", "per k secosw sesinw tc"]:
+            # For secosw/sesinw: check that secosw² + sesinw² < 1 (valid eccentricity)
+            e = params_dict["secosw"]**2 + params_dict["sesinw"]**2
+            if e >= 1.0:
+                raise ValueError(f"Invalid secosw/sesinw: secosw²+sesinw² = {e:.6f} >= 1.0")
+
+        # Validate tc and tp are finite real numbers
+        if "tc" in params_dict:
+            if not np.isfinite(params_dict["tc"]):
+                raise ValueError(f"Invalid tc: {params_dict['tc']} (must be finite)")
+        if "tp" in params_dict:
+            if not np.isfinite(params_dict["tp"]):
+                raise ValueError(f"Invalid tp: {params_dict['tp']} (must be finite)")
 
     def __init__(self, parameterisation: str):
         """Parameterisation object handles parameter conversions
