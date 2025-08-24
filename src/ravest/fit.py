@@ -296,6 +296,7 @@ class Fitter:
                 # So there are no alternative priors to look for (therefore the prior is missing)
                 return None
 
+
     def _check_params_values_against_priors(self, validated_priors, current_free_param_names):
         """Check parameter values against priors (including if Prior is for the Default parameterisation equivalent parameter)"""
         for prior_param_name, prior_function in validated_priors.items():
@@ -1148,11 +1149,63 @@ class LogPosterior:
                                             )
         self.log_prior = LogPrior(self.priors)
 
+    def _convert_params_for_prior_evaluation(self, free_params_dict):
+        """Convert free parameters for prior evaluation if needed.
+
+        Parameters
+        ----------
+        free_params_dict : dict
+            Free parameters in current parameterisation
+
+        Returns
+        -------
+        dict
+            Parameters with names/values converted for prior evaluation
+        """
+        # Simple detection: do prior keys match our current free parameter names?
+        prior_keys = set(self.priors.keys())
+        free_param_keys = set(self.free_params_names)
+
+        if prior_keys == free_param_keys:
+            # No conversion needed (Cases 1 & 2)
+            return free_params_dict
+        else:
+            # Conversion needed (Case 3) - convert to default parameterisation equivalents
+            # Start with just the non-planetary parameters that match
+            params_for_prior = {key: value for key, value in free_params_dict.items()
+                              if key in prior_keys}
+
+            all_params = self.fixed_params | free_params_dict
+
+            # Convert each planet's parameters
+            for planet_letter in self.planet_letters:
+                # Get current planet parameters
+                planet_params = {par: all_params[f"{par}_{planet_letter}"]
+                               for par in self.parameterisation.pars}
+
+                # Convert to default parameterisation
+                default_params = self.parameterisation.convert_pars_to_default_parameterisation(planet_params)
+
+                # Add the converted parameter values for priors that need them
+                for default_par, value in default_params.items():
+                    default_param_key = f"{default_par}_{planet_letter}"
+                    if default_param_key in prior_keys:  # Only add if we have a prior for it
+                        params_for_prior[default_param_key] = value
+
+            return params_for_prior
+
     def log_probability(self, free_params_dict):
         # Evaluate priors on the free parameters. If any parameters are outside priors
         # (i.e. priors are infinite), then fail fast returning -infty early, so we
         # don't waste time calculating LogLikelihood when we know this step will be rejected.
-        lp = self.log_prior(free_params_dict)
+
+        # Convert parameters for prior evaluation if needed
+        try:
+            params_for_prior = self._convert_params_for_prior_evaluation(free_params_dict)
+            lp = self.log_prior(params_for_prior)
+        except ValueError:
+            # Invalid parameter conversion (e.g., unphysical eccentricity)
+            return -np.inf
         if not np.isfinite(lp):
             return -np.inf
 
