@@ -49,6 +49,7 @@ class TestFitter:
         assert fitter.planet_letters == ["b"]
         assert fitter.parameterisation.parameterisation == "per k e w tc"
         assert fitter.params == {}
+        assert fitter.priors == {}
 
     def test_add_data_valid(self, test_data):
         """Test adding valid data"""
@@ -71,11 +72,11 @@ class TestFitter:
         with pytest.raises(ValueError, match="Time, velocity, and uncertainty arrays must be the same length"):
             fitter.add_data(time, vel, verr, t0=2.0)
 
-    def test_add_params_valid(self, test_circular_params):
-        """Test adding valid parameters"""
+    def test_params_property_valid(self, test_circular_params):
+        """Test setting valid parameters via property"""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         params = test_circular_params
-        fitter.add_params(params)
+        fitter.params = params
 
         assert len(fitter.params) == 9  # 5 planetary + 3 trend params + jit
         assert "per_b" in fitter.params
@@ -86,8 +87,8 @@ class TestFitter:
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         params = {"per_b": Parameter(2.0, "d")}  # Too few params, only 1 out of 9 provided
 
-        with pytest.raises(ValueError, match="Expected 9 parameters, got 1 parameters"):
-            fitter.add_params(params)
+        with pytest.raises(ValueError, match="Missing required parameters.*Expected 9 parameters, got 1"):
+            fitter.params = params
 
     def test_add_params_missing_planetary_param(self, test_circular_params):
         """Test error when planetary parameter is missing"""
@@ -95,8 +96,17 @@ class TestFitter:
         params = test_circular_params.copy()
         del params["per_b"]  # Remove required parameter
 
-        with pytest.raises(ValueError, match="Expected 9 parameters, got 8 parameters"):
-            fitter.add_params(params)
+        with pytest.raises(ValueError, match="Missing required parameters.*Expected 9 parameters, got 8"):
+            fitter.params = params
+
+    def test_add_params_unexpected_param(self, test_circular_params):
+        """Test error when unexpected parameter is provided"""
+        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+        params = test_circular_params.copy()
+        params["invalid_param"] = Parameter(1.0, "")  # Add unexpected parameter
+
+        with pytest.raises(ValueError, match="Unexpected parameters.*Expected 9 parameters, got 10"):
+            fitter.params = params
 
     def test_add_priors_valid(self, test_circular_params, test_simple_priors):
         """Test adding valid priors"""
@@ -104,8 +114,8 @@ class TestFitter:
         params = test_circular_params
         priors = test_simple_priors
 
-        fitter.add_params(params)
-        fitter.add_priors(priors)
+        fitter.params = params
+        fitter.priors = priors
 
         assert len(fitter.priors) == 2
         assert "k_b" in fitter.priors
@@ -117,9 +127,9 @@ class TestFitter:
         params = test_circular_params
         priors = {"k_b": ravest.prior.Uniform(0, 20)}  # Missing jit prior
 
-        fitter.add_params(params)
+        fitter.params = params
         with pytest.raises(ValueError, match="Missing priors for"):
-            fitter.add_priors(priors)
+            fitter.priors = priors
 
     def test_add_priors_invalid_initial_value(self, test_circular_params, test_simple_priors):
         """Test error when initial parameter value is outside prior bounds"""
@@ -128,15 +138,15 @@ class TestFitter:
         params["k_b"].value = 25.0  # Outside uniform prior [0, 20]
         priors = test_simple_priors
 
-        fitter.add_params(params)
+        fitter.params = params
         with pytest.raises(ValueError, match="Initial value 25.0 of parameter k_b is invalid"):
-            fitter.add_priors(priors)
+            fitter.priors = priors
 
     def test_add_priors_too_many_warning(self, test_circular_params):
         """Test warning when too many priors provided (for fixed params)"""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         params = test_circular_params
-        fitter.add_params(params)
+        fitter.params = params
 
         # Add priors for both free AND fixed parameters
         priors = {
@@ -145,14 +155,14 @@ class TestFitter:
             "per_b": ravest.prior.Uniform(1, 5),  # This is fixed!
         }
 
-        with pytest.raises(Warning, match="Too many priors provided"):
-            fitter.add_priors(priors)
+        with pytest.raises(ValueError, match="Unexpected priors.*Expected 2 priors, got 3"):
+            fitter.priors = priors
 
     def test_get_free_params(self, test_circular_params):
         """Test getting free parameters"""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         params = test_circular_params
-        fitter.add_params(params)
+        fitter.params = params
 
         free_params = fitter.free_params_dict
         free_names = fitter.free_params_names
@@ -169,7 +179,7 @@ class TestFitter:
         """Test getting fixed parameters"""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         params = test_circular_params
-        fitter.add_params(params)
+        fitter.params = params
 
         fixed_params = fitter.fixed_params_dict
         fixed_names = fitter.fixed_params_names
@@ -415,11 +425,11 @@ class TestFitterIntegration:
 
         # Add parameters
         params = test_circular_params
-        fitter.add_params(params)
+        fitter.params = params
 
         # Add priors
         priors = test_simple_priors
-        fitter.add_priors(priors)
+        fitter.priors = priors
 
         # Verify everything is set up correctly
         assert len(fitter.params) == 9
@@ -459,8 +469,8 @@ class TestFitterIntegration:
 
         time, vel, verr = test_data
         fitter.add_data(time, vel, verr, t0=2.0)
-        fitter.add_params(params)
-        fitter.add_priors(priors)
+        fitter.params = params
+        fitter.priors = priors
 
         assert len(fitter.params) == 14  # 5*2 planets + 4 system
         assert len(fitter.priors) == 3   # k_b, k_c, jit

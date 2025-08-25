@@ -15,7 +15,8 @@ class Fitter:
     def __init__(self, planet_letters: list[str], parameterisation: Parameterisation):
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
-        self.params = {}
+        self._params = {}
+        self._priors = {}
 
     def add_data(self, time, vel, verr, t0):
         """Add the data to the Fitter object
@@ -40,84 +41,146 @@ class Fitter:
         self.verr = np.ascontiguousarray(verr)
         self.t0 = t0
 
-    def add_params(self, params):
-        """Add the parameters, checking the correct parameters for the parameterisation are present.
+    @property
+    def params(self):
+        """Parameters dictionary. Set via: fitter.params = param_dict"""
+        return self._params
+
+    @params.setter
+    def params(self, new_params):
+        """Set parameters with a dict, checking all required params are present.
+
+        You can update all or some of the parameters at once, example:
+        >>> fitter.params = {"g": 1.0, "gd": 0.1}  # only update trend parameters
+        >>> fitter.params = {"per_c" : 5.0, "k_c": 3.5}  # only update some of planet C parameters
 
         Parameters
         ----------
-        params : dict
-            Dictionary of Parameters, for each parameter in the fitting parameterisation, for each planet
+        new_params : dict
+            Dictionary of new parameter values to set.
+
+            The keys of this dictionary should match the parameter names expected
+            by the Fitter object: all required parameters for the
+            chosen parameterisation, with planet letters (not required for
+            Trend or jitter parameters.)
 
         Raises
         ------
         ValueError
-            If the expected parameters are not present in the params dict
+            If any of the required parameters are missing or invalid.
         """
-        # First check: verify correct number of parameters
-        expected_length = 4 + (5 * len(self.planet_letters))  # 3 trend pars (g, gd, gdd) + jit, then 5 pars per planet
-        if len(params) != expected_length:
+        # Update the current _params dict with the new entries
+        merged_params = dict(self._params)
+        merged_params.update(new_params)
+
+        # Validate the complete parameter set
+        self._validate_complete_params(merged_params)
+
+        # If validation passes, update the actual params
+        self._params.update(new_params)
+
+    @property
+    def priors(self):
+        """Priors dictionary. Set via: fitter.priors = prior_dict"""
+        return self._priors
+
+    @priors.setter
+    def priors(self, new_priors):
+        """Set prior functions using a dict, checking all required priors are present.
+
+        Priors must be provided for all free parameters. You can set all priors
+        at once or update individual priors.
+
+        Parameters
+        ----------
+        new_priors : dict
+            Dictionary of prior functions to set. Keys should be parameter names
+            that match free parameters, values should be callable prior functions.
+
+        Examples
+        --------
+        >>> from ravest.prior import Uniform
+        >>> fitter.priors = {"k_b": Uniform(0, 100), "per_b": Uniform(1, 30)}
+
+        Raises
+        ------
+        ValueError
+            If any required priors are missing, unexpected priors are provided,
+            or initial parameter values are outside prior bounds.
+        """
+        self._set_priors_with_validation(new_priors)
+
+    def _validate_complete_params(self, params: dict):
+        """Validate that params dict contains exactly the required parameters."""
+        # Build complete set of expected parameters
+        expected_params = set()
+
+        # Add planetary parameters
+        for planet_letter in self.planet_letters:
+            for par_name in self.parameterisation.pars:
+                expected_params.add(f"{par_name}_{planet_letter}")
+
+        # Add trend parameters
+        expected_params.update(["g", "gd", "gdd"])
+
+        # Add jitter parameter
+        expected_params.add("jit")
+
+        # Convert to sets for easy comparison
+        provided_params = set(params.keys())
+
+        # Check for unexpected parameters
+        unexpected_params = provided_params - expected_params
+        if unexpected_params:
             raise ValueError(
-                f"Expected {expected_length} parameters, got {len(params)} parameters"
+                f"Unexpected parameters: {unexpected_params}. "
+                f"Expected {len(expected_params)} parameters, got {len(provided_params)}"
             )
 
-        # Second check: verify all expected parameters are present
-        for planet_letter in self.planet_letters:  # for each planet
-            for par_name in self.parameterisation.pars:  # and for each parameter we expect from the parameterisation
-                expected_par = par_name + "_" + planet_letter
-                if expected_par not in params:
-                    raise ValueError(f"Parameter {expected_par} not found in parameter list")
-                elif expected_par in params:
-                    self.params[expected_par] = params[expected_par]
-        if "g" not in params:
-            raise ValueError("Parameter g not found in parameter list")
-        self.params["g"] = params["g"]
-        if "gd" not in params:
-            raise ValueError("Parameter gd not found in parameter list")
-        self.params["gd"] = params["gd"]
-        if "gdd" not in params:
-            raise ValueError("Parameter gdd not found in parameter list")
-        self.params["gdd"] = params["gdd"]
-        if "jit" not in params:
-            raise ValueError("Parameter jit not found in parameter list")
-        self.params["jit"] = params["jit"]
-
-    def add_priors(self, priors: dict):
-        """Add the priors for the free parameters, checking init value is valid.
-
-        Given a dict of Prior functions, it checks that there is a prior for all
-        of the free parameters (and none of the fixed parameters). It also calls
-        each prior function with the initial value of the parameter to check
-        that none of the starting positions are invalid (which can cause
-        problems with the MCMC run later.)
-
-        Parameters
-        ----------
-        priors : dict
-            Dictionary of Prior functions for each of the free parameters
-
-        Raises
-        ------
-        ValueError
-            If the expected parameters are not present in the priors dict
-        Warning
-            If a parameter is fixed, but a prior is provided
-        """
-        if len(self.free_params_names) < len(priors):
-            raise Warning(
-                "Too many priors provided. Have you accidentally provided a prior for a fixed parameter?"
-                + f"\nReceived unexpected priors for {set(priors) - set(self.free_params_names)}."
+        # Check for missing parameters
+        missing_params = expected_params - provided_params
+        if missing_params:
+            raise ValueError(
+                f"Missing required parameters: {missing_params}. "
+                f"Expected {len(expected_params)} parameters, got {len(provided_params)}"
             )
-        if set(self.free_params_names) != set(priors):
-            raise ValueError(f"Priors must be provided for all free parameters. Missing priors for {set(self.free_params_names) - set(priors)}.")
 
-        # Validate that initial parameter values are within prior bounds
-        for par in self.free_params_names:
-            prior_fn = priors[par]
-            log_prior_prob = prior_fn(self.params[par].value)
-            if not np.isfinite(log_prior_prob):
-                raise ValueError(f"Initial value {self.params[par].value} of parameter {par} is invalid for prior {priors[par]}.")
+    def _set_priors_with_validation(self, new_priors: dict):
+        """Set priors with validation. Supports partial updates."""
+        # Create merged priors dict for validation
+        merged_priors = dict(self._priors)
+        merged_priors.update(new_priors)
 
-        self.priors = priors
+        # Get expected priors (only for free parameters)
+        expected_priors = set(self.free_params_names)
+        provided_priors = set(merged_priors.keys())
+
+        # Check for unexpected priors
+        unexpected_priors = provided_priors - expected_priors
+        if unexpected_priors:
+            raise ValueError(
+                f"Unexpected priors: {unexpected_priors}. "
+                f"Expected {len(expected_priors)} priors, got {len(provided_priors)}"
+            )
+
+        # Check that all free parameters have priors
+        missing_priors = expected_priors - provided_priors
+        if missing_priors:
+            raise ValueError(
+                f"Missing priors for: {missing_priors}. "
+                f"Expected {len(expected_priors)} priors, got {len(provided_priors)}"
+            )
+
+        # Validate that initial parameter values are within prior bounds (only for new priors)
+        for par in new_priors:
+            if par in self.free_params_names:  # Only validate if it's a free parameter
+                prior_fn = new_priors[par]
+                log_prior_prob = prior_fn(self.params[par].value)
+                if not np.isfinite(log_prior_prob):
+                    raise ValueError(f"Initial value {self.params[par].value} of parameter {par} is invalid for prior {new_priors[par]}.")
+
+        # Update the priors
+        self._priors.update(new_priors)
         self.ndim = len(self.free_params_values)
 
     @property
