@@ -307,6 +307,36 @@ class TestParameterisationFlexibility:
         fitter.params = params
         with pytest.raises(ValueError, match="Initial value 25.0 of parameter k_b is invalid for prior"):
             fitter.priors = priors
+
+    def test_conflicting_priors_should_fail(self):
+        """Test that providing both current and default parameterisation priors raises an error."""
+        params = {
+            "per_b": Parameter(5.0, "days", fixed=False),
+            "k_b": Parameter(3.0, "m/s", fixed=False),
+            "secosw_b": Parameter(0.1, "", fixed=False),
+            "sesinw_b": Parameter(0.0, "", fixed=False),
+            "tc_b": Parameter(25.0, "days", fixed=False),
+            "g": Parameter(0.0, "m/s", fixed=True),
+            "gd": Parameter(0.0, "m/s/day", fixed=True),
+            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
+            "jit": Parameter(1.0, "m/s", fixed=False)
+        }
+        priors = {
+            "per_b": Uniform(0, 10),
+            "k_b": Uniform(0, 10),
+            "secosw_b": Uniform(-0.5, 0.5),   # Current parameterisation
+            "sesinw_b": Uniform(-0.5, 0.5),   # Current parameterisation
+            "e_b": Uniform(0, 0.5),           # CONFLICT with secosw_b!
+            "w_b": Uniform(-np.pi, np.pi),    # CONFLICT with sesinw_b!
+            "tc_b": Uniform(20, 30),          # Current parameterisation
+            "tp_b": Uniform(20, 30),          # CONFLICT with tc_b!
+            "jit": Uniform(0, 5)
+        }
+        fitter = Fitter(["b"], Parameterisation("per k secosw sesinw tc"))
+        fitter.params = params
+        with pytest.raises(ValueError, match="Conflicting priors provided for both current and default parameterisations"):
+            fitter.priors = priors
+
     # ==================== MCMC Integration Tests ====================
 
     def test_mcmc_default_parameterisation_default_priors(self, mcmc_test_data):
