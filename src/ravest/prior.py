@@ -13,7 +13,9 @@ class Uniform:
         -\log{b - a} \quad \text{for} \quad a \leq x \leq b \\
         -\inf \quad \text{otherwise} \\
 
-    Uses closed interval [a, b] - both boundary values are included.
+    Uses closed interval [a, b] - both boundary values are included. Note that
+    for usage on eccentricity, we recommend the half-open interval
+    EccentricityUniform prior instead.
 
     Parameters
     ----------
@@ -29,9 +31,14 @@ class Uniform:
     """
 
     def __init__(self, lower, upper):
+        if not np.isfinite(lower):
+            raise ValueError(f"Lower bound must be finite, got {lower}")
+        if not np.isfinite(upper):
+            raise ValueError(f"Upper bound must be finite, got {upper}")
+        if lower >= upper:
+            raise ValueError(f"Lower bound ({lower}) must be less than upper bound ({upper})")
         self.lower = lower
         self.upper = upper
-        # TODO: warnings if non-finite values?
 
     def __call__(self, value):
         if value < self.lower or value > self.upper:

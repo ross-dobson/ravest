@@ -33,6 +33,48 @@ class TestUniform:
         assert prior(-1.0) == -np.inf  # Below lower bound
         assert prior(11.0) == -np.inf  # Above upper bound
 
+    def test_uniform_init_invalid_infinite_bounds(self):
+        """Test that infinite bounds raise ValueError"""
+        # Lower bound infinite
+        with pytest.raises(ValueError, match="Lower bound must be finite, got -inf"):
+            ravest.prior.Uniform(-np.inf, 10)
+
+        # Upper bound infinite
+        with pytest.raises(ValueError, match="Upper bound must be finite, got inf"):
+            ravest.prior.Uniform(0, np.inf)
+
+        # Both bounds infinite
+        with pytest.raises(ValueError, match="Lower bound must be finite, got -inf"):
+            ravest.prior.Uniform(-np.inf, np.inf)
+
+        # Both bounds same infinite value
+        with pytest.raises(ValueError, match="Lower bound must be finite, got inf"):
+            ravest.prior.Uniform(np.inf, np.inf)
+
+    def test_uniform_init_invalid_bounds_order(self):
+        """Test that lower >= upper raises ValueError"""
+        # Lower equals upper
+        with pytest.raises(ValueError, match="Lower bound \\(5.0\\) must be less than upper bound \\(5.0\\)"):
+            ravest.prior.Uniform(5.0, 5.0)
+
+        # Lower greater than upper
+        with pytest.raises(ValueError, match="Lower bound \\(10.0\\) must be less than upper bound \\(5.0\\)"):
+            ravest.prior.Uniform(10.0, 5.0)
+
+    def test_uniform_init_nan_bounds(self):
+        """Test that NaN bounds raise ValueError"""
+        # Lower bound NaN
+        with pytest.raises(ValueError, match="Lower bound must be finite, got nan"):
+            ravest.prior.Uniform(np.nan, 10)
+
+        # Upper bound NaN
+        with pytest.raises(ValueError, match="Upper bound must be finite, got nan"):
+            ravest.prior.Uniform(0, np.nan)
+
+        # Both bounds NaN
+        with pytest.raises(ValueError, match="Lower bound must be finite, got nan"):
+            ravest.prior.Uniform(np.nan, np.nan)
+
     def test_uniform_repr(self):
         """Test string representation"""
         prior = ravest.prior.Uniform(2.5, 7.5)
