@@ -310,7 +310,7 @@ class TestBeta:
                             f"expected -inf, got {actual}"
                         )
                 else:
-                    assert np.isclose(actual, expected, rtol=1e-14, atol=1e-14), (
+                    assert np.isclose(actual, expected), (
                         f"Beta({alpha}, {beta}) [{description}] at x={x}: "
                         f"expected {expected:.15e}, got {actual:.15e}, "
                         f"diff={abs(actual - expected):.2e}"
