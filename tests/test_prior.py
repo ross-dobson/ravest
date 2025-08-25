@@ -80,52 +80,56 @@ class TestGaussian:
         assert repr(prior) == "Gaussian(1.5, 0.5)"
 
 
-class TestEccentricityPrior:
-    """Tests for the EccentricityPrior class"""
+class TestEccentricityUniform:
+    """Tests for the EccentricityUniform class"""
 
     def test_eccentricity_prior_init_valid(self):
         """Test valid initialization"""
-        prior = ravest.prior.EccentricityPrior(0.5)
+        prior = ravest.prior.EccentricityUniform(0.5)
         assert prior.upper == 0.5
+
+    def test_eccentricity_prior_init_valid_upper_one(self):
+        """Test that upper=1.0 is valid"""
+        prior = ravest.prior.EccentricityUniform(1.0)
+        assert prior.upper == 1.0
 
     def test_eccentricity_prior_init_invalid(self):
         """Test invalid initialization parameters"""
-        # Upper bound >= 1 should raise error
-        with pytest.raises(ValueError, match="Upper bound of eccentricity must be less than 1"):
-            ravest.prior.EccentricityPrior(1.0)
-
-        with pytest.raises(ValueError, match="Upper bound of eccentricity must be less than 1"):
-            ravest.prior.EccentricityPrior(1.5)
+        # Upper bound > 1 should raise error
+        with pytest.raises(ValueError, match="Upper bound of eccentricity must be less than or equal to 1"):
+            ravest.prior.EccentricityUniform(1.5)
 
         # Upper bound <= 0 should raise error
         with pytest.raises(ValueError, match="Upper bound of eccentricity must be greater than 0"):
-            ravest.prior.EccentricityPrior(0.0)
+            ravest.prior.EccentricityUniform(0.0)
 
         with pytest.raises(ValueError, match="Upper bound of eccentricity must be greater than 0"):
-            ravest.prior.EccentricityPrior(-0.1)
+            ravest.prior.EccentricityUniform(-0.1)
 
     def test_eccentricity_prior_valid_values(self):
         """Test log probability for valid eccentricity values"""
-        prior = ravest.prior.EccentricityPrior(0.8)
+        prior = ravest.prior.EccentricityUniform(0.8)
 
         # Inside bounds should return -log(upper)
         expected = -np.log(0.8)
         assert np.isclose(prior(0.0), expected)  # At zero (inclusive)
         assert np.isclose(prior(0.4), expected)  # Middle value
-        assert np.isclose(prior(0.8), expected)  # At upper bound
+        # Note: upper bound is excluded; half-open interval
 
     def test_eccentricity_prior_invalid_values(self):
         """Test log probability for invalid eccentricity values"""
-        prior = ravest.prior.EccentricityPrior(0.8)
+        prior = ravest.prior.EccentricityUniform(0.8)
 
         assert prior(-0.1) == -np.inf  # Below zero
+        assert prior(0.8) == -np.inf   # At upper bound (excluded)
         assert prior(0.9) == -np.inf   # Above upper bound
         assert prior(1.0) == -np.inf   # At 1.0
+        assert prior(1.5) == -np.inf   # Well above upper bound
 
     def test_eccentricity_prior_repr(self):
         """Test string representation"""
-        prior = ravest.prior.EccentricityPrior(0.7)
-        assert repr(prior) == "EccentricityPrior(0.7)"
+        prior = ravest.prior.EccentricityUniform(0.7)
+        assert repr(prior) == "EccentricityUniform(0.7)"
 
 
 class TestTruncatedGaussian:

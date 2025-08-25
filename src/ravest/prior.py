@@ -3,16 +3,17 @@ import numpy as np
 from scipy.special import gammaln, xlog1py, xlogy
 from scipy.stats import halfnorm, truncnorm
 
-PRIOR_FUNCTIONS = ["Uniform", "Gaussian", "EccentricityPrior", "TruncatedGaussian", "Beta", "HalfGaussian"]
-
+PRIOR_FUNCTIONS = ["Uniform", "Gaussian", "EccentricityUniform", "TruncatedGaussian", "Beta", "HalfGaussian"]
 
 class Uniform:
-    r"""Log of uniform prior distribution.
+    r"""Log of uniform prior distribution, with closed (inclusive) interval [a,b].
 
     The log uniform prior function is defined as:
     .. math::
         -\log{b - a} \quad \text{for} \quad a \leq x \leq b \\
         -\inf \quad \text{otherwise} \\
+
+    Uses closed interval [a, b] - both boundary values are included.
 
     Parameters
     ----------
@@ -73,18 +74,18 @@ class Gaussian:
         return f"Gaussian({self.mean}, {self.std})"
 
 
-class EccentricityPrior:
-    r"""Uniform prior for eccentricity. Lower bound must = 0, upper must < 1.
+class EccentricityUniform:
+    r"""Uniform prior for eccentricity. Uses half-open interval [0, upper).
 
     The log eccentricity prior function is defined as:
     .. math::
-        -\log{b} \quad \text{for} \quad 0 \leq x \leq b \\
+        -\log{b} \quad \text{for} \quad 0 \leq x < b \\
         -\inf \quad \text{otherwise} \\
 
     Parameters
     ----------
     upper : float
-        Upper bound of the uniform distribution.
+        Upper bound of the uniform distribution. Must satisfy 0 < upper <= 1.
 
     Returns
     -------
@@ -93,25 +94,25 @@ class EccentricityPrior:
 
     Notes
     -----
-    This is useful for eccentricity because the normal Uniform prior lower bound
-    is exclusive <, whereas this is inclusive <=, allowing eccentricity to be 0.
+    Uses half-open interval [0, upper) where eccentricity can be exactly 0
+    (circular orbits) but cannot be exactly upper (to avoid unphysical e=1).
     """
 
     def __init__(self, upper):
-        if upper >= 1:
-            raise ValueError("Upper bound of eccentricity must be less than 1.")
+        if upper > 1:
+            raise ValueError("Upper bound of eccentricity must be less than or equal to 1.")
         if upper <= 0:
             raise ValueError("Upper bound of eccentricity must be greater than 0.")
         self.upper = upper
 
     def __call__(self, value):
-        if value < 0 or value > self.upper:
+        if value < 0 or value >= self.upper:
             return -np.inf
         else:
             return -np.log(self.upper)
 
     def __repr__(self):
-        return f"EccentricityPrior({self.upper})"
+        return f"EccentricityUniform({self.upper})"
 
 
 class TruncatedGaussian:
