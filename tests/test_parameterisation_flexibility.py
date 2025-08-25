@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Test parameterisation flexibility - comprehensive test suite.
+Tests both prior validation/setup and MCMC integration.
 """
 
 import numpy as np
@@ -13,6 +14,16 @@ from ravest.prior import Uniform
 
 class TestParameterisationFlexibility:
     """Test parameterisation flexibility scenarios."""
+
+    @pytest.fixture
+    def mcmc_test_data(self):
+        """Generate fake data for MCMC testing."""
+        np.random.seed(42)
+        time = np.linspace(0, 50, 100)
+        # Simple sinusoidal RV curve with noise
+        true_rv = 5 * np.sin(2 * np.pi * time / 5.0) + np.random.normal(0, 1, len(time))
+        verr = np.ones_like(time) * 1.0
+        return time, true_rv, verr
 
     def test_default_to_default_priors(self):
         """Test default parameterisation with default priors."""
@@ -296,3 +307,147 @@ class TestParameterisationFlexibility:
         fitter.params = params
         with pytest.raises(ValueError, match="Initial value 25.0 of parameter k_b is invalid for prior"):
             fitter.priors = priors
+    # ==================== MCMC Integration Tests ====================
+
+    def test_mcmc_default_parameterisation_default_priors(self, mcmc_test_data):
+        """Test MCMC: Default parameterisation with default priors."""
+        time, true_rv, verr = mcmc_test_data
+
+        params = {
+            "per_b": Parameter(5.0, "days", fixed=False),
+            "k_b": Parameter(3.0, "m/s", fixed=False),
+            "e_b": Parameter(0.1, "", fixed=False),
+            "w_b": Parameter(0.0, "rad", fixed=False),
+            "tp_b": Parameter(25.0, "days", fixed=False),
+            "g": Parameter(0.0, "m/s", fixed=False),
+            "gd": Parameter(0.0, "m/s/day", fixed=True),
+            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
+            "jit": Parameter(1.0, "m/s", fixed=False)
+        }
+        priors = {
+            "per_b": Uniform(3, 7),
+            "k_b": Uniform(0, 10),
+            "e_b": Uniform(0, 0.5),
+            "w_b": Uniform(-np.pi, np.pi),
+            "tp_b": Uniform(20, 30),
+            "g": Uniform(-10, 10),
+            "jit": Uniform(0, 5)
+        }
+
+        # Setup fitter
+        fitter = Fitter(["b"], Parameterisation("per k e w tp"))
+        fitter.add_data(time=time, vel=true_rv, verr=verr, t0=np.mean(time))
+        fitter.params = params
+        fitter.priors = priors
+
+        # Verify setup
+        assert set(fitter.free_params_names) == set(priors.keys())
+
+        # Run short MCMC
+        initial_values = fitter.free_params_values
+        fitter.run_mcmc(initial_values=initial_values, nwalkers=14, nsteps=50, progress=False)
+
+        # Verify results
+        samples = fitter.get_samples_np(flat=True)
+        assert samples.shape == (700, 7)  # 14 walkers * 50 steps = 700
+
+        # Check that we get finite log probabilities
+        lnprob = fitter.get_sampler_lnprob(flat=True)
+        finite_count = np.sum(np.isfinite(lnprob))
+        assert finite_count > 0  # Should have some finite values
+
+    def test_mcmc_transformed_parameterisation_transformed_priors(self, mcmc_test_data):
+        """Test MCMC: Transformed parameterisation with transformed priors."""
+        time, true_rv, verr = mcmc_test_data
+
+        params = {
+            "per_b": Parameter(5.0, "days", fixed=False),
+            "k_b": Parameter(3.0, "m/s", fixed=False),
+            "secosw_b": Parameter(0.1, "", fixed=False),
+            "sesinw_b": Parameter(0.0, "", fixed=False),
+            "tc_b": Parameter(25.0, "days", fixed=False),
+            "g": Parameter(0.0, "m/s", fixed=False),
+            "gd": Parameter(0.0, "m/s/day", fixed=True),
+            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
+            "jit": Parameter(1.0, "m/s", fixed=False)
+        }
+        priors = {
+            "per_b": Uniform(3, 7),
+            "k_b": Uniform(0, 10),
+            "secosw_b": Uniform(-0.5, 0.5),
+            "sesinw_b": Uniform(-0.5, 0.5),
+            "tc_b": Uniform(20, 30),
+            "g": Uniform(-10, 10),
+            "jit": Uniform(0, 5)
+        }
+
+        # Setup fitter
+        fitter = Fitter(["b"], Parameterisation("per k secosw sesinw tc"))
+        fitter.add_data(time=time, vel=true_rv, verr=verr, t0=np.mean(time))
+        fitter.params = params
+        fitter.priors = priors
+
+        # Verify setup
+        assert set(fitter.free_params_names) == set(priors.keys())
+
+        # Run short MCMC
+        initial_values = fitter.free_params_values
+        fitter.run_mcmc(initial_values=initial_values, nwalkers=14, nsteps=50, progress=False)
+
+        # Verify results
+        samples = fitter.get_samples_np(flat=True)
+        assert samples.shape == (700, 7)
+
+        # Check that we get finite log probabilities
+        lnprob = fitter.get_sampler_lnprob(flat=True)
+        finite_count = np.sum(np.isfinite(lnprob))
+        assert finite_count > 0
+
+    def test_mcmc_transformed_parameterisation_default_priors(self, mcmc_test_data):
+        """Test MCMC: Transformed parameterisation with default priors (Case 3)."""
+        time, true_rv, verr = mcmc_test_data
+
+        params = {
+            "per_b": Parameter(5.0, "days", fixed=False),
+            "k_b": Parameter(3.0, "m/s", fixed=False),
+            "secosw_b": Parameter(0.1, "", fixed=False),
+            "sesinw_b": Parameter(0.0, "", fixed=False),
+            "tc_b": Parameter(25.0, "days", fixed=False),
+            "g": Parameter(0.0, "m/s", fixed=False),
+            "gd": Parameter(0.0, "m/s/day", fixed=True),
+            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
+            "jit": Parameter(1.0, "m/s", fixed=False)
+        }
+        priors = {
+            "per_b": Uniform(3, 7),
+            "k_b": Uniform(0, 10),
+            "e_b": Uniform(0, 0.5),           # Default equivalent to secosw/sesinw
+            "w_b": Uniform(-np.pi, np.pi),    # Default equivalent to secosw/sesinw
+            "tp_b": Uniform(20, 30),          # Default equivalent to tc
+            "g": Uniform(-10, 10),
+            "jit": Uniform(0, 5)
+        }
+
+        # Setup fitter
+        fitter = Fitter(["b"], Parameterisation("per k secosw sesinw tc"))
+        fitter.add_data(time=time, vel=true_rv, verr=verr, t0=np.mean(time))
+        fitter.params = params
+        fitter.priors = priors
+
+        # Verify setup - different from previous tests
+        assert set(fitter.free_params_names) != set(priors.keys())  # Should be different!
+        assert "secosw_b" in fitter.free_params_names
+        assert "e_b" in fitter.priors
+
+        # Run short MCMC
+        initial_values = fitter.free_params_values
+        fitter.run_mcmc(initial_values=initial_values, nwalkers=14, nsteps=50, progress=False)
+
+        # Verify results
+        samples = fitter.get_samples_np(flat=True)
+        assert samples.shape == (700, 7)
+
+        # Check that we get finite log probabilities
+        lnprob = fitter.get_sampler_lnprob(flat=True)
+        finite_count = np.sum(np.isfinite(lnprob))
+        assert finite_count > 0
