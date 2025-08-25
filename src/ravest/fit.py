@@ -211,6 +211,7 @@ class Fitter:
         # If not, then prior isn't given for either the Current or Default parameterisation, raise an Exception
         validated_priors = {}
         missing_priors = []
+        conflicts = []
 
         # in the current parameterisation, which (free) parameters do we expect priors for?
         current_parameterisation_free_param_names = set(self.free_params_names)
@@ -218,6 +219,14 @@ class Fitter:
             if free_param_name in provided_prior_param_names:
                 # Prior was provided for the param in the current parameterisation
                 validated_priors[free_param_name] = merged_priors_dict[free_param_name]
+
+                # Check if user ALSO provided equivalent default priors (conflict!)
+                # TODO: this is a bit inefficient as we loop through all free params again
+                default_parameterisation_equivalent_free_param_names = self._get_default_parameterisation_equivalent_free_param_name(free_param_name)
+                if default_parameterisation_equivalent_free_param_names:
+                    for equiv_param in default_parameterisation_equivalent_free_param_names:
+                        if equiv_param in provided_prior_param_names:
+                            conflicts.append((free_param_name, equiv_param))
             else:
                 # We haven't been provided the prior for the free parameter in the current parameterisation
                 # So let's check if we were given the prior for the equivalent parameter in the default parameterisation instead
@@ -234,6 +243,11 @@ class Fitter:
                         missing_priors.append(f"{free_param_name} (or equivalent {default_parameterisation_equivalent_free_param_names})")
                     else:
                         missing_priors.append(free_param_name)
+
+        # Check for conflicts after processing all parameters
+        if conflicts:
+            conflict_strs = [f"{current} vs {default}" for current, default in conflicts]
+            raise ValueError(f"Conflicting priors provided for both current and default parameterisations: {', '.join(conflict_strs)}. Please provide priors for either the current parameterisation OR the equivalent default parameterisation, but not both.")
 
         if missing_priors:
             raise ValueError(f"Missing priors for parameters: {missing_priors}")
@@ -359,7 +373,7 @@ class Fitter:
 
     @property
     def fixed_params_dict(self):
-        """Fixed parameters as dict."""
+        """Fixed parameters as dict, mapping names to Parameter objects."""
         fixed_pars = {}
         for par in self.params:
             if self.params[par].fixed is True:
@@ -368,17 +382,17 @@ class Fitter:
 
     @property
     def fixed_params_values(self):
-        """Values of fixed parameters as list."""
+        """Values of fixed parameters, as list."""
         return [param.value for param in self.fixed_params_dict.values()]
 
     @property
     def fixed_params_names(self):
-        """Names of fixed parameters as list."""
+        """Names of fixed parameters, as list."""
         return list(self.fixed_params_dict.keys())
 
     @property
     def fixed_params_values_dict(self):
-        """Fixed parameters as dict mapping names to values."""
+        """Fixed parameters as dict mapping names to just the values."""
         return dict(zip(self.fixed_params_names, self.fixed_params_values))
 
     def find_map_estimate(self, method="Powell"):
