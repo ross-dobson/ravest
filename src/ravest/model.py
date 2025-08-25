@@ -18,7 +18,7 @@ class Planet:
     parameterisation : `parameterisation`
         The set of planetary parameters used to define the planet.
     params : `dict`
-        The orbital parameters, matching the basis.
+        The orbital parameters, matching the parameterisation.
     """
 
     def __init__(self, letter: str, parameterisation: Parameterisation, params: dict):
@@ -32,12 +32,12 @@ class Planet:
         if not set(params.keys()) == set(parameterisation.pars):
             raise ValueError(f"Parameterisation {parameterisation} does not match input params {params}")
 
-        # Convert to the per k e w tp basis that we need for the RV equation
-        self._rvparams = self.parameterisation.convert_pars_to_default_basis(self.params)
+        # Convert to the per k e w tp parameterisation that we need for the RV equation
+        self._rvparams = self.parameterisation.convert_pars_to_default_parameterisation(self.params)
 
         # Validate parameters immediately after conversion to avoid invalid parameters
         # Raises a ValueError if any parameter is invalid
-        self.parameterisation.validate_default_basis_params(self._rvparams)
+        self.parameterisation.validate_default_parameterisation_params(self._rvparams)
 
 
     def __repr__(self):

@@ -128,7 +128,7 @@ class TestFitter:
         priors = {"k_b": ravest.prior.Uniform(0, 20)}  # Missing jit prior
 
         fitter.params = params
-        with pytest.raises(ValueError, match="Missing priors for"):
+        with pytest.raises(ValueError, match="Missing priors for parameters.*jit"):
             fitter.priors = priors
 
     def test_add_priors_invalid_initial_value(self, test_circular_params, test_simple_priors):
@@ -155,7 +155,7 @@ class TestFitter:
             "per_b": ravest.prior.Uniform(1, 5),  # This is fixed!
         }
 
-        with pytest.raises(ValueError, match="Unexpected priors.*Expected 2 priors, got 3"):
+        with pytest.raises(ValueError, match="Unexpected priors.*per_b"):
             fitter.priors = priors
 
     def test_get_free_params(self, test_circular_params):

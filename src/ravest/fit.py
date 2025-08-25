@@ -111,7 +111,7 @@ class Fitter:
         self._set_priors_with_validation(new_priors)
 
     def _validate_complete_params(self, params: dict):
-        """Validate that params dict contains exactly the required parameters."""
+        """Validate that params dict has required parameters, astrophysically valid values."""
         # Build complete set of expected parameters
         expected_params = set()
 
@@ -145,43 +145,212 @@ class Fitter:
                 f"Expected {len(expected_params)} parameters, got {len(provided_params)}"
             )
 
+        # Validate astrophysical validity of all parameters
+        self._validate_astrophysical_validity(params)
+
+        # Validate parameter coupling constraints
+        # i.e. if two parameters both need to be fixed or free together
+        self._validate_parameter_coupling(params)
+
+    def _validate_astrophysical_validity(self, params: dict):
+        """Validate that all parameters are astrophysically valid."""
+        # Validate planetary parameters for each planet
+        for planet_letter in self.planet_letters:
+            planet_params = {}
+            for par_name in self.parameterisation.pars:
+                key = f"{par_name}_{planet_letter}"
+                planet_params[par_name] = params[key].value if hasattr(params[key], 'value') else params[key]
+
+            # Validate this planet's parameters in current parameterisation
+            self.parameterisation.validate_planetary_params(planet_params)
+
+        # Validate trend parameters are finite real numbers
+        for trend_param in ["g", "gd", "gdd"]:
+            trend_value = params[trend_param].value if hasattr(params[trend_param], 'value') else params[trend_param]
+            if not np.isfinite(trend_value):
+                raise ValueError(f"Invalid trend parameter {trend_param}: {trend_value} is not a finite real number")
+
+        # Validate jitter parameter
+        jit_value = params["jit"].value if hasattr(params["jit"], 'value') else params["jit"]
+        if jit_value < 0:
+            raise ValueError(f"Invalid jitter: {jit_value} < 0")
+
+    def _validate_parameter_coupling(self, params: dict):
+        """Validate parameter coupling constraints (e.g., secosw/sesinw must both be free or both fixed)."""
+        for planet_letter in self.planet_letters:
+            # Check secosw/sesinw coupling
+            secosw_key = f"secosw_{planet_letter}"
+            sesinw_key = f"sesinw_{planet_letter}"
+            if secosw_key in params and sesinw_key in params:
+                secosw_fixed = params[secosw_key].fixed if hasattr(params[secosw_key], 'fixed') else False
+                sesinw_fixed = params[sesinw_key].fixed if hasattr(params[sesinw_key], 'fixed') else False
+                if secosw_fixed != sesinw_fixed:
+                    raise ValueError(f"Parameters {secosw_key} and {sesinw_key} must both be fixed or both be free")
+
+            # Check ecosw/esinw coupling
+            ecosw_key = f"ecosw_{planet_letter}"
+            esinw_key = f"esinw_{planet_letter}"
+            if ecosw_key in params and esinw_key in params:
+                ecosw_fixed = params[ecosw_key].fixed if hasattr(params[ecosw_key], 'fixed') else False
+                esinw_fixed = params[esinw_key].fixed if hasattr(params[esinw_key], 'fixed') else False
+                if ecosw_fixed != esinw_fixed:
+                    raise ValueError(f"Parameters {ecosw_key} and {esinw_key} must both be fixed or both be free")
+
     def _set_priors_with_validation(self, new_priors: dict):
-        """Set priors with validation. Supports partial updates."""
-        # Create merged priors dict for validation
-        merged_priors = dict(self._priors)
-        merged_priors.update(new_priors)
+        """Set priors with validation. Supports partial updates. Can be current or default parameterisation."""
+        # Create merged priors dict (in case user is only updating some priors, not all)
+        merged_priors_dict = dict(self._priors)  # get existing priors
+        merged_priors_dict.update(new_priors)  # overwrite with newer functions, if supplied
+        provided_prior_param_names = set(merged_priors_dict.keys())
 
-        # Get expected priors (only for free parameters)
-        expected_priors = set(self.free_params_names)
-        provided_priors = set(merged_priors.keys())
+        # There are two possibilities for priors:
+        # 1. The prior has been given for the parameter, in the current parameterisation
+        #    (this can also include if the user is fitting in the default parameterisation)
+        # 2. The prior has been given for the Default parameterisation's equivalent parameter instead
+        #    (e.g. e & w instead of secosw & sesinw, or tp instead of tc)
+        # If not, then prior isn't given for either the Current or Default parameterisation, raise an Exception
+        validated_priors = {}
+        missing_priors = []
+        conflicts = []
 
-        # Check for unexpected priors
-        unexpected_priors = provided_priors - expected_priors
-        if unexpected_priors:
-            raise ValueError(
-                f"Unexpected priors: {unexpected_priors}. "
-                f"Expected {len(expected_priors)} priors, got {len(provided_priors)}"
-            )
+        # in the current parameterisation, which (free) parameters do we expect priors for?
+        current_parameterisation_free_param_names = set(self.free_params_names)
+        for free_param_name in current_parameterisation_free_param_names:
+            if free_param_name in provided_prior_param_names:
+                # Prior was provided for the param in the current parameterisation
+                validated_priors[free_param_name] = merged_priors_dict[free_param_name]
 
-        # Check that all free parameters have priors
-        missing_priors = expected_priors - provided_priors
+                # Check if user ALSO provided equivalent default priors (conflict!)
+                # TODO: this is a bit inefficient as we loop through all free params again
+                default_parameterisation_equivalent_free_param_names = self._get_default_parameterisation_equivalent_free_param_name(free_param_name)
+                if default_parameterisation_equivalent_free_param_names:
+                    for equiv_param in default_parameterisation_equivalent_free_param_names:
+                        if equiv_param in provided_prior_param_names:
+                            conflicts.append((free_param_name, equiv_param))
+            else:
+                # We haven't been provided the prior for the free parameter in the current parameterisation
+                # So let's check if we were given the prior for the equivalent parameter in the default parameterisation instead
+                default_parameterisation_equivalent_free_param_names = self._get_default_parameterisation_equivalent_free_param_name(free_param_name)
+
+                # remember that one parameter in current parameterisation (e.g. secosw) might map to more than one equivalent in default parameterisation (e.g. both e & w)
+                if default_parameterisation_equivalent_free_param_names and all(eq in provided_prior_param_names for eq in default_parameterisation_equivalent_free_param_names):
+                    # Found all required default equivalents
+                    for equiv in default_parameterisation_equivalent_free_param_names:
+                        validated_priors[equiv] = merged_priors_dict[equiv]
+                else:
+                    # Missing prior for a free parameter in both the current parameterisation, and its equivalent in the default parameterisation
+                    if default_parameterisation_equivalent_free_param_names:
+                        missing_priors.append(f"{free_param_name} (or equivalent {default_parameterisation_equivalent_free_param_names})")
+                    else:
+                        missing_priors.append(free_param_name)
+
+        # Check for conflicts after processing all parameters
+        if conflicts:
+            conflict_strs = [f"{current} vs {default}" for current, default in conflicts]
+            raise ValueError(f"Conflicting priors provided for both current and default parameterisations: {', '.join(conflict_strs)}. Please provide priors for either the current parameterisation OR the equivalent default parameterisation, but not both.")
+
         if missing_priors:
+            raise ValueError(f"Missing priors for parameters: {missing_priors}")
+
+        # Check for unexpected priors - only allow priors that were validated above
+        expected_prior_param_names = set(validated_priors.keys())
+        unexpected_prior_param_names = provided_prior_param_names - expected_prior_param_names
+        if unexpected_prior_param_names:
             raise ValueError(
-                f"Missing priors for: {missing_priors}. "
-                f"Expected {len(expected_priors)} priors, got {len(provided_priors)}"
+                f"Unexpected priors supplied for parameters: {unexpected_prior_param_names}. "
+                f"Priors expected only for parameters: {expected_prior_param_names}"
             )
 
-        # Validate that initial parameter values are within prior bounds (only for new priors)
-        for par in new_priors:
-            if par in self.free_params_names:  # Only validate if it's a free parameter
-                prior_fn = new_priors[par]
-                log_prior_prob = prior_fn(self.params[par].value)
-                if not np.isfinite(log_prior_prob):
-                    raise ValueError(f"Initial value {self.params[par].value} of parameter {par} is invalid for prior {new_priors[par]}.")
+        # Check parameter values work with priors
+        self._check_params_values_against_priors(validated_priors, current_parameterisation_free_param_names)
 
-        # Update the priors
+        # Update the priors with the new values
         self._priors.update(new_priors)
-        self.ndim = len(self.free_params_values)
+        self.ndim = len(self.free_params_values)  # TODO: would this ever change (here)? I think this may only change if user changes self.params, not self.priors
+
+    def _get_default_parameterisation_equivalent_free_param_name(self, free_param):
+        """Get the names of the default parameterisation equivalent parameter(s), for a single free parameter from the current parameterisation
+
+        Note this can be more than one: e.g. if you have secosw, this affects both e & w in the default parameterisation
+        Whereas tc just maps to tp alone"""
+        # Extract planet letter if this is a planetary parameter
+        if '_' in free_param:
+            base_param, planet_letter = free_param.rsplit('_', 1)
+            if planet_letter in self.planet_letters:
+                # This is a planetary parameter
+
+                if base_param in ['secosw', 'sesinw']:
+                    # Both secosw and sesinw map to e,w equivalents
+                    partner_param = 'sesinw' if base_param == 'secosw' else 'secosw'
+                    partner_key = f"{partner_param}_{planet_letter}"
+                    if partner_key in self.free_params_names:
+                        return [f"e_{planet_letter}", f"w_{planet_letter}"]
+
+                elif base_param in ['ecosw', 'esinw']:
+                    # Both ecosw and esinw map to e,w equivalents
+                    partner_param = 'esinw' if base_param == 'ecosw' else 'ecosw'
+                    partner_key = f"{partner_param}_{planet_letter}"
+                    if partner_key in self.free_params_names:
+                        return [f"e_{planet_letter}", f"w_{planet_letter}"]
+
+                elif base_param == 'tc':
+                    # tc can use tp equivalent
+                    return [f"tp_{planet_letter}"]
+
+                elif base_param in ['per', 'k', 'e', 'w', 'tp']:
+                    # These are default parameterisation parameters anyway
+                    # So there are no alternative priors to look for (therefore the prior is missing)
+                    return None
+            else:
+                raise Exception(f"Parameter {free_param} has invalid planet letter {planet_letter}")
+        else:
+            # Non-planetary parameter (g, gd, gdd, jit)
+            if free_param in ['g', 'gd', 'gdd', 'jit']:
+                # These are the same in all parameterisations
+                # So there are no alternative priors to look for (therefore the prior is missing)
+                return None
+
+
+    def _check_params_values_against_priors(self, validated_priors, current_free_param_names):
+        """Check parameter values against priors (including if Prior is for the Default parameterisation equivalent parameter)"""
+        for prior_param_name, prior_function in validated_priors.items():
+            if prior_param_name in current_free_param_names:
+                # This prior is in current parameterisation - check directly
+                param_value = self.params[prior_param_name].value
+                log_prior_probability = prior_function(param_value)
+                if not np.isfinite(log_prior_probability):
+                    raise ValueError(f"Initial value {param_value} of parameter {prior_param_name} is invalid for prior {prior_function}.")
+            else:
+                # This prior is in default parameterisation - need to convert parameter value
+                # Get the current parameter value and convert to default
+                default_param_value = self._convert_single_param_to_default(prior_param_name)
+                log_prior_probability = prior_function(default_param_value)
+                if not np.isfinite(log_prior_probability):
+                    raise ValueError(f"Initial value {default_param_value} of parameter {prior_param_name} (in default parameterisation) is invalid for prior {prior_function}.")
+
+    def _convert_single_param_to_default(self, default_param_name):
+        """Convert a single parameter from current to default parameterisation."""
+        # Extract planet letter if this is a planetary parameter
+        if '_' in default_param_name:
+            base_param, planet_letter = default_param_name.rsplit('_', 1)
+            if planet_letter in self.planet_letters:
+                # Get all current parameters for this planet (we need all five parameters to do a conversion)
+                planet_params_dict = {}
+                for par_name in self.parameterisation.pars:
+                    param_key = f"{par_name}_{planet_letter}"
+                    planet_params_dict[par_name] = self.params[param_key].value
+
+                # Convert all the planetary parameters to the default parameterisation
+                default_planet_params = self.parameterisation.convert_pars_to_default_parameterisation(planet_params_dict)
+
+                # Return just the requested parameter in the default parameterisation
+                return default_planet_params[base_param]
+
+        # For non-planetary parameters (g, gd, gdd, jit), they're the same in all parameterisations
+        if default_param_name in self.params:
+            return self.params[default_param_name].value
+
+        raise ValueError(f"Cannot convert parameter {default_param_name} to default parameterisation")
 
     @property
     def free_params_dict(self):
@@ -204,7 +373,7 @@ class Fitter:
 
     @property
     def fixed_params_dict(self):
-        """Fixed parameters as dict."""
+        """Fixed parameters as dict, mapping names to Parameter objects."""
         fixed_pars = {}
         for par in self.params:
             if self.params[par].fixed is True:
@@ -213,17 +382,17 @@ class Fitter:
 
     @property
     def fixed_params_values(self):
-        """Values of fixed parameters as list."""
+        """Values of fixed parameters, as list."""
         return [param.value for param in self.fixed_params_dict.values()]
 
     @property
     def fixed_params_names(self):
-        """Names of fixed parameters as list."""
+        """Names of fixed parameters, as list."""
         return list(self.fixed_params_dict.keys())
 
     @property
     def fixed_params_values_dict(self):
-        """Fixed parameters as dict mapping names to values."""
+        """Fixed parameters as dict mapping names to just the values."""
         return dict(zip(self.fixed_params_names, self.fixed_params_values))
 
     def find_map_estimate(self, method="Powell"):
@@ -827,13 +996,13 @@ class Fitter:
                 _w =  params[f"w_{letter}"]
                 _tp = params[f"tp_{letter}"]
                 tc = self.parameterisation.convert_tp_to_tc(_tp, p, _e, _w)
-            # else, convert to default basis, giving us e and w, then get tc
+            # else, convert to default parameterisation, giving us e and w, then get tc
             else:
                 # get the parameterisation for this planet. Combine with planet letter
                 _keys = [f"{par}_{letter}" for par in self.parameterisation.pars]
                 _inpars = {key: samples_df[key] for key in _keys}
-                _default_basis = self.parameterisation.convert_pars_to_default_basis(_inpars)  # dict of converted pars
-                tc = _default_basis["tc"]
+                _default_parameterisation = self.parameterisation.convert_pars_to_default_parameterisation(_inpars)  # dict of converted pars
+                tc = _default_parameterisation["tc"]
 
             # get the median of the p and tc
             p_medians[letter] = np.median(p)
@@ -994,11 +1163,63 @@ class LogPosterior:
                                             )
         self.log_prior = LogPrior(self.priors)
 
+    def _convert_params_for_prior_evaluation(self, free_params_dict):
+        """Convert free parameters for prior evaluation if needed.
+
+        Parameters
+        ----------
+        free_params_dict : dict
+            Free parameters in current parameterisation
+
+        Returns
+        -------
+        dict
+            Parameters with names/values converted for prior evaluation
+        """
+        # Simple detection: do prior keys match our current free parameter names?
+        prior_keys = set(self.priors.keys())
+        free_param_keys = set(self.free_params_names)
+
+        if prior_keys == free_param_keys:
+            # No conversion needed (Cases 1 & 2)
+            return free_params_dict
+        else:
+            # Conversion needed (Case 3) - convert to default parameterisation equivalents
+            # Start with just the non-planetary parameters that match
+            params_for_prior = {key: value for key, value in free_params_dict.items()
+                              if key in prior_keys}
+
+            all_params = self.fixed_params | free_params_dict
+
+            # Convert each planet's parameters
+            for planet_letter in self.planet_letters:
+                # Get current planet parameters
+                planet_params = {par: all_params[f"{par}_{planet_letter}"]
+                               for par in self.parameterisation.pars}
+
+                # Convert to default parameterisation
+                default_params = self.parameterisation.convert_pars_to_default_parameterisation(planet_params)
+
+                # Add the converted parameter values for priors that need them
+                for default_par, value in default_params.items():
+                    default_param_key = f"{default_par}_{planet_letter}"
+                    if default_param_key in prior_keys:  # Only add if we have a prior for it
+                        params_for_prior[default_param_key] = value
+
+            return params_for_prior
+
     def log_probability(self, free_params_dict):
         # Evaluate priors on the free parameters. If any parameters are outside priors
         # (i.e. priors are infinite), then fail fast returning -infty early, so we
         # don't waste time calculating LogLikelihood when we know this step will be rejected.
-        lp = self.log_prior(free_params_dict)
+
+        # Convert parameters for prior evaluation if needed
+        try:
+            params_for_prior = self._convert_params_for_prior_evaluation(free_params_dict)
+            lp = self.log_prior(params_for_prior)
+        except ValueError:
+            # Invalid parameter conversion (e.g., unphysical eccentricity)
+            return -np.inf
         if not np.isfinite(lp):
             return -np.inf
 

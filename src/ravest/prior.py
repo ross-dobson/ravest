@@ -1,18 +1,21 @@
 # prior.py
 import numpy as np
 from scipy.special import gammaln, xlog1py, xlogy
-from scipy.stats import truncnorm
+from scipy.stats import halfnorm, truncnorm
 
-PRIOR_FUNCTIONS = ["Uniform", "Gaussian", "EccentricityPrior", "TruncatedGaussian", "Beta"]
-
+PRIOR_FUNCTIONS = ["Uniform", "Gaussian", "EccentricityUniform", "TruncatedGaussian", "Beta", "HalfGaussian"]
 
 class Uniform:
-    r"""Log of uniform prior distribution.
+    r"""Log of uniform prior distribution, with closed (inclusive) interval [a,b].
 
     The log uniform prior function is defined as:
     .. math::
         -\log{b - a} \quad \text{for} \quad a \leq x \leq b \\
         -\inf \quad \text{otherwise} \\
+
+    Uses closed interval [a, b] - both boundary values are included. Note that
+    for usage on eccentricity, we recommend the half-open interval
+    EccentricityUniform prior instead.
 
     Parameters
     ----------
@@ -28,9 +31,14 @@ class Uniform:
     """
 
     def __init__(self, lower, upper):
+        if not np.isfinite(lower):
+            raise ValueError(f"Lower bound must be finite, got {lower}")
+        if not np.isfinite(upper):
+            raise ValueError(f"Upper bound must be finite, got {upper}")
+        if lower >= upper:
+            raise ValueError(f"Lower bound ({lower}) must be less than upper bound ({upper})")
         self.lower = lower
         self.upper = upper
-        # TODO: warnings if non-finite values?
 
     def __call__(self, value):
         if value < self.lower or value > self.upper:
@@ -73,18 +81,18 @@ class Gaussian:
         return f"Gaussian({self.mean}, {self.std})"
 
 
-class EccentricityPrior:
-    r"""Uniform prior for eccentricity. Lower bound must = 0, upper must < 1.
+class EccentricityUniform:
+    r"""Uniform prior for eccentricity. Uses half-open interval [0, upper).
 
     The log eccentricity prior function is defined as:
     .. math::
-        -\log{b} \quad \text{for} \quad 0 \leq x \leq b \\
+        -\log{b} \quad \text{for} \quad 0 \leq x < b \\
         -\inf \quad \text{otherwise} \\
 
     Parameters
     ----------
     upper : float
-        Upper bound of the uniform distribution.
+        Upper bound of the uniform distribution. Must satisfy 0 < upper <= 1.
 
     Returns
     -------
@@ -93,25 +101,25 @@ class EccentricityPrior:
 
     Notes
     -----
-    This is useful for eccentricity because the normal Uniform prior lower bound
-    is exclusive <, whereas this is inclusive <=, allowing eccentricity to be 0.
+    Uses half-open interval [0, upper) where eccentricity can be exactly 0
+    (circular orbits) but cannot be exactly upper (to avoid unphysical e=1).
     """
 
     def __init__(self, upper):
-        if upper >= 1:
-            raise ValueError("Upper bound of eccentricity must be less than 1.")
+        if upper > 1:
+            raise ValueError("Upper bound of eccentricity must be less than or equal to 1.")
         if upper <= 0:
             raise ValueError("Upper bound of eccentricity must be greater than 0.")
         self.upper = upper
 
     def __call__(self, value):
-        if value < 0 or value > self.upper:
+        if value < 0 or value >= self.upper:
             return -np.inf
         else:
             return -np.log(self.upper)
 
     def __repr__(self):
-        return f"EccentricityPrior({self.upper})"
+        return f"EccentricityUniform({self.upper})"
 
 
 class TruncatedGaussian:
@@ -215,3 +223,43 @@ class Beta:
 
     def __repr__(self):
         return f"Beta({self.a}, {self.b})"
+
+
+class HalfGaussian:
+    r"""Log of half-Gaussian prior distribution.
+
+    The log half-Gaussian prior function is defined as:
+    .. math::
+        \log \left( \frac{2}{\sigma \sqrt{2\pi}} \exp\left(-\frac{x^2}{2\sigma^2}\right) \right) \quad \text{for} \quad x \geq 0 \\
+        -\inf \quad \text{otherwise}
+
+    This is equivalent to a Gaussian distribution with mean=0 that has been
+    folded about zero (or truncated at zero with the remaining mass redistributed).
+
+    Commonly used for scale parameters that must be positive, such as
+    standard deviations, measurement uncertainties, or jitter terms.
+
+    Parameters
+    ----------
+    scale : float
+        Scale parameter σ (sigma) of the half-Gaussian distribution. Must be > 0.
+
+    Returns
+    -------
+    float
+        Logarithm of the prior probability density function.
+    """
+
+    def __init__(self, scale: float):
+        if scale <= 0:
+            raise ValueError(f"Scale parameter must be positive, got {scale}")
+        self.scale = float(scale)
+
+    def __call__(self, value):
+        if value < 0.0:
+            return -np.inf
+        else:
+            return halfnorm.logpdf(value, scale=self.scale)
+
+    def __repr__(self):
+        return f"HalfGaussian({self.scale})"
