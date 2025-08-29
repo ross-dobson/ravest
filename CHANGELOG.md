@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.2.5 (2025-08-29)
+- Fitter params and priors handling refactored, `add_params` and `add_priors` methods removed, getters (for validation) now act on attributes directly
+- Added Beta distribution prior (and already refactored it too)
+- Replaced BoundedGaussian prior with TruncatedGaussian prior (that now integrates correctly)
+- Added HalfGaussian prior
+- EccentricityUniform prior (renamed EccentricityPrior) now half-open interval rather than closed (inclusive) bounds
+- Uniform prior raises exception if bounds are not finite
+- Add prior parameterisation flexibility - you can sample in a transformed parameterisation (e.g. in secosw sesinw) but have priors on the default e and w instead
+- RV posterior phase plot now works for single planets
+
 ## v0.2.4 (2025-08-11)
 - Add discard_start and discard_end arguments to samples, allowing user to focus on specific part of chain
 - Add plot_lnprob method to easily inspect the log-probability at each step in the chain
