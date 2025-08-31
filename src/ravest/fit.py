@@ -10,6 +10,45 @@ import ravest.model
 from ravest.param import Parameterisation
 
 
+def calculate_aic(log_likelihood, num_params):
+    """Calculate Akaike Information Criterion (AIC).
+
+    Parameters
+    ----------
+    log_likelihood : float
+        The log-likelihood of the model
+    num_params : int
+        Number of free parameters in the model
+
+    Returns
+    -------
+    float
+        AIC = 2*k - 2*ln(L), where k is the number of parameters and L is the likelihood
+    """
+    return 2 * num_params - 2 * log_likelihood
+
+
+def calculate_bic(log_likelihood, num_params, num_observations):
+    """Calculate Bayesian Information Criterion (BIC).
+
+    Parameters
+    ----------
+    log_likelihood : float
+        The log-likelihood of the model
+    num_params : int
+        Number of free parameters in the model
+    num_observations : int
+        Number of data points used to fit the model
+
+    Returns
+    -------
+    float
+        BIC = k*ln(n) - 2*ln(L), where n is the number of observations,
+        k is the number of parameters, and L is the likelihood
+    """
+    return num_params * np.log(num_observations) - 2 * log_likelihood
+
+
 class Fitter:
 
     def __init__(self, planet_letters: list[str], parameterisation: Parameterisation):
@@ -690,6 +729,32 @@ class Fitter:
         fixed_params_dict = self.fixed_params_values_dict
         free_samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
         return fixed_params_dict | free_samples_dict
+
+
+    def calculate_log_likelihood(self, params_dict):
+        """Calculate log-likelihood for given parameter values.
+        Note this does not include (log-)prior probabilities, this is primarily for use in AIC & BIC calculation.
+
+        Parameters
+        ----------
+        params_dict : dict
+            Dictionary of all parameter values (both fixed and free parameters)
+
+        Returns
+        -------
+        float
+            The log-likelihood value
+        """
+        # Create LogLikelihood object (same as in find_map_estimate and run_mcmc)
+        log_likelihood = LogLikelihood(
+            time=self.time,
+            vel=self.vel,
+            verr=self.verr,
+            t0=self.t0,
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+        )
+        return log_likelihood(params_dict)
 
     def plot_chains(self, discard_start=0, discard_end=0, thin=1, save=False, fname="chains_plot.png", dpi=100):
         fig, axes = plt.subplots(self.ndim, figsize=(10,1+(self.ndim*2/3)), sharex=True)
