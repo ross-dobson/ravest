@@ -492,7 +492,7 @@ class Fitter:
         initial_guess = self.free_params_values
 
         # Perform MAP optimization
-        def negative_log_posterior(*args) -> float:
+        def negative_log_posterior(*args: float) -> float:
             return lp._negative_log_probability_for_MAP(*args)
 
         map_results = minimize(negative_log_posterior, initial_guess, method=method)
