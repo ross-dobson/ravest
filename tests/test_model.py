@@ -49,7 +49,7 @@ def good_star():
     return Star(name="goodstar", mass=1)
 
 
-def test_planet_letter_valueerror_if_multiple_letters():
+def test_planet_letter_valueerror_if_multiple_letters() -> None:
     with pytest.raises(ValueError):
         Planet(
             letter="abcdefg",
@@ -58,7 +58,7 @@ def test_planet_letter_valueerror_if_multiple_letters():
         )
 
 
-def test_planet_letter_valuerror_if_not_isalpha():
+def test_planet_letter_valuerror_if_not_isalpha() -> None:
     with pytest.raises(ValueError):
         Planet(
             letter="!",
@@ -73,7 +73,7 @@ def test_planet_letter_valuerror_if_not_isalpha():
         )
 
 
-def test_planet_letter_good():
+def test_planet_letter_good() -> None:
     assert (
         Planet(
             letter="b",
@@ -84,7 +84,7 @@ def test_planet_letter_good():
     )
 
 
-def test_star_num_planets():
+def test_star_num_planets() -> None:
     star = good_star()
     star.add_planet(good_planet1())
     new_planet = Planet(letter="b", parameterisation=Parameterisation("per k e w tp"), params=known_params2())
@@ -92,13 +92,13 @@ def test_star_num_planets():
     assert star.num_planets == 1  # check the new planet "b" has replaced the old "b"
 
 
-def test_rv_pkewtp_eccentric():
+def test_rv_pkewtp_eccentric() -> None:
     b = good_planet1()
     rv1 = b.radial_velocity(data_tarr())
     assert list(data_rv1()) == pytest.approx(list(rv1))
 
 
-def test_rv_pkewtp_circular():
+def test_rv_pkewtp_circular() -> None:
     c = good_planet2()
     rv2 = c.radial_velocity(data_tarr())
     assert list(data_rv2()) == pytest.approx(list(rv2))

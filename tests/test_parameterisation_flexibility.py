@@ -25,7 +25,7 @@ class TestParameterisationFlexibility:
         verr = np.ones_like(time) * 1.0
         return time, true_rv, verr
 
-    def test_default_to_default_priors(self):
+    def test_default_to_default_priors(self) -> None:
         """Test default parameterisation with default priors."""
         params = {
             "per_b": Parameter(5.0, "days", fixed=False),
@@ -51,7 +51,7 @@ class TestParameterisationFlexibility:
         fitter.priors = priors
         # Should not raise exception
 
-    def test_transformed_to_transformed_priors_secosw_sesinw(self):
+    def test_transformed_to_transformed_priors_secosw_sesinw(self) -> None:
         """Test secosw/sesinw parameterisation with secosw/sesinw priors."""
         params = {
             "per_b": Parameter(5.0, "days", fixed=False),
@@ -77,7 +77,7 @@ class TestParameterisationFlexibility:
         fitter.priors = priors
         # Should not raise exception
 
-    def test_transformed_to_transformed_priors_ecosw_esinw(self):
+    def test_transformed_to_transformed_priors_ecosw_esinw(self) -> None:
         """Test ecosw/esinw parameterisation with ecosw/esinw priors."""
         params = {
             "per_b": Parameter(5.0, "days", fixed=False),
@@ -103,7 +103,7 @@ class TestParameterisationFlexibility:
         fitter.priors = priors
         # Should not raise exception
 
-    def test_case3_secosw_sesinw_with_default_priors(self):
+    def test_case3_secosw_sesinw_with_default_priors(self) -> None:
         """Test secosw/sesinw parameterisation with default priors (Case 3)."""
         params = {
             "per_b": Parameter(5.0, "days", fixed=False),
@@ -129,7 +129,7 @@ class TestParameterisationFlexibility:
         fitter.priors = priors
         # Should not raise exception
 
-    def test_case3_ecosw_esinw_with_default_priors(self):
+    def test_case3_ecosw_esinw_with_default_priors(self) -> None:
         """Test ecosw/esinw parameterisation with default priors (Case 3)."""
         params = {
             "per_b": Parameter(5.0, "days", fixed=False),
@@ -155,7 +155,7 @@ class TestParameterisationFlexibility:
         fitter.priors = priors
         # Should not raise exception
 
-    def test_mixed_priors_per_parameter_flexibility(self):
+    def test_mixed_priors_per_parameter_flexibility(self) -> None:
         """Test mixed priors (per-parameter flexibility)."""
         params = {
             "per_b": Parameter(5.0, "days", fixed=False),
@@ -181,7 +181,7 @@ class TestParameterisationFlexibility:
         fitter.priors = priors
         # Should not raise exception
 
-    def test_common_parameters_transformed_parameterisation(self):
+    def test_common_parameters_transformed_parameterisation(self) -> None:
         """Test common parameters only with transformed parameterisation."""
         params = {
             "per_b": Parameter(5.0, "days", fixed=False),
@@ -204,7 +204,7 @@ class TestParameterisationFlexibility:
         fitter.priors = priors
         # Should not raise exception
 
-    def test_common_parameters_default_parameterisation(self):
+    def test_common_parameters_default_parameterisation(self) -> None:
         """Test common parameters only with default parameterisation."""
         params = {
             "per_b": Parameter(5.0, "days", fixed=False),
@@ -227,7 +227,7 @@ class TestParameterisationFlexibility:
         fitter.priors = priors
         # Should not raise exception
 
-    def test_mixed_secosw_sesinw_coupling_should_fail(self):
+    def test_mixed_secosw_sesinw_coupling_should_fail(self) -> None:
         """Test that mixed secosw/sesinw coupling is rejected."""
         params = {
             "per_b": Parameter(5.0, "days", fixed=False),
@@ -244,7 +244,7 @@ class TestParameterisationFlexibility:
         with pytest.raises(ValueError, match="secosw_b and sesinw_b must both be fixed or both be free"):
             fitter.params = params
 
-    def test_mixed_ecosw_esinw_coupling_should_fail(self):
+    def test_mixed_ecosw_esinw_coupling_should_fail(self) -> None:
         """Test that mixed ecosw/esinw coupling is rejected."""
         params = {
             "per_b": Parameter(5.0, "days", fixed=False),
@@ -261,7 +261,7 @@ class TestParameterisationFlexibility:
         with pytest.raises(ValueError, match="ecosw_b and esinw_b must both be fixed or both be free"):
             fitter.params = params
 
-    def test_missing_priors_should_fail(self):
+    def test_missing_priors_should_fail(self) -> None:
         """Test that missing priors are rejected."""
         params = {
             "per_b": Parameter(5.0, "days", fixed=False),
@@ -284,7 +284,7 @@ class TestParameterisationFlexibility:
         with pytest.raises(ValueError, match="Missing priors for parameters"):
             fitter.priors = priors
 
-    def test_invalid_parameter_values_should_fail(self):
+    def test_invalid_parameter_values_should_fail(self) -> None:
         """Test that invalid parameter values are rejected."""
         params = {
             "per_b": Parameter(5.0, "days", fixed=False),
@@ -308,7 +308,7 @@ class TestParameterisationFlexibility:
         with pytest.raises(ValueError, match="Initial value 25.0 of parameter k_b is invalid for prior"):
             fitter.priors = priors
 
-    def test_conflicting_priors_should_fail(self):
+    def test_conflicting_priors_should_fail(self) -> None:
         """Test that providing both current and default parameterisation priors raises an error."""
         params = {
             "per_b": Parameter(5.0, "days", fixed=False),
@@ -339,7 +339,7 @@ class TestParameterisationFlexibility:
 
     # ==================== MCMC Integration Tests ====================
 
-    def test_mcmc_default_parameterisation_default_priors(self, mcmc_test_data):
+    def test_mcmc_default_parameterisation_default_priors(self, mcmc_test_data) -> None:
         """Test MCMC: Default parameterisation with default priors."""
         time, true_rv, verr = mcmc_test_data
 
@@ -386,7 +386,7 @@ class TestParameterisationFlexibility:
         finite_count = np.sum(np.isfinite(lnprob))
         assert finite_count > 0  # Should have some finite values
 
-    def test_mcmc_transformed_parameterisation_transformed_priors(self, mcmc_test_data):
+    def test_mcmc_transformed_parameterisation_transformed_priors(self, mcmc_test_data) -> None:
         """Test MCMC: Transformed parameterisation with transformed priors."""
         time, true_rv, verr = mcmc_test_data
 
@@ -433,7 +433,7 @@ class TestParameterisationFlexibility:
         finite_count = np.sum(np.isfinite(lnprob))
         assert finite_count > 0
 
-    def test_mcmc_transformed_parameterisation_default_priors(self, mcmc_test_data):
+    def test_mcmc_transformed_parameterisation_default_priors(self, mcmc_test_data) -> None:
         """Test MCMC: Transformed parameterisation with default priors (Case 3)."""
         time, true_rv, verr = mcmc_test_data
 

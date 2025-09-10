@@ -21,7 +21,7 @@ from ravest.param import Parameter, Parameterisation
 
 logging.basicConfig(level=logging.INFO)
 
-def calculate_aic(log_likelihood, num_params):
+def calculate_aic(log_likelihood, num_params) -> float:
     """Calculate Akaike Information Criterion (AIC).
 
     Parameters
@@ -39,7 +39,7 @@ def calculate_aic(log_likelihood, num_params):
     return 2 * num_params - 2 * log_likelihood
 
 
-def calculate_bic(log_likelihood, num_params, num_observations):
+def calculate_bic(log_likelihood, num_params, num_observations) -> float:
     """Calculate Bayesian Information Criterion (BIC).
 
     Parameters
@@ -99,7 +99,7 @@ class Fitter:
         self.t0 = t0
 
     @property
-    def params(self):
+    def params(self) -> Dict[str, Parameter]:
         """Parameters dictionary. Set via: fitter.params = param_dict."""
         return self._params
 
@@ -137,7 +137,7 @@ class Fitter:
         self._params.update(new_params)
 
     @property
-    def priors(self):
+    def priors(self) -> dict:
         """Priors dictionary. Set via: fitter.priors = prior_dict."""
         return self._priors
 
@@ -328,7 +328,7 @@ class Fitter:
         self._priors.update(new_priors)
         self.ndim = len(self.free_params_values)  # TODO: would this ever change (here)? I think this may only change if user changes self.params, not self.priors
 
-    def _get_default_parameterisation_equivalent_free_param_name(self, free_param):
+    def _get_default_parameterisation_equivalent_free_param_name(self, free_param) -> str:
         """Get the names of the default parameterisation equivalent parameter(s), for a single free parameter from the current parameterisation.
 
         Note this can be more than one: e.g. if you have secosw, this affects both e & w in the default parameterisation
@@ -389,7 +389,7 @@ class Fitter:
                 if not np.isfinite(log_prior_probability):
                     raise ValueError(f"Initial value {default_param_value} of parameter {prior_param_name} (in default parameterisation) is invalid for prior {prior_function}.")
 
-    def _convert_single_param_to_default(self, default_param_name):
+    def _convert_single_param_to_default(self, default_param_name) -> float:
         """Convert a single parameter from current to default parameterisation."""
         # Extract planet letter if this is a planetary parameter
         if '_' in default_param_name:
@@ -414,7 +414,7 @@ class Fitter:
         raise ValueError(f"Cannot convert parameter {default_param_name} to default parameterisation")
 
     @property
-    def free_params_dict(self):
+    def free_params_dict(self) -> Dict[str, Parameter]:
         """Free parameters as dict."""
         free_pars = {}
         for par in self.params:
@@ -423,17 +423,17 @@ class Fitter:
         return free_pars
 
     @property
-    def free_params_values(self):
+    def free_params_values(self) -> list[float]:
         """Values of free parameters as list."""
         return [param.value for param in self.free_params_dict.values()]
 
     @property
-    def free_params_names(self):
+    def free_params_names(self) -> list[str]:
         """Names of free parameters as list."""
         return list(self.free_params_dict.keys())
 
     @property
-    def fixed_params_dict(self):
+    def fixed_params_dict(self) -> Dict[str, Parameter]:
         """Fixed parameters as dict, mapping names to Parameter objects."""
         fixed_pars = {}
         for par in self.params:
@@ -442,22 +442,22 @@ class Fitter:
         return fixed_pars
 
     @property
-    def fixed_params_values(self):
+    def fixed_params_values(self) -> list[float]:
         """Values of fixed parameters, as list."""
         return [param.value for param in self.fixed_params_dict.values()]
 
     @property
-    def fixed_params_names(self):
+    def fixed_params_names(self) -> list[str]:
         """Names of fixed parameters, as list."""
         return list(self.fixed_params_dict.keys())
 
     @property
-    def fixed_params_values_dict(self):
+    def fixed_params_values_dict(self) -> Dict[str, float]:
         """Fixed parameters as dict mapping names to just the values."""
         # TODO: where and why is this used, rather than fixed_params_dict?
         return dict(zip(self.fixed_params_names, self.fixed_params_values))
 
-    def find_map_estimate(self, method="Powell"):
+    def find_map_estimate(self, method="Powell") -> dict:
         """Find Maximum A Posteriori (MAP) estimate of parameters.
 
         Parameters
@@ -491,7 +491,7 @@ class Fitter:
         initial_guess = self.free_params_values
 
         # Perform MAP optimization
-        def negative_log_posterior(*args):
+        def negative_log_posterior(*args) -> float:
             return lp._negative_log_probability_for_MAP(*args)
 
         map_results = minimize(negative_log_posterior, initial_guess, method=method)
@@ -560,7 +560,7 @@ class Fitter:
         logging.info("...MCMC done.")
         self.sampler = sampler
 
-    def get_samples_np(self, discard_start=0, discard_end=0, thin=1, flat=False):
+    def get_samples_np(self, discard_start=0, discard_end=0, thin=1, flat=False) -> np.ndarray:
         """Return a contiguous numpy array of MCMC samples.
 
         Samples can be discarded from the start and/or the end of the array. You can
@@ -622,7 +622,7 @@ class Fitter:
 
         return np.ascontiguousarray(samples)
 
-    def get_samples_df(self, discard_start=0, discard_end=0, thin=1):
+    def get_samples_df(self, discard_start=0, discard_end=0, thin=1) -> pd.DataFrame:
         """Return a pandas DataFrame of flattened MCMC samples.
 
         Each row represents one sample, each column represents one parameter.
@@ -646,7 +646,7 @@ class Fitter:
         flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         return pd.DataFrame(flat_samples, columns=self.free_params_names)
 
-    def get_samples_dict(self, discard_start=0, discard_end=0, thin=1):
+    def get_samples_dict(self, discard_start=0, discard_end=0, thin=1) -> Dict[str, np.ndarray]:
         """Return a dict of flattened MCMC samples.
 
         Each parameter gets a 1D (flattened) contiguous array of all its samples.
@@ -677,7 +677,7 @@ class Fitter:
         # Direct numpy slicing - much faster than pandas operations
         return {name: flat_samples[:, i] for i, name in enumerate(param_names)}
 
-    def get_sampler_lnprob(self, discard_start=0, discard_end=0, thin=1, flat=False):
+    def get_sampler_lnprob(self, discard_start=0, discard_end=0, thin=1, flat=False) -> np.ndarray:
         """Returns the log probability at each step of the sampler.
 
         Parameters
@@ -724,7 +724,7 @@ class Fitter:
 
         return np.ascontiguousarray(lnprob)
 
-    def get_posterior_params_dict(self, discard_start=0, discard_end=0, thin=1):
+    def get_posterior_params_dict(self, discard_start=0, discard_end=0, thin=1) -> dict:
         """Return dict combining fixed parameter values, and MCMC samples for the free ones.
 
         This method creates a unified dictionary containing all model parameters:
@@ -754,7 +754,7 @@ class Fitter:
         return fixed_params_dict | free_samples_dict
 
 
-    def calculate_log_likelihood(self, params_dict: Dict[str, float]):
+    def calculate_log_likelihood(self, params_dict: Dict[str, float]) -> float:
         """Calculate log-likelihood for given parameter values.
 
         Note this does not include (log-)prior probabilities, this is just the
@@ -875,7 +875,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def _posterior_rv(self, discard_start=0, discard_end=0, thin=1):
+    def _posterior_rv(self, discard_start=0, discard_end=0, thin=1) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """For each step in the MCMC chain, calculate the RV.
 
         The RVs are calculated at the times in `tlin`, which is a smooth time
@@ -1236,7 +1236,7 @@ class Fitter:
         # Use helper function to create the plot
         self._plot_rv(all_params, title="Posterior RV", save=save, fname=fname, dpi=dpi)
 
-    def _posterior_rv_planet(self, planet_letter, times, discard_start=0, discard_end=0, thin=1):
+    def _posterior_rv_planet(self, planet_letter, times, discard_start=0, discard_end=0, thin=1) -> np.ndarray:
         """Calculate the posterior rv for a planet, using all samples in the chain."""
         samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         this_planet_rvs = np.zeros((len(samples), len(times))) # type: ignore
@@ -1259,7 +1259,7 @@ class Fitter:
 
         return this_planet_rvs
 
-    def _posterior_rv_trend(self, times, discard_start=0, discard_end=0, thin=1):
+    def _posterior_rv_trend(self, times, discard_start=0, discard_end=0, thin=1) -> np.ndarray:
         """Calculate the posterior rv for the trend, using all samples in the chain."""
         samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         this_trend_rvs = np.zeros((len(samples), len(times))) # type: ignore
@@ -1407,7 +1407,7 @@ class LogPosterior:
                                             )
         self.log_prior = LogPrior(self.priors)
 
-    def _convert_params_for_prior_evaluation(self, free_params_dict):
+    def _convert_params_for_prior_evaluation(self, free_params_dict) -> Dict[str, float]:
         """Convert free parameters for prior evaluation if needed.
 
         Parameters
@@ -1452,7 +1452,7 @@ class LogPosterior:
 
             return params_for_prior
 
-    def log_probability(self, free_params_dict: Dict[str, float]):
+    def log_probability(self, free_params_dict: Dict[str, float]) -> float:
         """Calculate log posterior probability for given free parameters.
 
         Parameters
@@ -1487,7 +1487,7 @@ class LogPosterior:
         logprob = ll + lp
         return logprob
 
-    def _negative_log_probability_for_MAP(self, free_params_vals):
+    def _negative_log_probability_for_MAP(self, free_params_vals) -> float:
         """For MAP: run __call__ only passing in a list, not dict, of params.
 
         Because scipy.optimize.minimise only takes list of values, not a dict,
@@ -1513,7 +1513,7 @@ class LogPosterior:
 
         return neg_logprob
 
-    def _positive_log_probability_for_MCMC(self, free_params_vals):
+    def _positive_log_probability_for_MCMC(self, free_params_vals) -> float:
         free_params_dict = dict(zip(self.free_params_names, free_params_vals))
         logprob = self.log_probability(free_params_dict)
         return logprob
@@ -1549,7 +1549,7 @@ class LogLikelihood:
         self.expected_params += ["g", "gd", "gdd"]
         self.expected_params += ["jit"]
 
-    def __call__(self, params: Dict[str, float]):
+    def __call__(self, params: Dict[str, float]) -> float:
         """Calculate log likelihood for given parameters.
 
         Parameters
@@ -1609,7 +1609,7 @@ class LogPrior:
     def __init__(self, priors: dict) -> None:
         self.priors = priors
 
-    def __call__(self, params: Dict[str, float]):
+    def __call__(self, params: Dict[str, float]) -> float:
         """Calculate log prior probability for given parameters.
 
         Parameters

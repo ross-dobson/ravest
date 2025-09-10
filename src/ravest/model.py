@@ -26,7 +26,7 @@ class Planet:
         The orbital parameters, matching the parameterisation.
     """
 
-    def __init__(self, letter: str, parameterisation: Parameterisation, params: dict):
+    def __init__(self, letter: str, parameterisation: Parameterisation, params: dict) -> None:
         if not (letter.isalpha() and (letter == letter[0] * len(letter))):
             raise ValueError(f"Letter {letter} is not a single alphabet character.")
         self.letter = letter
@@ -45,11 +45,11 @@ class Planet:
         self.parameterisation.validate_default_parameterisation_params(self._rvparams)
 
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         class_name = type(self).__name__
         return f"{class_name}(letter={self.letter!r}, parameterisation={self.parameterisation!r}, params={self.params!r})"
 
-    def __str__(self):
+    def __str__(self) -> str:
         class_name = type(self).__name__
         return f"{class_name} {self.letter} {self.params}"
 
@@ -226,7 +226,7 @@ class Planet:
 
         return self._radial_velocity(true_anomaly=f, semi_amplitude=K, eccentricity=e, omega_star=w)
 
-    def mpsini(self, mass_star, unit="kg"):
+    def mpsini(self, mass_star, unit="kg") -> float:
         """Calculate the minimum mass of the planet.
 
         Parameters
@@ -270,7 +270,7 @@ class Star:
         The number of `Planet` objects stored in the `Star` object.
     """
 
-    def __init__(self, name: str, mass: float):
+    def __init__(self, name: str, mass: float) -> None:
         self.name = name
         self.mass = mass
         self.planets = {}
@@ -278,16 +278,16 @@ class Star:
         if mass <= 0:
             raise ValueError(f"Stellar mass {self.mass} must be greater than zero")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"Star(name={self.name!r}, mass={self.mass!r})"
 
-    def __str__(self):
+    def __str__(self) -> str:
         if hasattr(self, "trend"):
             return f"Star {self.name}, {self.num_planets} planets: {[*self.planets]}, {self.trend}"
         else:
             return f"Star {self.name!r}, {self.num_planets!r} planets: {[*self.planets]!r}"
 
-    def add_planet(self, planet):
+    def add_planet(self, planet) -> None:
         """Store `Planet` object in `planets` dict with the key `Planet.letter`.
 
         Planets cannot share letters; if two planets have the same letter then the
@@ -302,7 +302,7 @@ class Star:
         self.planets[planet.letter] = planet
         self.num_planets = len(self.planets)
 
-    def add_trend(self, trend):
+    def add_trend(self, trend) -> None:
         """Store `Trend` object in `trend` attribute.
 
         Parameters
@@ -312,7 +312,7 @@ class Star:
         """
         self.trend = trend
 
-    def radial_velocity(self, t):
+    def radial_velocity(self, t) -> np.ndarray:
         """Calculate the radial velocity of the star at time ``t`` due to the planets and trend.
 
         Calculate the radial velocity of the star at time ``t`` due to the
@@ -339,7 +339,7 @@ class Star:
 
         return rv
 
-    def mpsini(self, planet_letter, unit="kg"):
+    def mpsini(self, planet_letter, unit="kg") -> float:
         """Calculate the minimum mass of a planet in the star system.
 
         Parameters
@@ -356,7 +356,7 @@ class Star:
         """
         return self.planets[planet_letter].mpsini(self.mass, unit)
 
-    def phase_plot(self, t, ydata, yerr):
+    def phase_plot(self, t, ydata, yerr) -> None:
         """Generate a phase plot for each planet.
 
         Given RV ``ydata`` at time ``t`` with errorbars ``yerr``, generates a phase
@@ -462,7 +462,7 @@ class Trend:
     investigating.
     """
 
-    def __init__(self, t0, params: dict):
+    def __init__(self, t0, params: dict) -> None:
         self.gamma = params["g"]
         self.gammadot = params["gd"]
         self.gammadotdot = params["gdd"]
@@ -473,26 +473,26 @@ class Trend:
         except (TypeError, ValueError) as e:
             raise ValueError(f"t0 must be a numeric value (recommend mean or median of observation times), but got {type(t0).__name__}: {t0}") from e
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Trend: $\\gamma$={self.gamma}, $\\dot\\gamma$={self.gammadot}, $\\ddot\\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"Trend(params={{'g': {self.gamma}, 'gd': {self.gammadot}, 'gdd': {self.gammadotdot} }}, t0={self.t0:.2f})"
 
-    def _constant(self, t):
+    def _constant(self, t) -> float:
         return self.gamma
 
-    def _linear(self, t, t0):
+    def _linear(self, t, t0) -> np.ndarray:
         if self.gammadot == 0:
             return np.zeros(len(t))
         return self.gammadot * (t - t0)
 
-    def _quadratic(self, t, t0):
+    def _quadratic(self, t, t0) -> np.ndarray:
         if self.gammadotdot == 0:
             return np.zeros(len(t))
         return self.gammadotdot * ((t - t0) ** 2)
 
-    def radial_velocity(self, t):
+    def radial_velocity(self, t) -> np.ndarray:
         """Calculate radial velocity contribution from trend components.
 
         Parameters
@@ -512,7 +512,7 @@ class Trend:
         return rv
 
 
-def calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit="kg"):
+def calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit="kg") -> float:
     """Calculate the minimum mass of the planet.
 
     Parameters

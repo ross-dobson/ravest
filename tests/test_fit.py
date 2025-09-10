@@ -43,7 +43,7 @@ def test_simple_priors():
 class TestFitter:
     """Tests for the main Fitter class."""
 
-    def test_fitter_init(self):
+    def test_fitter_init(self) -> None:
         """Test Fitter initialization."""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         assert fitter.planet_letters == ["b"]
@@ -51,7 +51,7 @@ class TestFitter:
         assert fitter.params == {}
         assert fitter.priors == {}
 
-    def test_add_data_valid(self, test_data):
+    def test_add_data_valid(self, test_data) -> None:
         """Test adding valid data."""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         time, vel, verr = test_data
@@ -62,7 +62,7 @@ class TestFitter:
         np.testing.assert_array_equal(fitter.verr, verr)
         assert fitter.t0 == 2.0
 
-    def test_add_data_mismatched_lengths(self):
+    def test_add_data_mismatched_lengths(self) -> None:
         """Test error when data arrays have different lengths."""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         time = np.array([0.0, 1.0])
@@ -72,7 +72,7 @@ class TestFitter:
         with pytest.raises(ValueError, match="Time, velocity, and uncertainty arrays must be the same length"):
             fitter.add_data(time, vel, verr, t0=2.0)
 
-    def test_params_property_valid(self, test_circular_params):
+    def test_params_property_valid(self, test_circular_params) -> None:
         """Test setting valid parameters via property."""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         params = test_circular_params
@@ -82,7 +82,7 @@ class TestFitter:
         assert "per_b" in fitter.params
         assert "jit" in fitter.params
 
-    def test_add_params_wrong_count(self):
+    def test_add_params_wrong_count(self) -> None:
         """Test error when wrong number of parameters provided."""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         params = {"per_b": Parameter(2.0, "d")}  # Too few params, only 1 out of 9 provided
@@ -90,7 +90,7 @@ class TestFitter:
         with pytest.raises(ValueError, match="Missing required parameters.*Expected 9 parameters, got 1"):
             fitter.params = params
 
-    def test_add_params_missing_planetary_param(self, test_circular_params):
+    def test_add_params_missing_planetary_param(self, test_circular_params) -> None:
         """Test error when planetary parameter is missing."""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         params = test_circular_params.copy()
@@ -99,7 +99,7 @@ class TestFitter:
         with pytest.raises(ValueError, match="Missing required parameters.*Expected 9 parameters, got 8"):
             fitter.params = params
 
-    def test_add_params_unexpected_param(self, test_circular_params):
+    def test_add_params_unexpected_param(self, test_circular_params) -> None:
         """Test error when unexpected parameter is provided."""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         params = test_circular_params.copy()
@@ -108,7 +108,7 @@ class TestFitter:
         with pytest.raises(ValueError, match="Unexpected parameters.*Expected 9 parameters, got 10"):
             fitter.params = params
 
-    def test_add_priors_valid(self, test_circular_params, test_simple_priors):
+    def test_add_priors_valid(self, test_circular_params, test_simple_priors) -> None:
         """Test adding valid priors."""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         params = test_circular_params
@@ -121,7 +121,7 @@ class TestFitter:
         assert "k_b" in fitter.priors
         assert "jit" in fitter.priors
 
-    def test_add_priors_missing_prior(self, test_circular_params):
+    def test_add_priors_missing_prior(self, test_circular_params) -> None:
         """Test error when prior is missing for free parameter."""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         params = test_circular_params
@@ -131,7 +131,7 @@ class TestFitter:
         with pytest.raises(ValueError, match="Missing priors for parameters.*jit"):
             fitter.priors = priors
 
-    def test_add_priors_invalid_initial_value(self, test_circular_params, test_simple_priors):
+    def test_add_priors_invalid_initial_value(self, test_circular_params, test_simple_priors) -> None:
         """Test error when initial parameter value is outside prior bounds."""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         params = test_circular_params.copy()
@@ -142,7 +142,7 @@ class TestFitter:
         with pytest.raises(ValueError, match="Initial value 25.0 of parameter k_b is invalid"):
             fitter.priors = priors
 
-    def test_add_priors_too_many_warning(self, test_circular_params):
+    def test_add_priors_too_many_warning(self, test_circular_params) -> None:
         """Test warning when too many priors provided (for fixed params)."""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         params = test_circular_params
@@ -158,7 +158,7 @@ class TestFitter:
         with pytest.raises(ValueError, match="Unexpected priors.*per_b"):
             fitter.priors = priors
 
-    def test_get_free_params(self, test_circular_params):
+    def test_get_free_params(self, test_circular_params) -> None:
         """Test getting free parameters."""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         params = test_circular_params
@@ -175,7 +175,7 @@ class TestFitter:
         assert 5.0 in free_vals  # k_b value
         assert 1.0 in free_vals  # jit value
 
-    def test_get_fixed_params(self, test_circular_params):
+    def test_get_fixed_params(self, test_circular_params) -> None:
         """Test getting fixed parameters."""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
         params = test_circular_params
@@ -194,7 +194,7 @@ class TestFitter:
 class TestLogLikelihood:
     """Tests for the LogLikelihood class."""
 
-    def test_loglikelihood_init(self, test_data):
+    def test_loglikelihood_init(self, test_data) -> None:
         """Test LogLikelihood initialization."""
         time, vel, verr = test_data
         ll = LogLikelihood(
@@ -208,7 +208,7 @@ class TestLogLikelihood:
         assert ll.t0 == 2.0
         assert len(ll.expected_params) == 9
 
-    def test_loglikelihood_calculation(self, test_data):
+    def test_loglikelihood_calculation(self, test_data) -> None:
         """Test log-likelihood calculation with valid parameters."""
         time, vel, verr = test_data
         ll = LogLikelihood(
@@ -225,7 +225,7 @@ class TestLogLikelihood:
         assert np.isfinite(log_like)
         assert isinstance(log_like, float)
 
-    def test_loglikelihood_invalid_planet(self, test_data):
+    def test_loglikelihood_invalid_planet(self, test_data) -> None:
         """Test log-likelihood returns -inf for invalid planet parameters."""
         time, vel, verr = test_data
         ll = LogLikelihood(
@@ -242,7 +242,7 @@ class TestLogLikelihood:
         log_like = ll(params)
         assert log_like == -np.inf
 
-    def test_loglikelihood_perfect_fit(self):
+    def test_loglikelihood_perfect_fit(self) -> None:
         """Test log-likelihood when model perfectly fits data."""
         # Create synthetic data from known model
         time = np.array([0.0, 0.5, 1.0, 1.5])
@@ -268,13 +268,13 @@ class TestLogLikelihood:
 class TestLogPrior:
     """Tests for the LogPrior class."""
 
-    def test_logprior_init(self, test_simple_priors):
+    def test_logprior_init(self, test_simple_priors) -> None:
         """Test LogPrior initialization."""
         priors = test_simple_priors
         lp = LogPrior(priors)
         assert lp.priors == priors
 
-    def test_logprior_valid_params(self, test_simple_priors):
+    def test_logprior_valid_params(self, test_simple_priors) -> None:
         """Test log-prior calculation with valid parameters."""
         priors = test_simple_priors
         lp = LogPrior(priors)
@@ -285,7 +285,7 @@ class TestLogPrior:
         assert np.isfinite(log_prior)
         assert isinstance(log_prior, float)
 
-    def test_logprior_invalid_params(self, test_simple_priors):
+    def test_logprior_invalid_params(self, test_simple_priors) -> None:
         """Test log-prior returns -inf for parameters outside bounds."""
         priors = test_simple_priors
         lp = LogPrior(priors)
@@ -295,7 +295,7 @@ class TestLogPrior:
 
         assert log_prior == -np.inf
 
-    def test_logprior_multiple_params(self):
+    def test_logprior_multiple_params(self) -> None:
         """Test log-prior sums correctly across multiple parameters."""
         priors = {
             "k_b": ravest.prior.Uniform(0, 10),  # log_prior = -log(10)
@@ -313,7 +313,7 @@ class TestLogPrior:
 class TestLogPosterior:
     """Tests for the LogPosterior class (integration tests)."""
 
-    def test_logposterior_init(self, test_data, test_circular_params, test_simple_priors):
+    def test_logposterior_init(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test LogPosterior initialization."""
         time, vel, verr = test_data
         params = test_circular_params
@@ -335,7 +335,7 @@ class TestLogPosterior:
         assert lpost.planet_letters == ["b"]
         assert len(lpost.expected_params) == 9
 
-    def test_logposterior_valid_calculation(self, test_data, test_circular_params, test_simple_priors):
+    def test_logposterior_valid_calculation(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test log-posterior calculation with valid parameters."""
         time, vel, verr = test_data
         params = test_circular_params
@@ -359,7 +359,7 @@ class TestLogPosterior:
         assert np.isfinite(log_post)
         assert isinstance(log_post, float)
 
-    def test_logposterior_invalid_prior(self, test_data, test_circular_params, test_simple_priors):
+    def test_logposterior_invalid_prior(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test log-posterior returns -inf when prior is invalid."""
         time, vel, verr = test_data
         params = test_circular_params
@@ -382,7 +382,7 @@ class TestLogPosterior:
 
         assert log_post == -np.inf
 
-    def test_negative_log_probability_for_MAP(self, test_data, test_circular_params, test_simple_priors):
+    def test_negative_log_probability_for_MAP(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test MAP interface that takes list instead of dict."""
         time, vel, verr = test_data
         params = test_circular_params
@@ -415,7 +415,7 @@ class TestLogPosterior:
 class TestFitterIntegration:
     """Integration tests for complete Fitter workflow."""
 
-    def test_complete_setup(self, test_data, test_circular_params, test_simple_priors):
+    def test_complete_setup(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test complete Fitter setup without running MCMC."""
         fitter = Fitter(["b"], Parameterisation("per k e w tc"))
 
@@ -437,7 +437,7 @@ class TestFitterIntegration:
         assert len(fitter.free_params_names) == 2
         assert len(fitter.fixed_params_names) == 7
 
-    def test_multi_planet_setup(self, test_data):
+    def test_multi_planet_setup(self, test_data) -> None:
         """Test setup with multiple planets."""
         fitter = Fitter(["b", "c"], Parameterisation("per k e w tc"))
 

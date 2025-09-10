@@ -53,8 +53,8 @@ pre-commit = "^4.2.0"
 
 [tool.ruff]
 line-length = 88
-lint.select = ["E", "F", "I", "D"]  # E = pycodestyle, F = pyflakes, I = isort, D = pydocstyle
-lint.ignore = ["E501", "E266", "D401", "D105"]
+lint.select = ["E", "F", "I", "D", "ANN"]  # E = pycodestyle, F = pyflakes, I = isort, D = pydocstyle, ANN = flake8-annotations
+lint.ignore = ["E501", "E266", "D401", "D105", "ANN001", "ANN002"]  # ANN001 = missing parameter annotations, ANN002 = *args/**kwargs annotations
 fix = true
 unsafe-fixes = true
 
@@ -62,8 +62,8 @@ unsafe-fixes = true
 convention = "numpy"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["D100", "D103"]  # Ignore missing module and function docstrings in tests/ directory
-"docs/*" = ["D100"]  # Ignore docs/ (because conf.py is not really a proper py file)
+"tests/*" = ["D100", "D103", "ANN"]  # Ignore docstrings and all type annotations in tests
+"docs/*" = ["D100", "ANN"]  # Ignore docstrings and type annotations in docs
 
 
 [build-system]

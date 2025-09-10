@@ -14,19 +14,19 @@ class Parameterisation:
     """Handle conversions between different orbital parameterisations."""
 
     @staticmethod
-    def _validate_period(per):
+    def _validate_period(per) -> None:
         """Validate orbital period."""
         if per <= 0:
             raise ValueError(f"Invalid period: {per} <= 0")
 
     @staticmethod
-    def _validate_semi_amplitude(k):
+    def _validate_semi_amplitude(k) -> None:
         """Validate RV semi-amplitude."""
         if k <= 0:
             raise ValueError(f"Invalid semi-amplitude: {k} <= 0")
 
     @staticmethod
-    def _validate_eccentricity(e):
+    def _validate_eccentricity(e) -> None:
         """Validate orbital eccentricity."""
         if e < 0:
             raise ValueError(f"Invalid eccentricity: {e} < 0")
@@ -34,12 +34,12 @@ class Parameterisation:
             raise ValueError(f"Invalid eccentricity: {e} >= 1.0")
 
     @staticmethod
-    def _validate_argument_periastron(w):
+    def _validate_argument_periastron(w) -> None:
         """Validate argument of periastron."""
         if not -np.pi <= w < np.pi:
             raise ValueError(f"Invalid argument of periastron: {w} not in [-pi, +pi)")
 
-    def validate_default_parameterisation_params(self, params_dict):
+    def validate_default_parameterisation_params(self, params_dict) -> None:
         """Validate all parameters in default parameterisation (per k e w tp).
 
         Parameters
@@ -58,7 +58,7 @@ class Parameterisation:
         self._validate_argument_periastron(params_dict["w"])
         # Note: tp (time of periastron) can be any real number, so no validation needed
 
-    def validate_planetary_params(self, params_dict):
+    def validate_planetary_params(self, params_dict) -> None:
         """Validate planetary parameters are astrophysically valid, in any parameterisation.
 
         Parameters
@@ -99,7 +99,7 @@ class Parameterisation:
             if not np.isfinite(params_dict["tp"]):
                 raise ValueError(f"Invalid tp: {params_dict['tp']} (must be finite)")
 
-    def __init__(self, parameterisation: str):
+    def __init__(self, parameterisation: str) -> None:
         """Parameterisation object handles parameter conversions.
 
         Parameters
@@ -129,7 +129,7 @@ class Parameterisation:
     def __repr__(self) -> str:
         return f"Parameterisation({self.parameterisation})"
 
-    def _time_given_true_anomaly(self, true_anomaly, period, eccentricity, time_peri):
+    def _time_given_true_anomaly(self, true_anomaly, period, eccentricity, time_peri) -> float:
         """Calculate the time that the star will be at a given true anomaly.
 
         Parameters
@@ -155,7 +155,7 @@ class Parameterisation:
 
         return mean_anomaly * (period / (2 * np.pi)) + time_peri
 
-    def convert_tp_to_tc(self, time_peri, period, eccentricity, arg_peri):
+    def convert_tp_to_tc(self, time_peri, period, eccentricity, arg_peri) -> float:
         """Calculate the time of transit center, given time of periastron passage.
 
         This is only a time of (primary) transit center if the planet is actually
@@ -170,7 +170,7 @@ class Parameterisation:
         theta_tc = (np.pi / 2) - arg_peri  # true anomaly at time t_c (Eastman et. al. 2013)
         return self._time_given_true_anomaly(theta_tc, period, eccentricity, time_peri)
 
-    def convert_tc_to_tp(self, time_conj, period, eccentricity, arg_peri):
+    def convert_tc_to_tp(self, time_conj, period, eccentricity, arg_peri) -> float:
         """Calculate the time of periastron passage, given time of primary transit.
 
         Returns
@@ -189,7 +189,7 @@ class Parameterisation:
         mean_anomaly = eccentric_anomaly - (eccentricity * np.sin(eccentric_anomaly))
         return time_conj - (period / (2 * np.pi)) * mean_anomaly
 
-    def convert_secosw_sesinw_to_e_w(self, secosw, sesinw):
+    def convert_secosw_sesinw_to_e_w(self, secosw, sesinw) -> tuple[float, float]:
         """Convert sqrt(e)cos(w), sqrt(e)sin(w) to eccentricity and argument of periastron.
 
         Parameters
@@ -208,7 +208,7 @@ class Parameterisation:
         w = np.arctan2(sesinw, secosw)
         return e, w
 
-    def convert_e_w_to_secosw_sesinw(self, e, w):
+    def convert_e_w_to_secosw_sesinw(self, e, w) -> tuple[float, float]:
         """Convert eccentricity and argument of periastron to sqrt(e)cos(w), sqrt(e)sin(w).
 
         Parameters
@@ -230,7 +230,7 @@ class Parameterisation:
         sesinw = sqrt_e * np.sin(w)
         return secosw, sesinw
 
-    def convert_ecosw_esinw_to_e_w(self, ecosw, esinw):
+    def convert_ecosw_esinw_to_e_w(self, ecosw, esinw) -> tuple[float, float]:
         """Convert e*cos(w), e*sin(w) to eccentricity and argument of periastron.
 
         Parameters
@@ -252,7 +252,7 @@ class Parameterisation:
         w = np.arctan2(esinw, ecosw)
         return e, w
 
-    def convert_e_w_to_ecosw_esinw(self, e, w):
+    def convert_e_w_to_ecosw_esinw(self, e, w) -> tuple[float, float]:
         """Convert eccentricity and argument of periastron to e*cos(w), e*sin(w).
 
         Parameters
@@ -404,7 +404,7 @@ class Parameterisation:
 class Parameter:
     """Represents a model parameter with value, unit, and fixed/free status."""
 
-    def __init__(self, value: float, unit: str, fixed=False):
+    def __init__(self, value: float, unit: str, fixed=False) -> None:
         """
         Initialize a parameter object.
 
@@ -423,10 +423,10 @@ class Parameter:
         self.unit = unit
         self.fixed = fixed
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         class_name = type(self).__name__
         return f"{class_name}(value={self.value!r}, unit={self.unit!r}, fixed={self.fixed!r})"
 
-    def __str__(self):
+    def __str__(self) -> str:
         class_name = type(self).__name__
         return f"{class_name} {self.value} {self.unit}"
