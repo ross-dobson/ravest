@@ -39,7 +39,7 @@ class Parameterisation:
         if not -np.pi <= w < np.pi:
             raise ValueError(f"Invalid argument of periastron: {w} not in [-pi, +pi)")
 
-    def validate_default_parameterisation_params(self, params_dict: dict) -> None:
+    def validate_default_parameterisation_params(self, params_dict: dict[str, float]) -> None:
         """Validate all parameters in default parameterisation (per k e w tp).
 
         Parameters
@@ -58,7 +58,7 @@ class Parameterisation:
         self._validate_argument_periastron(params_dict["w"])
         # Note: tp (time of periastron) can be any real number, so no validation needed
 
-    def validate_planetary_params(self, params_dict: dict) -> None:
+    def validate_planetary_params(self, params_dict: dict[str, float]) -> None:
         """Validate planetary parameters are astrophysically valid, in any parameterisation.
 
         Parameters
@@ -271,7 +271,7 @@ class Parameterisation:
         esinw = e * np.sin(w)
         return ecosw, esinw
 
-    def convert_pars_to_default_parameterisation(self, inpars: dict) -> dict:
+    def convert_pars_to_default_parameterisation(self, inpars: dict[str, float]) -> dict[str, float]:
         """Convert parameters from this parameterisation to default (per k e w tp).
 
         Parameters
@@ -336,7 +336,7 @@ class Parameterisation:
         else:
             raise ValueError(f"parameterisation {self.parameterisation} not recognised")
 
-    def convert_pars_from_default_parameterisation(self, default_pars: dict) -> dict:
+    def convert_pars_from_default_parameterisation(self, default_pars: dict[str, float]) -> dict[str, float]:
         """Convert parameters from default (per k e w tp) to this parameterisation.
 
         Parameters

@@ -26,7 +26,7 @@ class Planet:
         The orbital parameters, matching the parameterisation.
     """
 
-    def __init__(self, letter: str, parameterisation: Parameterisation, params: dict) -> None:
+    def __init__(self, letter: str, parameterisation: Parameterisation, params: dict[str, float]) -> None:
         if not (letter.isalpha() and (letter == letter[0] * len(letter))):
             raise ValueError(f"Letter {letter} is not a single alphabet character.")
         self.letter = letter
@@ -284,7 +284,7 @@ class Trend:
     investigating.
     """
 
-    def __init__(self, t0: float, params: dict) -> None:
+    def __init__(self, t0: float, params: dict[str, float]) -> None:
         self.gamma = params["g"]
         self.gammadot = params["gd"]
         self.gammadotdot = params["gdd"]

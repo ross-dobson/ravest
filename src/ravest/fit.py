@@ -6,7 +6,7 @@ to planetary models using various parameterisations.
 # fit.py
 import logging
 import warnings
-from typing import Dict
+from typing import Callable, Dict
 
 import corner
 import emcee
@@ -109,8 +109,8 @@ class Fitter:
         """Set parameters with a dict, checking all required params are present.
 
         You can update all or some of the parameters at once, example:
-        >>> fitter.params = {"g": 1.0, "gd": 0.1}  # only update trend parameters
-        >>> fitter.params = {"per_c" : 5.0, "k_c": 3.5}  # only update some of planet C parameters
+        >>> fitter.params = {"g": Parameter(1.0, "m/s"), "gd": Parameter(0.1, "m/s/d")}  # only update trend parameters
+        >>> fitter.params = {"per_c": Parameter(5.0, "d"), "k_c": Parameter(3.5, "m/s")}  # only update some of planet C parameters
 
         Parameters
         ----------
@@ -143,7 +143,7 @@ class Fitter:
         return self._priors
 
     @priors.setter
-    def priors(self, new_priors: dict) -> None:
+    def priors(self, new_priors: dict[str, Callable[[float], float]]) -> None:
         """Set prior functions using a dict, checking all required priors are present.
 
         Priors must be provided for all free parameters. You can set all priors
@@ -257,7 +257,7 @@ class Fitter:
                 if ecosw_fixed != esinw_fixed:
                     raise ValueError(f"Parameters {ecosw_key} and {esinw_key} must both be fixed or both be free")
 
-    def _set_priors_with_validation(self, new_priors: dict) -> None:
+    def _set_priors_with_validation(self, new_priors: dict[str, Callable[[float], float]]) -> None:
         """Set priors with validation. Supports partial updates. Can be current or default parameterisation."""
         # Create merged priors dict (in case user is only updating some priors, not all)
         merged_priors_dict = dict(self._priors)  # get existing priors
@@ -373,7 +373,7 @@ class Fitter:
                 return None
 
 
-    def _check_params_values_against_priors(self, validated_priors: dict, current_free_param_names: list[str]) -> None:
+    def _check_params_values_against_priors(self, validated_priors: dict[str, Callable[[float], float]], current_free_param_names: list[str]) -> None:
         """Check parameter values against priors (including if Prior is for the Default parameterisation equivalent parameter)."""
         for prior_param_name, prior_function in validated_priors.items():
             if prior_param_name in current_free_param_names:
@@ -458,7 +458,7 @@ class Fitter:
         # TODO: where and why is this used, rather than fixed_params_dict?
         return dict(zip(self.fixed_params_names, self.fixed_params_values))
 
-    def find_map_estimate(self, method: str = "Powell") -> dict:
+    def find_map_estimate(self, method: str = "Powell") -> scipy.optimize.OptimizeResult:
         """Find Maximum A Posteriori (MAP) estimate of parameters.
 
         Parameters
@@ -481,7 +481,7 @@ class Fitter:
             self.planet_letters,
             self.parameterisation,
             self.priors,
-            self.fixed_params_dict,
+            self.fixed_params_values_dict,
             self.free_params_names,
             self.time,
             self.vel,
@@ -515,7 +515,7 @@ class Fitter:
         ----------
         initial_values : array-like
             Starting parameter values for MCMC. Should match the order of
-            free parameters from get_free_params_names()
+            free parameters from free_params_names
         nwalkers : int
             Number of MCMC walkers
         nsteps : int, optional
@@ -528,7 +528,7 @@ class Fitter:
             self.planet_letters,
             self.parameterisation,
             self.priors,
-            self.fixed_params_dict,
+            self.fixed_params_values_dict,
             self.free_params_names,
             self.time,
             self.vel,
@@ -1370,10 +1370,10 @@ class LogPosterior:
 
     def __init__(
         self,
-        planet_letters: list,
+        planet_letters: list[str],
         parameterisation: Parameterisation,
-        priors: dict,
-        fixed_params: dict,
+        priors: dict[str, Callable[[float], float]],
+        fixed_params: dict[str, float],
         free_params_names: list[str],
         time: np.ndarray,
         vel: np.ndarray,
@@ -1383,7 +1383,7 @@ class LogPosterior:
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
         self.priors = priors
-        self.fixed_params = {key: fixed_params[key].value for key in fixed_params}
+        self.fixed_params = fixed_params
         self.free_params_names = free_params_names
         self.time = time
         self.vel = vel
@@ -1408,7 +1408,7 @@ class LogPosterior:
                                             )
         self.log_prior = LogPrior(self.priors)
 
-    def _convert_params_for_prior_evaluation(self, free_params_dict: dict) -> Dict[str, float]:
+    def _convert_params_for_prior_evaluation(self, free_params_dict: dict[str, float]) -> Dict[str, float]:
         """Convert free parameters for prior evaluation if needed.
 
         Parameters
@@ -1532,7 +1532,7 @@ class LogLikelihood:
         vel: np.ndarray,
         verr: np.ndarray,
         t0: float,
-        planet_letters: list,
+        planet_letters: list[str],
         parameterisation: Parameterisation,
     ) -> None:
         self.time = time
@@ -1607,7 +1607,7 @@ class LogPrior:
     Evaluates log prior probabilities for model parameters.
     """
 
-    def __init__(self, priors: dict) -> None:
+    def __init__(self, priors: dict[str, Callable[[float], float]]) -> None:
         self.priors = priors
 
     def __call__(self, params: Dict[str, float]) -> float:

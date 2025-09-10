@@ -320,7 +320,7 @@ class TestLogPosterior:
         priors = test_simple_priors
 
         # Extract fixed params
-        fixed_params = {k: v for k, v in params.items() if v.fixed}
+        fixed_params = {k: v.value for k, v in params.items() if v.fixed}
         free_param_names = [k for k, v in params.items() if not v.fixed]
 
         lpost = LogPosterior(
@@ -341,7 +341,7 @@ class TestLogPosterior:
         params = test_circular_params
         priors = test_simple_priors
 
-        fixed_params = {k: v for k, v in params.items() if v.fixed}
+        fixed_params = {k: v.value for k, v in params.items() if v.fixed}
         free_param_names = [k for k, v in params.items() if not v.fixed]
 
         lpost = LogPosterior(
@@ -365,7 +365,7 @@ class TestLogPosterior:
         params = test_circular_params
         priors = test_simple_priors
 
-        fixed_params = {k: v for k, v in params.items() if v.fixed}
+        fixed_params = {k: v.value for k, v in params.items() if v.fixed}
         free_param_names = [k for k, v in params.items() if not v.fixed]
 
         lpost = LogPosterior(
@@ -388,7 +388,7 @@ class TestLogPosterior:
         params = test_circular_params
         priors = test_simple_priors
 
-        fixed_params = {k: v for k, v in params.items() if v.fixed}
+        fixed_params = {k: v.value for k, v in params.items() if v.fixed}
         free_param_names = [k for k, v in params.items() if not v.fixed]
 
         lpost = LogPosterior(
