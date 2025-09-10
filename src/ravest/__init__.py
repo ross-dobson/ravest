@@ -1,3 +1,4 @@
+"""Ravest: Radial Velocity fitting, simulation and model comparison."""
 # read version from installed package
 from importlib.metadata import version
 

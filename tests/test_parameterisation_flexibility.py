@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""
-Test parameterisation flexibility - comprehensive test suite.
+"""Test parameterisation flexibility - comprehensive test suite.
+
 Tests both prior validation/setup and MCMC integration.
 """
 

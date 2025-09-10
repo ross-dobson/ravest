@@ -1,3 +1,4 @@
+"""Parameter handling and orbital parameterisation conversions."""
 # parameterisation.py
 import numpy as np
 
@@ -10,6 +11,7 @@ ALLOWED_PARAMETERISATIONS = ["per k e w tp",   # default - the one used in Keple
 
 
 class Parameterisation:
+    """Handle conversions between different orbital parameterisations."""
 
     @staticmethod
     def _validate_period(per):
@@ -98,7 +100,7 @@ class Parameterisation:
                 raise ValueError(f"Invalid tp: {params_dict['tp']} (must be finite)")
 
     def __init__(self, parameterisation: str):
-        """Parameterisation object handles parameter conversions
+        """Parameterisation object handles parameter conversions.
 
         Parameters
         ----------
@@ -188,11 +190,39 @@ class Parameterisation:
         return time_conj - (period / (2 * np.pi)) * mean_anomaly
 
     def convert_secosw_sesinw_to_e_w(self, secosw, sesinw):
+        """Convert sqrt(e)cos(w), sqrt(e)sin(w) to eccentricity and argument of periastron.
+
+        Parameters
+        ----------
+        secosw : float
+            sqrt(e) * cos(w)
+        sesinw : float
+            sqrt(e) * sin(w)
+
+        Returns
+        -------
+        float, float
+            Eccentricity e and argument of periastron w
+        """
         e = secosw**2 + sesinw**2
         w = np.arctan2(sesinw, secosw)
         return e, w
 
     def convert_e_w_to_secosw_sesinw(self, e, w):
+        """Convert eccentricity and argument of periastron to sqrt(e)cos(w), sqrt(e)sin(w).
+
+        Parameters
+        ----------
+        e : float
+            Eccentricity
+        w : float
+            Argument of periastron
+
+        Returns
+        -------
+        float, float
+            sqrt(e)*cos(w) and sqrt(e)*sin(w)
+        """
         # Validate eccentricity before sqrt operations (prevents RuntimeWarnings)
         self._validate_eccentricity(e)
         sqrt_e = np.sqrt(e)  # Calculate once, use twice
@@ -201,6 +231,20 @@ class Parameterisation:
         return secosw, sesinw
 
     def convert_ecosw_esinw_to_e_w(self, ecosw, esinw):
+        """Convert e*cos(w), e*sin(w) to eccentricity and argument of periastron.
+
+        Parameters
+        ----------
+        ecosw : float
+            e * cos(w)
+        esinw : float
+            e * sin(w)
+
+        Returns
+        -------
+        float, float
+            Eccentricity e and argument of periastron w
+        """
         e2 = ecosw**2 + esinw**2
         e = np.sqrt(e2)
         # Validate computed eccentricity is within valid range 0 <= e < 1
@@ -209,11 +253,37 @@ class Parameterisation:
         return e, w
 
     def convert_e_w_to_ecosw_esinw(self, e, w):
+        """Convert eccentricity and argument of periastron to e*cos(w), e*sin(w).
+
+        Parameters
+        ----------
+        e : float
+            Eccentricity
+        w : float
+            Argument of periastron
+
+        Returns
+        -------
+        float, float
+            e*cos(w) and e*sin(w)
+        """
         ecosw = e * np.cos(w)
         esinw = e * np.sin(w)
         return ecosw, esinw
 
     def convert_pars_to_default_parameterisation(self, inpars) -> dict:
+        """Convert parameters from this parameterisation to default (per k e w tp).
+
+        Parameters
+        ----------
+        inpars : dict
+            Parameters in this parameterisation
+
+        Returns
+        -------
+        dict
+            Parameters in default parameterisation (per k e w tp)
+        """
         if self.parameterisation == "per k e w tp":
             return {"per": inpars["per"],
                     "k": inpars["k"],
@@ -332,6 +402,7 @@ class Parameterisation:
 
 
 class Parameter:
+    """Represents a model parameter with value, unit, and fixed/free status."""
 
     def __init__(self, value: float, unit: str, fixed=False):
         """

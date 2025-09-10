@@ -1,3 +1,8 @@
+"""Radial velocity fitting using MCMC and MAP estimation.
+
+This module provides the main Fitter class for fitting radial velocity data
+to planetary models using various parameterisations.
+"""
 # fit.py
 import logging
 import warnings
@@ -56,6 +61,11 @@ def calculate_bic(log_likelihood, num_params, num_observations):
 
 
 class Fitter:
+    """Main class for fitting radial velocity data to planetary models.
+
+    Supports MCMC sampling, MAP estimation, and various parameterisations.
+    Handles multiple planets, trends, and jitter parameters.
+    """
 
     def __init__(self, planet_letters: list[str], parameterisation: Parameterisation) -> None:
         self.planet_letters = planet_letters
@@ -551,7 +561,7 @@ class Fitter:
         self.sampler = sampler
 
     def get_samples_np(self, discard_start=0, discard_end=0, thin=1, flat=False):
-        """Returns a contiguous numpy array of MCMC samples.
+        """Return a contiguous numpy array of MCMC samples.
 
         Samples can be discarded from the start and/or the end of the array. You can
         also thin (take only every n-th sample), and you can flatten the array
@@ -613,7 +623,7 @@ class Fitter:
         return np.ascontiguousarray(samples)
 
     def get_samples_df(self, discard_start=0, discard_end=0, thin=1):
-        """Returns a pandas DataFrame of flattened MCMC samples.
+        """Return a pandas DataFrame of flattened MCMC samples.
 
         Each row represents one sample, each column represents one parameter.
         Built on get_samples_np().
@@ -637,7 +647,7 @@ class Fitter:
         return pd.DataFrame(flat_samples, columns=self.free_params_names)
 
     def get_samples_dict(self, discard_start=0, discard_end=0, thin=1):
-        """Returns a dict of flattened MCMC samples.
+        """Return a dict of flattened MCMC samples.
 
         Each parameter gets a 1D (flattened) contiguous array of all its samples.
 
@@ -715,7 +725,7 @@ class Fitter:
         return np.ascontiguousarray(lnprob)
 
     def get_posterior_params_dict(self, discard_start=0, discard_end=0, thin=1):
-        """Returns dict combining fixed parameter values, and MCMC samples for the free ones.
+        """Return dict combining fixed parameter values, and MCMC samples for the free ones.
 
         This method creates a unified dictionary containing all model parameters:
         fixed parameters as single float values, and free parameters as arrays
@@ -837,6 +847,23 @@ class Fitter:
         plt.show()
 
     def plot_corner(self, discard_start=0, discard_end=0, thin=1, save=False, fname="corner_plot.png", dpi=100) -> None:
+        """Create a corner plot of MCMC samples.
+
+        Parameters
+        ----------
+        discard_start : int, optional
+            Discard the first `discard_start` steps from the start of the chain (default: 0)
+        discard_end : int, optional
+            Discard the last `discard_end` steps from the end of the chain (default: 0)
+        thin : int, optional
+            Use only every `thin` steps from the chain (default: 1)
+        save : bool, optional
+            Save the plot (default: False)
+        fname : str, optional
+            Filename to save (default: "corner_plot.png")
+        dpi : int, optional
+            Resolution for saving (default: 100)
+        """
         flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         fig = corner.corner(
         flat_samples, labels=self.free_params_names, show_titles=True,
@@ -1335,6 +1362,10 @@ class Fitter:
                         save=save, fname=fname, dpi=dpi)
 
 class LogPosterior:
+    """Log posterior probability for MCMC sampling.
+
+    Combines log likelihood and log prior for Bayesian parameter estimation.
+    """
 
     def __init__(
         self,
@@ -1422,6 +1453,18 @@ class LogPosterior:
             return params_for_prior
 
     def log_probability(self, free_params_dict: Dict[str, float]):
+        """Calculate log posterior probability for given free parameters.
+
+        Parameters
+        ----------
+        free_params_dict : Dict[str, float]
+            Dictionary of free parameter values
+
+        Returns
+        -------
+        float
+            Log posterior probability (log likelihood + log prior)
+        """
         # Evaluate priors on the free parameters. If any parameters are outside priors
         # (i.e. priors are infinite), then fail fast returning -infty early, so we
         # don't waste time calculating LogLikelihood when we know this step will be rejected.
@@ -1477,6 +1520,11 @@ class LogPosterior:
 
 
 class LogLikelihood:
+    """Log likelihood calculation for radial velocity data.
+
+    Calculates log likelihood given RV model parameters and data.
+    """
+
     def __init__(
         self,
         time: np.ndarray,
@@ -1502,6 +1550,18 @@ class LogLikelihood:
         self.expected_params += ["jit"]
 
     def __call__(self, params: Dict[str, float]):
+        """Calculate log likelihood for given parameters.
+
+        Parameters
+        ----------
+        params : Dict[str, float]
+            Dictionary of all parameter values
+
+        Returns
+        -------
+        float
+            Log likelihood value
+        """
         rv_total = np.zeros(len(self.time))
 
         # Step 1: Calculate RV contributions from each planet
@@ -1541,10 +1601,27 @@ class LogLikelihood:
 
 
 class LogPrior:
+    """Log prior probability calculation.
+
+    Evaluates log prior probabilities for model parameters.
+    """
+
     def __init__(self, priors: dict) -> None:
         self.priors = priors
 
     def __call__(self, params: Dict[str, float]):
+        """Calculate log prior probability for given parameters.
+
+        Parameters
+        ----------
+        params : Dict[str, float]
+            Dictionary of parameter values
+
+        Returns
+        -------
+        float
+            Log prior probability
+        """
         log_prior_probability = 0
         for param in params:
             # go into the `self.priors dict``, get the Prior object for this `param`

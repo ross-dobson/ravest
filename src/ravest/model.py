@@ -1,3 +1,8 @@
+"""Radial velocity models for planets, stars, and trends.
+
+Provides classes for modelling radial velocity signals from planetary orbits
+and stellar trends (constant, linear, quadratic).
+"""
 # model.py
 
 import matplotlib.pyplot as plt
@@ -67,7 +72,7 @@ class Planet:
         return 2 * np.pi / period
 
     def _calculate_mean_anomaly(self, t: np.ndarray, n: float, time_peri: float) -> np.ndarray:
-        """Calculate mean anomaly (radians)
+        """Calculate mean anomaly (radians).
 
         For an eccentric orbit with period P, mean anomaly is a fictitious
         angle that increases linearly with time ``t`` for an angular rate ``n``, the
@@ -308,7 +313,8 @@ class Star:
         self.trend = trend
 
     def radial_velocity(self, t):
-        """
+        """Calculate the radial velocity of the star at time ``t`` due to the planets and trend.
+
         Calculate the radial velocity of the star at time ``t`` due to the
         planets and the trend (constant velocity, linear, and quadratic.)
         This is a linear sum of the RVs of each of the `Planet` objects stored in
@@ -351,7 +357,9 @@ class Star:
         return self.planets[planet_letter].mpsini(self.mass, unit)
 
     def phase_plot(self, t, ydata, yerr):
-        """Given RV ``ydata`` at time ``t`` with errorbars ``yerr``, generates a phase
+        """Generate a phase plot for each planet.
+
+        Given RV ``ydata`` at time ``t`` with errorbars ``yerr``, generates a phase
         plot for each planet.
 
         Parameters
@@ -485,6 +493,18 @@ class Trend:
         return self.gammadotdot * ((t - t0) ** 2)
 
     def radial_velocity(self, t):
+        """Calculate radial velocity contribution from trend components.
+
+        Parameters
+        ----------
+        t : array_like
+            Time values
+
+        Returns
+        -------
+        array_like
+            RV trend values (constant + linear + quadratic terms)
+        """
         rv = 0
         rv += self._constant(t)
         rv += self._linear(t, self.t0)
@@ -518,7 +538,6 @@ def calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit="kg")
     ValueError
         If the unit is not one of "kg", "M_earth", "M_jupiter".
     """
-
     # convert M_s to kg, and period to s, as the formula is in SI units
     mass_star = mass_star * (1*const.M_sun).value  # type: ignore
     period = period * (1*constants.day)

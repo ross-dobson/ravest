@@ -1,3 +1,4 @@
+"""Prior probability distributions for Bayesian fitting."""
 # prior.py
 import numpy as np
 from scipy.special import gammaln, xlog1py, xlogy
@@ -41,6 +42,18 @@ class Uniform:
         self.upper = upper
 
     def __call__(self, value):
+        """Calculate log uniform prior probability.
+
+        Parameters
+        ----------
+        value : float
+            Parameter value to evaluate
+
+        Returns
+        -------
+        float
+            Log prior probability
+        """
         if value < self.lower or value > self.upper:
             return -np.inf
         else:
@@ -75,6 +88,18 @@ class Gaussian:
         self.std = std
 
     def __call__(self, value):
+        """Calculate log Gaussian prior probability.
+
+        Parameters
+        ----------
+        value : float
+            Parameter value to evaluate
+
+        Returns
+        -------
+        float
+            Log prior probability
+        """
         return -0.5 * ((value - self.mean) / self.std)**2 - 0.5*np.log((self.std**2)*2.*np.pi)
 
     def __repr__(self):
@@ -113,6 +138,18 @@ class EccentricityUniform:
         self.upper = upper
 
     def __call__(self, value):
+        """Calculate log eccentricity uniform prior probability.
+
+        Parameters
+        ----------
+        value : float
+            Parameter value to evaluate
+
+        Returns
+        -------
+        float
+            Log prior probability
+        """
         if value < 0 or value >= self.upper:
             return -np.inf
         else:
@@ -173,6 +210,18 @@ class TruncatedGaussian:
         self._b = (upper - mean) / std  # Upper bound in standard units
 
     def __call__(self, value):
+        """Calculate log truncated Gaussian prior probability.
+
+        Parameters
+        ----------
+        value : float
+            Parameter value to evaluate
+
+        Returns
+        -------
+        float
+            Log prior probability
+        """
         if value < self.lower or value > self.upper:
             return -np.inf
         else:
@@ -214,6 +263,18 @@ class Beta:
         self._log_beta = gammaln(self.a) + gammaln(self.b) - gammaln(self.a + self.b)
 
     def __call__(self, value):
+        """Calculate log Beta prior probability.
+
+        Parameters
+        ----------
+        value : float
+            Parameter value to evaluate
+
+        Returns
+        -------
+        float
+            Log prior probability
+        """
         if value < 0.0 or value > 1.0:
             return -np.inf
         else:
@@ -256,6 +317,18 @@ class HalfGaussian:
         self.scale = float(scale)
 
     def __call__(self, value):
+        """Calculate log half-Gaussian prior probability.
+
+        Parameters
+        ----------
+        value : float
+            Parameter value to evaluate
+
+        Returns
+        -------
+        float
+            Log prior probability
+        """
         if value < 0.0:
             return -np.inf
         else:
