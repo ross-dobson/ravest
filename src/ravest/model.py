@@ -226,7 +226,7 @@ class Planet:
 
         return self._radial_velocity(true_anomaly=f, semi_amplitude=K, eccentricity=e, omega_star=w)
 
-    def mpsini(self, mass_star, unit="kg") -> float:
+    def mpsini(self, mass_star: float, unit: str = "kg") -> float:
         """Calculate the minimum mass of the planet.
 
         Parameters
@@ -249,6 +249,89 @@ class Planet:
         # Formula requires SI units: M_s [kg], P [s], K [m/s]
         mpsini = calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit)
         return mpsini
+
+
+class Trend:
+    """Trend in the radial velocity of the star.
+
+    Parameters
+    ----------
+    t0 : `float`
+        The reference zero-point time for the linear and quadratic trend.
+        Recommended to be the mean of the input times.
+    params : `dict`
+        The parameters of the trend: the constant, linear, and quadratic
+        components. These must be named "g", "gd", and "gdd" respectively (which
+        stands for gamma, gamma-dot, gamma-dot-dot). These are in units of m/s,
+        m/s/day, and m/s/day^2 respectively.
+
+    Returns
+    -------
+    `float`
+        The radial velocity of the star due to the trend (m/s).
+
+    Notes
+    -----
+    The radial velocity of the star due to the trend is calculated as the sum of
+    the constant, linear, and quadratic components. The constant component is
+    simply a constant offset of value gamma. The linear and quadratic components
+    are calculated as `gd*(t-t0)` and `gdd*((t-t0)**2)` respectively.
+
+    In general the trend is used to account for any unexpected effects. These
+    could be due to instrumental effects, or for example a very long-term
+    companion could show as a linear and/or quadratic trend in the data. If you
+    see a strong linear or quadratic trend in the data, it is worth
+    investigating.
+    """
+
+    def __init__(self, t0: float, params: dict) -> None:
+        self.gamma = params["g"]
+        self.gammadot = params["gd"]
+        self.gammadotdot = params["gdd"]
+
+        # Validate and store reference time t0
+        try:
+            self.t0 = float(t0)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"t0 must be a numeric value (recommend mean or median of observation times), but got {type(t0).__name__}: {t0}") from e
+
+    def __str__(self) -> str:
+        return f"Trend: $\\gamma$={self.gamma}, $\\dot\\gamma$={self.gammadot}, $\\ddot\\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
+
+    def __repr__(self) -> str:
+        return f"Trend(params={{'g': {self.gamma}, 'gd': {self.gammadot}, 'gdd': {self.gammadotdot} }}, t0={self.t0:.2f})"
+
+    def _constant(self, t: np.ndarray) -> float:
+        return self.gamma
+
+    def _linear(self, t: np.ndarray, t0: float) -> np.ndarray:
+        if self.gammadot == 0:
+            return np.zeros(len(t))
+        return self.gammadot * (t - t0)
+
+    def _quadratic(self, t: np.ndarray, t0: float) -> np.ndarray:
+        if self.gammadotdot == 0:
+            return np.zeros(len(t))
+        return self.gammadotdot * ((t - t0) ** 2)
+
+    def radial_velocity(self, t: np.ndarray) -> np.ndarray:
+        """Calculate radial velocity contribution from trend components.
+
+        Parameters
+        ----------
+        t : array_like
+            Time values
+
+        Returns
+        -------
+        array_like
+            RV trend values (constant + linear + quadratic terms)
+        """
+        rv = 0
+        rv += self._constant(t)
+        rv += self._linear(t, self.t0)
+        rv += self._quadratic(t, self.t0)
+        return rv
 
 
 class Star:
@@ -287,7 +370,7 @@ class Star:
         else:
             return f"Star {self.name!r}, {self.num_planets!r} planets: {[*self.planets]!r}"
 
-    def add_planet(self, planet) -> None:
+    def add_planet(self, planet: Planet) -> None:
         """Store `Planet` object in `planets` dict with the key `Planet.letter`.
 
         Planets cannot share letters; if two planets have the same letter then the
@@ -302,7 +385,7 @@ class Star:
         self.planets[planet.letter] = planet
         self.num_planets = len(self.planets)
 
-    def add_trend(self, trend) -> None:
+    def add_trend(self, trend: Trend) -> None:
         """Store `Trend` object in `trend` attribute.
 
         Parameters
@@ -312,7 +395,7 @@ class Star:
         """
         self.trend = trend
 
-    def radial_velocity(self, t) -> np.ndarray:
+    def radial_velocity(self, t: np.ndarray) -> np.ndarray:
         """Calculate the radial velocity of the star at time ``t`` due to the planets and trend.
 
         Calculate the radial velocity of the star at time ``t`` due to the
@@ -339,7 +422,7 @@ class Star:
 
         return rv
 
-    def mpsini(self, planet_letter, unit="kg") -> float:
+    def mpsini(self, planet_letter: str, unit: str = "kg") -> float:
         """Calculate the minimum mass of a planet in the star system.
 
         Parameters
@@ -356,7 +439,7 @@ class Star:
         """
         return self.planets[planet_letter].mpsini(self.mass, unit)
 
-    def phase_plot(self, t, ydata, yerr) -> None:
+    def phase_plot(self, t: float, ydata: float, yerr: float) -> None:
         """Generate a phase plot for each planet.
 
         Given RV ``ydata`` at time ``t`` with errorbars ``yerr``, generates a phase
@@ -429,90 +512,7 @@ class Star:
             inds = np.argsort(tdata_fold)
             axs[n].errorbar(tdata_fold[inds]/p, subtracted_data[inds], yerr=yerr, marker=".", mfc="white", color="k", ecolor="tab:gray", markersize=10, linestyle="None")
 
-class Trend:
-    """Trend in the radial velocity of the star.
-
-    Parameters
-    ----------
-    t0 : `float`
-        The reference zero-point time for the linear and quadratic trend.
-        Recommended to be the mean of the input times.
-    params : `dict`
-        The parameters of the trend: the constant, linear, and quadratic
-        components. These must be named "g", "gd", and "gdd" respectively (which
-        stands for gamma, gamma-dot, gamma-dot-dot). These are in units of m/s,
-        m/s/day, and m/s/day^2 respectively.
-
-    Returns
-    -------
-    `float`
-        The radial velocity of the star due to the trend (m/s).
-
-    Notes
-    -----
-    The radial velocity of the star due to the trend is calculated as the sum of
-    the constant, linear, and quadratic components. The constant component is
-    simply a constant offset of value gamma. The linear and quadratic components
-    are calculated as `gd*(t-t0)` and `gdd*((t-t0)**2)` respectively.
-
-    In general the trend is used to account for any unexpected effects. These
-    could be due to instrumental effects, or for example a very long-term
-    companion could show as a linear and/or quadratic trend in the data. If you
-    see a strong linear or quadratic trend in the data, it is worth
-    investigating.
-    """
-
-    def __init__(self, t0, params: dict) -> None:
-        self.gamma = params["g"]
-        self.gammadot = params["gd"]
-        self.gammadotdot = params["gdd"]
-
-        # Validate and store reference time t0
-        try:
-            self.t0 = float(t0)
-        except (TypeError, ValueError) as e:
-            raise ValueError(f"t0 must be a numeric value (recommend mean or median of observation times), but got {type(t0).__name__}: {t0}") from e
-
-    def __str__(self) -> str:
-        return f"Trend: $\\gamma$={self.gamma}, $\\dot\\gamma$={self.gammadot}, $\\ddot\\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
-
-    def __repr__(self) -> str:
-        return f"Trend(params={{'g': {self.gamma}, 'gd': {self.gammadot}, 'gdd': {self.gammadotdot} }}, t0={self.t0:.2f})"
-
-    def _constant(self, t) -> float:
-        return self.gamma
-
-    def _linear(self, t, t0) -> np.ndarray:
-        if self.gammadot == 0:
-            return np.zeros(len(t))
-        return self.gammadot * (t - t0)
-
-    def _quadratic(self, t, t0) -> np.ndarray:
-        if self.gammadotdot == 0:
-            return np.zeros(len(t))
-        return self.gammadotdot * ((t - t0) ** 2)
-
-    def radial_velocity(self, t) -> np.ndarray:
-        """Calculate radial velocity contribution from trend components.
-
-        Parameters
-        ----------
-        t : array_like
-            Time values
-
-        Returns
-        -------
-        array_like
-            RV trend values (constant + linear + quadratic terms)
-        """
-        rv = 0
-        rv += self._constant(t)
-        rv += self._linear(t, self.t0)
-        rv += self._quadratic(t, self.t0)
-        return rv
-
-
-def calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit="kg") -> float:
+def calculate_mpsini(mass_star: float, period: float, semi_amplitude: float, eccentricity: float, unit: str = "kg") -> float:
     """Calculate the minimum mass of the planet.
 
     Parameters

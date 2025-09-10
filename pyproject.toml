@@ -54,7 +54,7 @@ pre-commit = "^4.2.0"
 [tool.ruff]
 line-length = 88
 lint.select = ["E", "F", "I", "D", "ANN"]  # E = pycodestyle, F = pyflakes, I = isort, D = pydocstyle, ANN = flake8-annotations
-lint.ignore = ["E501", "E266", "D401", "D105", "ANN001", "ANN002"]  # ANN001 = missing parameter annotations, ANN002 = *args/**kwargs annotations
+lint.ignore = ["E501", "E266", "D401", "D105", "ANN002"]  # ANN002 = *args/**kwargs annotations
 fix = true
 unsafe-fixes = true
 

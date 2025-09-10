@@ -13,6 +13,7 @@ import emcee
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import scipy
 from matplotlib.ticker import AutoLocator, AutoMinorLocator
 from scipy.optimize import minimize
 
@@ -21,7 +22,7 @@ from ravest.param import Parameter, Parameterisation
 
 logging.basicConfig(level=logging.INFO)
 
-def calculate_aic(log_likelihood, num_params) -> float:
+def calculate_aic(log_likelihood: float, num_params: int) -> float:
     """Calculate Akaike Information Criterion (AIC).
 
     Parameters
@@ -39,7 +40,7 @@ def calculate_aic(log_likelihood, num_params) -> float:
     return 2 * num_params - 2 * log_likelihood
 
 
-def calculate_bic(log_likelihood, num_params, num_observations) -> float:
+def calculate_bic(log_likelihood: float, num_params: int, num_observations: int) -> float:
     """Calculate Bayesian Information Criterion (BIC).
 
     Parameters
@@ -75,7 +76,7 @@ class Fitter:
         self._params: Dict[str, Parameter] = {}
         self._priors = {}
 
-    def add_data(self, time, vel, verr, t0) -> None:
+    def add_data(self, time: np.ndarray, vel: np.ndarray, verr: np.ndarray, t0: float) -> None:
         """Add the data to the Fitter object.
 
         Parameters
@@ -142,7 +143,7 @@ class Fitter:
         return self._priors
 
     @priors.setter
-    def priors(self, new_priors) -> None:
+    def priors(self, new_priors: dict) -> None:
         """Set prior functions using a dict, checking all required priors are present.
 
         Priors must be provided for all free parameters. You can set all priors
@@ -328,7 +329,7 @@ class Fitter:
         self._priors.update(new_priors)
         self.ndim = len(self.free_params_values)  # TODO: would this ever change (here)? I think this may only change if user changes self.params, not self.priors
 
-    def _get_default_parameterisation_equivalent_free_param_name(self, free_param) -> str:
+    def _get_default_parameterisation_equivalent_free_param_name(self, free_param: str) -> str:
         """Get the names of the default parameterisation equivalent parameter(s), for a single free parameter from the current parameterisation.
 
         Note this can be more than one: e.g. if you have secosw, this affects both e & w in the default parameterisation
@@ -372,7 +373,7 @@ class Fitter:
                 return None
 
 
-    def _check_params_values_against_priors(self, validated_priors, current_free_param_names) -> None:
+    def _check_params_values_against_priors(self, validated_priors: dict, current_free_param_names: list[str]) -> None:
         """Check parameter values against priors (including if Prior is for the Default parameterisation equivalent parameter)."""
         for prior_param_name, prior_function in validated_priors.items():
             if prior_param_name in current_free_param_names:
@@ -389,7 +390,7 @@ class Fitter:
                 if not np.isfinite(log_prior_probability):
                     raise ValueError(f"Initial value {default_param_value} of parameter {prior_param_name} (in default parameterisation) is invalid for prior {prior_function}.")
 
-    def _convert_single_param_to_default(self, default_param_name) -> float:
+    def _convert_single_param_to_default(self, default_param_name: str) -> float:
         """Convert a single parameter from current to default parameterisation."""
         # Extract planet letter if this is a planetary parameter
         if '_' in default_param_name:
@@ -457,7 +458,7 @@ class Fitter:
         # TODO: where and why is this used, rather than fixed_params_dict?
         return dict(zip(self.fixed_params_names, self.fixed_params_values))
 
-    def find_map_estimate(self, method="Powell") -> dict:
+    def find_map_estimate(self, method: str = "Powell") -> dict:
         """Find Maximum A Posteriori (MAP) estimate of parameters.
 
         Parameters
@@ -507,7 +508,7 @@ class Fitter:
         return map_results
 
 
-    def run_mcmc(self, initial_values, nwalkers, nsteps=5000, progress=True) -> None:
+    def run_mcmc(self, initial_values: np.ndarray, nwalkers: int, nsteps: int = 5000, progress: bool = True) -> None:
         """Run MCMC sampling from given initial parameter values.
 
         Parameters
@@ -560,7 +561,7 @@ class Fitter:
         logging.info("...MCMC done.")
         self.sampler = sampler
 
-    def get_samples_np(self, discard_start=0, discard_end=0, thin=1, flat=False) -> np.ndarray:
+    def get_samples_np(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, flat: bool = False) -> np.ndarray:
         """Return a contiguous numpy array of MCMC samples.
 
         Samples can be discarded from the start and/or the end of the array. You can
@@ -622,7 +623,7 @@ class Fitter:
 
         return np.ascontiguousarray(samples)
 
-    def get_samples_df(self, discard_start=0, discard_end=0, thin=1) -> pd.DataFrame:
+    def get_samples_df(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> pd.DataFrame:
         """Return a pandas DataFrame of flattened MCMC samples.
 
         Each row represents one sample, each column represents one parameter.
@@ -646,7 +647,7 @@ class Fitter:
         flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         return pd.DataFrame(flat_samples, columns=self.free_params_names)
 
-    def get_samples_dict(self, discard_start=0, discard_end=0, thin=1) -> Dict[str, np.ndarray]:
+    def get_samples_dict(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> Dict[str, np.ndarray]:
         """Return a dict of flattened MCMC samples.
 
         Each parameter gets a 1D (flattened) contiguous array of all its samples.
@@ -677,7 +678,7 @@ class Fitter:
         # Direct numpy slicing - much faster than pandas operations
         return {name: flat_samples[:, i] for i, name in enumerate(param_names)}
 
-    def get_sampler_lnprob(self, discard_start=0, discard_end=0, thin=1, flat=False) -> np.ndarray:
+    def get_sampler_lnprob(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, flat: bool = False) -> np.ndarray:
         """Returns the log probability at each step of the sampler.
 
         Parameters
@@ -724,7 +725,7 @@ class Fitter:
 
         return np.ascontiguousarray(lnprob)
 
-    def get_posterior_params_dict(self, discard_start=0, discard_end=0, thin=1) -> dict:
+    def get_posterior_params_dict(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> dict:
         """Return dict combining fixed parameter values, and MCMC samples for the free ones.
 
         This method creates a unified dictionary containing all model parameters:
@@ -782,7 +783,7 @@ class Fitter:
         return log_likelihood(params_dict)
 
 
-    def plot_chains(self, discard_start=0, discard_end=0, thin=1, save=False, fname="chains_plot.png", dpi=100) -> None:
+    def plot_chains(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, save: bool = False, fname: str = "chains_plot.png", dpi: int = 100) -> None:
         """Plot MCMC chains for all free parameters."""
         fig, axes = plt.subplots(self.ndim, figsize=(10,1+(self.ndim*2/3)), sharex=True)
         # TODO: dynamically scale figure height based on number of parameters
@@ -805,7 +806,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_lnprob(self, discard_start=0, discard_end=0, thin=1, save=False, fname="lnprob_plot.png", dpi=100) -> None:
+    def plot_lnprob(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, save: bool = False, fname: str = "lnprob_plot.png", dpi: int = 100) -> None:
         """Plot log probability traces for all walkers.
 
         Useful for diagnosing MCMC convergence and identifying problematic
@@ -846,7 +847,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_corner(self, discard_start=0, discard_end=0, thin=1, save=False, fname="corner_plot.png", dpi=100) -> None:
+    def plot_corner(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, save: bool = False, fname: str = "corner_plot.png", dpi: int = 100) -> None:
         """Create a corner plot of MCMC samples.
 
         Parameters
@@ -875,7 +876,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def _posterior_rv(self, discard_start=0, discard_end=0, thin=1) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _posterior_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """For each step in the MCMC chain, calculate the RV.
 
         The RVs are calculated at the times in `tlin`, which is a smooth time
@@ -938,7 +939,7 @@ class Fitter:
 
         return rv_array, tlin
 
-    def _plot_rv(self, params: Dict[str, float], title="RV Model", save=False, fname="rv_plot.png", dpi=100) -> None:
+    def _plot_rv(self, params: Dict[str, float], title: str = "RV Model", save: bool = False, fname: str = "rv_plot.png", dpi: int = 100) -> None:
         """Helper function to plot RV model with given parameters.
 
         Parameters
@@ -1060,7 +1061,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def _plot_phase(self, planet_letter, params: Dict[str, float], title=None, save=False, fname="phase_plot.png", dpi=100) -> None:
+    def _plot_phase(self, planet_letter: str, params: Dict[str, float], title: str = None, save: bool = False, fname: str = "phase_plot.png", dpi: int = 100) -> None:
         """Helper function to plot phase-folded RV model for a single planet with given parameters.
 
         Parameters
@@ -1199,7 +1200,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_posterior_rv(self, discard_start=0, discard_end=0, thin=1, save=False, fname="posterior_rv.png", dpi=100) -> None:
+    def plot_posterior_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, save: bool = False, fname: str = "posterior_rv.png", dpi: int = 100) -> None:
         """Plot the posterior RV model using median parameter values.
 
         Uses the median values of each parameter from the MCMC chain to calculate
@@ -1236,7 +1237,7 @@ class Fitter:
         # Use helper function to create the plot
         self._plot_rv(all_params, title="Posterior RV", save=save, fname=fname, dpi=dpi)
 
-    def _posterior_rv_planet(self, planet_letter, times, discard_start=0, discard_end=0, thin=1) -> np.ndarray:
+    def _posterior_rv_planet(self, planet_letter: str, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> np.ndarray:
         """Calculate the posterior rv for a planet, using all samples in the chain."""
         samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         this_planet_rvs = np.zeros((len(samples), len(times))) # type: ignore
@@ -1259,7 +1260,7 @@ class Fitter:
 
         return this_planet_rvs
 
-    def _posterior_rv_trend(self, times, discard_start=0, discard_end=0, thin=1) -> np.ndarray:
+    def _posterior_rv_trend(self, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> np.ndarray:
         """Calculate the posterior rv for the trend, using all samples in the chain."""
         samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         this_trend_rvs = np.zeros((len(samples), len(times))) # type: ignore
@@ -1277,7 +1278,7 @@ class Fitter:
 
         return this_trend_rvs
 
-    def plot_posterior_phase(self, planet_letter, discard_start=0, discard_end=0, thin=1, save=False, fname="posterior_phase.png", dpi=100) -> None:
+    def plot_posterior_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, save: bool = False, fname: str = "posterior_phase.png", dpi: int = 100) -> None:
         """Plot the posterior phase-folded RV model for a single planet using median parameter values.
 
         Uses the median values of each parameter from the MCMC chain to calculate
@@ -1312,7 +1313,7 @@ class Fitter:
         self._plot_phase(planet_letter, all_params, title=f"Posterior Phase Plot - Planet {planet_letter}",
                         save=save, fname=fname, dpi=dpi)
 
-    def plot_MAP_rv(self, map_result, save=False, fname="MAP_rv.png", dpi=100) -> None:
+    def plot_MAP_rv(self, map_result: scipy.optimize.OptimizeResult, save: bool = False, fname: str = "MAP_rv.png", dpi: int = 100) -> None:
         """Plot radial velocity data and model using MAP parameter estimates.
 
         Parameters
@@ -1335,7 +1336,7 @@ class Fitter:
         # Use helper function to create the plot
         self._plot_rv(all_params, title="MAP RV", save=save, fname=fname, dpi=dpi)
 
-    def plot_MAP_phase(self, planet_letter, map_result, save=False, fname="MAP_phase.png", dpi=100) -> None:
+    def plot_MAP_phase(self, planet_letter: str, map_result: scipy.optimize.OptimizeResult, save: bool = False, fname: str = "MAP_phase.png", dpi: int = 100) -> None:
         """Plot phase-folded radial velocity data and model using MAP parameter estimates.
 
         Parameters
@@ -1373,7 +1374,7 @@ class LogPosterior:
         parameterisation: Parameterisation,
         priors: dict,
         fixed_params: dict,
-        free_params_names,
+        free_params_names: list[str],
         time: np.ndarray,
         vel: np.ndarray,
         verr: np.ndarray,
@@ -1407,7 +1408,7 @@ class LogPosterior:
                                             )
         self.log_prior = LogPrior(self.priors)
 
-    def _convert_params_for_prior_evaluation(self, free_params_dict) -> Dict[str, float]:
+    def _convert_params_for_prior_evaluation(self, free_params_dict: dict) -> Dict[str, float]:
         """Convert free parameters for prior evaluation if needed.
 
         Parameters
@@ -1487,7 +1488,7 @@ class LogPosterior:
         logprob = ll + lp
         return logprob
 
-    def _negative_log_probability_for_MAP(self, free_params_vals) -> float:
+    def _negative_log_probability_for_MAP(self, free_params_vals: list[float]) -> float:
         """For MAP: run __call__ only passing in a list, not dict, of params.
 
         Because scipy.optimize.minimise only takes list of values, not a dict,
@@ -1513,7 +1514,7 @@ class LogPosterior:
 
         return neg_logprob
 
-    def _positive_log_probability_for_MCMC(self, free_params_vals) -> float:
+    def _positive_log_probability_for_MCMC(self, free_params_vals: float) -> float:
         free_params_dict = dict(zip(self.free_params_names, free_params_vals))
         logprob = self.log_probability(free_params_dict)
         return logprob

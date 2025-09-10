@@ -31,7 +31,7 @@ class Uniform:
         Logarithm of the prior probability density function.
     """
 
-    def __init__(self, lower, upper) -> None:
+    def __init__(self, lower: float, upper: float) -> None:
         if not np.isfinite(lower):
             raise ValueError(f"Lower bound must be finite, got {lower}")
         if not np.isfinite(upper):
@@ -41,7 +41,7 @@ class Uniform:
         self.lower = lower
         self.upper = upper
 
-    def __call__(self, value) -> float:
+    def __call__(self, value: float) -> float:
         """Calculate log uniform prior probability.
 
         Parameters
@@ -83,11 +83,11 @@ class Gaussian:
         Logarithm of the prior probability density function.
     """
 
-    def __init__(self, mean, std) -> None:
+    def __init__(self, mean: float, std: float) -> None:
         self.mean = mean
         self.std = std
 
-    def __call__(self, value) -> float:
+    def __call__(self, value: float) -> float:
         """Calculate log Gaussian prior probability.
 
         Parameters
@@ -130,14 +130,14 @@ class EccentricityUniform:
     (circular orbits) but cannot be exactly upper (to avoid unphysical e=1).
     """
 
-    def __init__(self, upper) -> None:
+    def __init__(self, upper: float) -> None:
         if upper > 1:
             raise ValueError("Upper bound of eccentricity must be less than or equal to 1.")
         if upper <= 0:
             raise ValueError("Upper bound of eccentricity must be greater than 0.")
         self.upper = upper
 
-    def __call__(self, value) -> float:
+    def __call__(self, value: float) -> float:
         """Calculate log eccentricity uniform prior probability.
 
         Parameters
@@ -194,7 +194,7 @@ class TruncatedGaussian:
 
     """
 
-    def __init__(self, mean, std, lower, upper) -> None:
+    def __init__(self, mean: float, std: float, lower: float, upper: float) -> None:
         if std <= 0:
             raise ValueError("Standard deviation must be positive")
         if lower >= upper:
@@ -209,7 +209,7 @@ class TruncatedGaussian:
         self._a = (lower - mean) / std  # Lower bound in standard units
         self._b = (upper - mean) / std  # Upper bound in standard units
 
-    def __call__(self, value) -> float:
+    def __call__(self, value: float) -> float:
         """Calculate log truncated Gaussian prior probability.
 
         Parameters
@@ -262,7 +262,7 @@ class Beta:
         # Pre-compute log(B(a,b)) = log(Γ(a)) + log(Γ(b)) - log(Γ(a+b))
         self._log_beta = gammaln(self.a) + gammaln(self.b) - gammaln(self.a + self.b)
 
-    def __call__(self, value) -> float:
+    def __call__(self, value: float) -> float:
         """Calculate log Beta prior probability.
 
         Parameters
@@ -316,7 +316,7 @@ class HalfGaussian:
             raise ValueError(f"Scale parameter must be positive, got {scale}")
         self.scale = float(scale)
 
-    def __call__(self, value) -> float:
+    def __call__(self, value: float) -> float:
         """Calculate log half-Gaussian prior probability.
 
         Parameters
