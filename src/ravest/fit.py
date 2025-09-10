@@ -1,14 +1,20 @@
 # fit.py
+import logging
+import warnings
+from typing import Dict
+
 import corner
 import emcee
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.ticker import AutoLocator, AutoMinorLocator
 from scipy.optimize import minimize
 
 import ravest.model
-from ravest.param import Parameterisation
+from ravest.param import Parameter, Parameterisation
 
+logging.basicConfig(level=logging.INFO)
 
 def calculate_aic(log_likelihood, num_params):
     """Calculate Akaike Information Criterion (AIC).
@@ -51,14 +57,16 @@ def calculate_bic(log_likelihood, num_params, num_observations):
 
 class Fitter:
 
-    def __init__(self, planet_letters: list[str], parameterisation: Parameterisation):
+    def __init__(self, planet_letters: list[str], parameterisation: Parameterisation) -> None:
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
-        self._params = {}
+
+        # Initialize parameter storage
+        self._params: Dict[str, Parameter] = {}
         self._priors = {}
 
-    def add_data(self, time, vel, verr, t0):
-        """Add the data to the Fitter object
+    def add_data(self, time, vel, verr, t0) -> None:
+        """Add the data to the Fitter object.
 
         Parameters
         ----------
@@ -82,11 +90,11 @@ class Fitter:
 
     @property
     def params(self):
-        """Parameters dictionary. Set via: fitter.params = param_dict"""
+        """Parameters dictionary. Set via: fitter.params = param_dict."""
         return self._params
 
     @params.setter
-    def params(self, new_params):
+    def params(self, new_params: Dict[str, Parameter]) -> None:
         """Set parameters with a dict, checking all required params are present.
 
         You can update all or some of the parameters at once, example:
@@ -120,11 +128,11 @@ class Fitter:
 
     @property
     def priors(self):
-        """Priors dictionary. Set via: fitter.priors = prior_dict"""
+        """Priors dictionary. Set via: fitter.priors = prior_dict."""
         return self._priors
 
     @priors.setter
-    def priors(self, new_priors):
+    def priors(self, new_priors) -> None:
         """Set prior functions using a dict, checking all required priors are present.
 
         Priors must be provided for all free parameters. You can set all priors
@@ -149,7 +157,8 @@ class Fitter:
         """
         self._set_priors_with_validation(new_priors)
 
-    def _validate_complete_params(self, params: dict):
+    def _validate_complete_params(self, params: Dict[str, Parameter]) -> None:
+        # TODO rename this function?
         """Validate that params dict has required parameters, astrophysically valid values."""
         # Build complete set of expected parameters
         expected_params = set()
@@ -191,38 +200,40 @@ class Fitter:
         # i.e. if two parameters both need to be fixed or free together
         self._validate_parameter_coupling(params)
 
-    def _validate_astrophysical_validity(self, params: dict):
+    def _validate_astrophysical_validity(self, params: Dict[str, Parameter]) -> None:
         """Validate that all parameters are astrophysically valid."""
         # Validate planetary parameters for each planet
         for planet_letter in self.planet_letters:
             planet_params = {}
             for par_name in self.parameterisation.pars:
                 key = f"{par_name}_{planet_letter}"
-                planet_params[par_name] = params[key].value if hasattr(params[key], 'value') else params[key]
+                planet_params[par_name] = params[key].value
 
             # Validate this planet's parameters in current parameterisation
             self.parameterisation.validate_planetary_params(planet_params)
 
         # Validate trend parameters are finite real numbers
         for trend_param in ["g", "gd", "gdd"]:
-            trend_value = params[trend_param].value if hasattr(params[trend_param], 'value') else params[trend_param]
+            # TODO tidy up this .value hasattr else stuff
+            trend_value = params[trend_param].value
             if not np.isfinite(trend_value):
                 raise ValueError(f"Invalid trend parameter {trend_param}: {trend_value} is not a finite real number")
 
         # Validate jitter parameter
-        jit_value = params["jit"].value if hasattr(params["jit"], 'value') else params["jit"]
+        jit_value = params["jit"].value
         if jit_value < 0:
             raise ValueError(f"Invalid jitter: {jit_value} < 0")
 
-    def _validate_parameter_coupling(self, params: dict):
+    def _validate_parameter_coupling(self, params: Dict[str, Parameter]) -> None:
         """Validate parameter coupling constraints (e.g., secosw/sesinw must both be free or both fixed)."""
         for planet_letter in self.planet_letters:
+
             # Check secosw/sesinw coupling
             secosw_key = f"secosw_{planet_letter}"
             sesinw_key = f"sesinw_{planet_letter}"
             if secosw_key in params and sesinw_key in params:
-                secosw_fixed = params[secosw_key].fixed if hasattr(params[secosw_key], 'fixed') else False
-                sesinw_fixed = params[sesinw_key].fixed if hasattr(params[sesinw_key], 'fixed') else False
+                secosw_fixed = params[secosw_key].fixed
+                sesinw_fixed = params[sesinw_key].fixed
                 if secosw_fixed != sesinw_fixed:
                     raise ValueError(f"Parameters {secosw_key} and {sesinw_key} must both be fixed or both be free")
 
@@ -230,12 +241,12 @@ class Fitter:
             ecosw_key = f"ecosw_{planet_letter}"
             esinw_key = f"esinw_{planet_letter}"
             if ecosw_key in params and esinw_key in params:
-                ecosw_fixed = params[ecosw_key].fixed if hasattr(params[ecosw_key], 'fixed') else False
-                esinw_fixed = params[esinw_key].fixed if hasattr(params[esinw_key], 'fixed') else False
+                ecosw_fixed = params[ecosw_key].fixed
+                esinw_fixed = params[esinw_key].fixed
                 if ecosw_fixed != esinw_fixed:
                     raise ValueError(f"Parameters {ecosw_key} and {esinw_key} must both be fixed or both be free")
 
-    def _set_priors_with_validation(self, new_priors: dict):
+    def _set_priors_with_validation(self, new_priors: dict) -> None:
         """Set priors with validation. Supports partial updates. Can be current or default parameterisation."""
         # Create merged priors dict (in case user is only updating some priors, not all)
         merged_priors_dict = dict(self._priors)  # get existing priors
@@ -308,10 +319,11 @@ class Fitter:
         self.ndim = len(self.free_params_values)  # TODO: would this ever change (here)? I think this may only change if user changes self.params, not self.priors
 
     def _get_default_parameterisation_equivalent_free_param_name(self, free_param):
-        """Get the names of the default parameterisation equivalent parameter(s), for a single free parameter from the current parameterisation
+        """Get the names of the default parameterisation equivalent parameter(s), for a single free parameter from the current parameterisation.
 
         Note this can be more than one: e.g. if you have secosw, this affects both e & w in the default parameterisation
-        Whereas tc just maps to tp alone"""
+        Whereas tc just maps to tp alone
+        """
         # Extract planet letter if this is a planetary parameter
         if '_' in free_param:
             base_param, planet_letter = free_param.rsplit('_', 1)
@@ -350,8 +362,8 @@ class Fitter:
                 return None
 
 
-    def _check_params_values_against_priors(self, validated_priors, current_free_param_names):
-        """Check parameter values against priors (including if Prior is for the Default parameterisation equivalent parameter)"""
+    def _check_params_values_against_priors(self, validated_priors, current_free_param_names) -> None:
+        """Check parameter values against priors (including if Prior is for the Default parameterisation equivalent parameter)."""
         for prior_param_name, prior_function in validated_priors.items():
             if prior_param_name in current_free_param_names:
                 # This prior is in current parameterisation - check directly
@@ -432,6 +444,7 @@ class Fitter:
     @property
     def fixed_params_values_dict(self):
         """Fixed parameters as dict mapping names to just the values."""
+        # TODO: where and why is this used, rather than fixed_params_dict?
         return dict(zip(self.fixed_params_names, self.fixed_params_values))
 
     def find_map_estimate(self, method="Powell"):
@@ -475,7 +488,7 @@ class Fitter:
 
         if map_results.success is False:
             print(map_results)
-            raise Warning("MAP did not succeed. Check the initial values of the parameters, and the priors functions.")
+            warnings.warn("MAP did not succeed. Check the initial values of the parameters, and the prior functions.")
 
         # Return results as dictionary for easy access
         map_results_dict = dict(zip(self.free_params_names, map_results.x))
@@ -484,7 +497,7 @@ class Fitter:
         return map_results
 
 
-    def run_mcmc(self, initial_values, nwalkers, nsteps=5000, progress=True):
+    def run_mcmc(self, initial_values, nwalkers, nsteps=5000, progress=True) -> None:
         """Run MCMC sampling from given initial parameter values.
 
         Parameters
@@ -512,9 +525,9 @@ class Fitter:
             self.t0,
         )
 
-        print("Starting MCMC...")
+        logging.info("Starting MCMC...")
         if nwalkers < 2 * self.ndim:
-            print(f"Warning: nwalkers should be at least 2 * ndim. You have {nwalkers} walkers and {self.ndim} dimensions. Setting nwalkers to {2 * self.ndim}.")
+            logging.warning(f"nwalkers should be at least 2 * ndim. You have {nwalkers} walkers and {self.ndim} dimensions. Setting nwalkers to {2 * self.ndim}.")
             self.nwalkers = 2 * self.ndim
         else:
             self.nwalkers = nwalkers
@@ -534,7 +547,7 @@ class Fitter:
         #                                     parameter_names=self.free_params_names,
         #                                     pool=pool)
         #     state = sampler.run_mcmc(mcmc_init, 10000, progress=True)
-        print("...MCMC done.")
+        logging.info("...MCMC done.")
         self.sampler = sampler
 
     def get_samples_np(self, discard_start=0, discard_end=0, thin=1, flat=False):
@@ -545,7 +558,7 @@ class Fitter:
         so that each walker's chain is merged into one chain.
 
         This is the foundational method for accessing MCMC samples. All the other
-        sample methods build on this.
+        get_samples methods build on this.
 
         Parameters
         ----------
@@ -583,7 +596,7 @@ class Fitter:
         else:
             end_idx = full_samples.shape[0] - discard_end
 
-        # Sanity check the start and end points
+        # Check the start and end points are valid
         if start_idx >= end_idx:
             raise ValueError(f"Invalid parameters: start_idx ({start_idx}) >= end_idx ({end_idx}). "
                             f"Try reducing discard_start ({discard_start}), discard_end ({discard_end}), or thin ({thin}).")
@@ -685,7 +698,7 @@ class Fitter:
         else:
             end_idx = full_lnprob.shape[0] - discard_end
 
-        # Sanity check the start and end points
+        # Check the start and end points are valid
         if start_idx >= end_idx:
             raise ValueError(f"Invalid parameters: start_idx ({start_idx}) >= end_idx ({end_idx}). "
                             f"Try reducing discard_start ({discard_start}), discard_end ({discard_end}), or thin ({thin}).")
@@ -702,7 +715,7 @@ class Fitter:
         return np.ascontiguousarray(lnprob)
 
     def get_posterior_params_dict(self, discard_start=0, discard_end=0, thin=1):
-        """Returns dict combining fixed parameters and MCMC samples.
+        """Returns dict combining fixed parameter values, and MCMC samples for the free ones.
 
         This method creates a unified dictionary containing all model parameters:
         fixed parameters as single float values, and free parameters as arrays
@@ -731,9 +744,11 @@ class Fitter:
         return fixed_params_dict | free_samples_dict
 
 
-    def calculate_log_likelihood(self, params_dict):
+    def calculate_log_likelihood(self, params_dict: Dict[str, float]):
         """Calculate log-likelihood for given parameter values.
-        Note this does not include (log-)prior probabilities, this is primarily for use in AIC & BIC calculation.
+
+        Note this does not include (log-)prior probabilities, this is just the
+        (log-) *likelihood* primarily for use in AIC & BIC calculation.
 
         Parameters
         ----------
@@ -756,10 +771,14 @@ class Fitter:
         )
         return log_likelihood(params_dict)
 
-    def plot_chains(self, discard_start=0, discard_end=0, thin=1, save=False, fname="chains_plot.png", dpi=100):
+
+    def plot_chains(self, discard_start=0, discard_end=0, thin=1, save=False, fname="chains_plot.png", dpi=100) -> None:
+        """Plot MCMC chains for all free parameters."""
         fig, axes = plt.subplots(self.ndim, figsize=(10,1+(self.ndim*2/3)), sharex=True)
         # TODO: dynamically scale figure height based on number of parameters
         fig.suptitle("Chains plot")
+
+        # TODO: deal with the ndim = 1 case (where axes[i] will fail as non-subscriptable)
 
         samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=False)
         for i in range(self.ndim):
@@ -776,7 +795,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_lnprob(self, discard_start=0, discard_end=0, thin=1, save=False, fname="lnprob_plot.png", dpi=100):
+    def plot_lnprob(self, discard_start=0, discard_end=0, thin=1, save=False, fname="lnprob_plot.png", dpi=100) -> None:
         """Plot log probability traces for all walkers.
 
         Useful for diagnosing MCMC convergence and identifying problematic
@@ -817,7 +836,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_corner(self, discard_start=0, discard_end=0, thin=1, save=False, fname="corner_plot.png", dpi=100):
+    def plot_corner(self, discard_start=0, discard_end=0, thin=1, save=False, fname="corner_plot.png", dpi=100) -> None:
         flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         fig = corner.corner(
         flat_samples, labels=self.free_params_names, show_titles=True,
@@ -850,10 +869,13 @@ class Fitter:
         -------
         np.ndarray
             Array of RVs for each sample in the chain, at the times in `tlin`.
+        np.ndarray
+            The time array `tlin` at which the RVs are calculated.
         """
+        # Get posterior parameter samples
         samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
 
-        # get smooth time curve for plotting
+        # Create smooth time curve for plotting
         _tmin, _tmax = self.time.min(), self.time.max()
         _trange = _tmax - _tmin
         tlin = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
@@ -863,12 +885,13 @@ class Fitter:
 
         # get the free parameter names and fixed parameter values
         # we don't need to call this repeatedly for each sample
-        free_param_names = self.free_params_names
+        free_params_names = self.free_params_names
         fixed_params_dict = self.fixed_params_values_dict
 
-        for i, row in enumerate(samples):  # type: ignore
-            # Combine fixed and free parameters
-            free_params = dict(zip(free_param_names, row))
+        # TODO: can we replace this loop with something faster?
+        for i, row in enumerate(samples):
+            # Combine fixed and free parameters, so we have all values needed to evaluate the model
+            free_params = dict(zip(free_params_names, row))
             params = fixed_params_dict | free_params
             this_row_rv = np.zeros(len(tlin))
 
@@ -888,15 +911,273 @@ class Fitter:
 
         return rv_array, tlin
 
-    def plot_posterior_rv(self, discard_start=0, discard_end=0, thin=1, save=False, fname="posterior_rv.png", dpi=100):
-        """Plot the posterior RV model (median & 16-84 percentiles).
+    def _plot_rv(self, params: Dict[str, float], title="RV Model", save=False, fname="rv_plot.png", dpi=100) -> None:
+        """Helper function to plot RV model with given parameters.
 
-        For each step in the MCMC chain, calculate the RV. Plot the median RV,
-        and the 16th and 84th percentiles as shaded region. The RVs are
-        calculated at the times in `tlin`, which is a smooth time array
-        generated for plotting purposes. This array consists of 1000 uniformly
-        spaced points spanning from the minimum to maximum of the observed
-        `time` array, with a 1% buffer added to both ends.
+        Parameters
+        ----------
+        params : dict
+            Dictionary of parameter values (both free and fixed)
+        title : str, optional
+            Plot title (default: "RV Model")
+        save : bool, optional
+            Save the plot (default: False)
+        fname : str, optional
+            Filename to save (default: "rv_plot.png")
+        dpi : int, optional
+            Resolution for saving (default: 100)
+
+        Returns
+        -------
+        np.ndarray
+            Time array used for evaluation
+        np.ndarray
+            RV values at evaluation times
+        """
+        # Create smooth time curve for plotting
+        _tmin, _tmax = self.time.min(), self.time.max()
+        _trange = _tmax - _tmin
+        tlin = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
+
+        # Calculate RV model for all planets and trend
+        rv_total = np.zeros(len(tlin))
+
+        # Add planetary contributions
+        for letter in self.planet_letters:
+            planet_params = {}
+            for par_name in self.parameterisation.pars:
+                key = f"{par_name}_{letter}"
+                planet_params[par_name] = params[key]
+
+            planet = ravest.model.Planet(letter, self.parameterisation, planet_params)
+            rv_total += planet.radial_velocity(tlin)
+
+        # Add trend contribution
+        trend_params = {key: params[key] for key in ["g", "gd", "gdd"]}
+        trend = ravest.model.Trend(params=trend_params, t0=self.t0)
+        rv_total += trend.radial_velocity(tlin)
+
+        # Get jitter value for error bars
+        jit_value = params["jit"]
+        verr_with_jit = np.sqrt(self.verr**2 + jit_value**2)
+
+        # Calculate model at observed times for residuals
+        rv_model_at_data = np.zeros(len(self.time))
+
+        # Add planetary contributions at data times
+        for letter in self.planet_letters:
+            planet_params = {}
+            for par_name in self.parameterisation.pars:
+                key = f"{par_name}_{letter}"
+                planet_params[par_name] = params[key]
+
+            planet = ravest.model.Planet(letter, self.parameterisation, planet_params)
+            rv_model_at_data += planet.radial_velocity(self.time)
+
+        # Add trend contribution at data times
+        trend_params = {key: params[key] for key in ["g", "gd", "gdd"]}
+        trend = ravest.model.Trend(params=trend_params, t0=self.t0)
+        rv_model_at_data += trend.radial_velocity(self.time)
+
+        # Calculate residuals
+        residuals = self.vel - rv_model_at_data
+
+        # Create figure with subplots
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 5),
+                                      gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
+
+        # Main RV plot
+        ax1.errorbar(self.time, self.vel, yerr=self.verr, marker=".", color="tab:blue",
+                    ecolor="tab:blue", linestyle="None", markersize=8, zorder=4, label="Data")
+        ax1.errorbar(self.time, self.vel, yerr=verr_with_jit, marker="None",
+                    ecolor="tab:blue", linestyle="None", alpha=0.5, zorder=3, label="Data + jitter")
+
+        ax1.plot(tlin, rv_total, label="Model", color="black", zorder=2)
+        ax1.set_xlim(tlin[0], tlin[-1])
+        ax1.set_ylabel("Radial velocity [m/s]")
+        ax1.set_title(title)
+        ax1.legend()
+        ax1.tick_params(axis='x', labelbottom=False, bottom=True, top=False, direction='in')  # Remove x-axis labels from top plot
+        ax1.tick_params(axis='y', direction='in')
+
+        # Set y-axis ticks automatically based on data range
+        ax1.yaxis.set_major_locator(AutoLocator())
+        ax1.yaxis.set_minor_locator(AutoMinorLocator())
+        ax1.tick_params(axis='y', which='minor', direction='in', length=3)
+
+        # Residuals plot
+        ax2.errorbar(self.time, residuals, yerr=self.verr, marker=".", color="tab:blue",
+                    ecolor="tab:blue", linestyle="None", markersize=8, zorder=4)
+        ax2.errorbar(self.time, residuals, yerr=verr_with_jit, marker="None",
+                    ecolor="tab:blue", linestyle="None", alpha=0.5, zorder=3)
+        ax2.axhline(0, color="k", linestyle="--", zorder=2)
+        ax2.set_xlim(tlin[0], tlin[-1])
+
+        # Set symmetric y-limits for residuals
+        max_abs_residual = np.max(np.abs(residuals + verr_with_jit))
+        ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
+
+        ax2.set_xlabel("Time [days]")
+        ax2.set_ylabel("Residuals [m/s]")
+        ax2.tick_params(axis='x', direction='in')
+        ax2.tick_params(axis='y', direction='in')
+        ax2.tick_params(axis='x', top=True, labeltop=False)  # Add ticks on shared border
+
+        # Set y-axis ticks automatically based on residuals range
+        ax2.yaxis.set_major_locator(AutoLocator())
+        ax2.yaxis.set_minor_locator(AutoMinorLocator())
+        ax2.tick_params(axis='y', which='minor', direction='in', length=3)
+
+        if save:
+            plt.savefig(fname=fname, dpi=dpi)
+            print(f"Saved {fname}")
+        plt.show()
+
+    def _plot_phase(self, planet_letter, params: Dict[str, float], title=None, save=False, fname="phase_plot.png", dpi=100) -> None:
+        """Helper function to plot phase-folded RV model for a single planet with given parameters.
+
+        Parameters
+        ----------
+        planet_letter : str
+            Letter identifying the planet to plot (e.g., 'b', 'c', 'd')
+        params : dict
+            Dictionary of parameter values (both free and fixed)
+        title : str, optional
+            Plot title (default: f"Planet {planet_letter} Phase Plot")
+        save : bool, optional
+            Save the plot (default: False)
+        fname : str, optional
+            Filename to save (default: "phase_plot.png")
+        dpi : int, optional
+            Resolution for saving (default: 100)
+        """
+        if title is None:
+            title = f"Planet {planet_letter} Phase Plot"
+
+        # get smooth linear time curve for plotting
+        _tmin, _tmax = self.time.min(), self.time.max()
+        _trange = _tmax - _tmin
+        tlin = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
+
+        # Get jitter value for error bars
+        jit_value = params["jit"]
+        verr_with_jit = np.sqrt(self.verr**2 + jit_value**2)
+
+        # Get period and time of conjunction for this planet
+        p = params[f"per_{planet_letter}"]
+
+        # Convert to tc if needed
+        if "tc" in self.parameterisation.pars:
+            tc = params[f"tc_{planet_letter}"]
+        elif "e" in self.parameterisation.pars and "w" in self.parameterisation.pars:
+            _e = params[f"e_{planet_letter}"]
+            _w = params[f"w_{planet_letter}"]
+            _tp = params[f"tp_{planet_letter}"]
+            tc = self.parameterisation.convert_tp_to_tc(_tp, p, _e, _w)
+        else:
+            # Fall back to default parameterisation conversion
+            planet_params = {par: params[f"{par}_{planet_letter}"] for par in self.parameterisation.pars}
+            default_params = self.parameterisation.convert_pars_to_default_parameterisation(planet_params)
+            tc = self.parameterisation.convert_tp_to_tc(default_params["tp"], p, default_params["e"], default_params["w"])
+
+        # Calculate phase-folded time arrays (in units of orbital phase)
+        t_fold = ((self.time - tc + 0.5*p) % p - 0.5*p) / p
+        tlin_fold = ((tlin - tc + 0.5*p) % p - 0.5*p) / p
+
+        # Sort the tlin_fold array for proper plotting
+        lin_inds = np.argsort(tlin_fold)
+        tlin_fold_sorted = tlin_fold[lin_inds]
+
+        # Calculate RV contribution from this planet only
+        planet_params = {par: params[f"{par}_{planet_letter}"] for par in self.parameterisation.pars}
+        planet = ravest.model.Planet(planet_letter, self.parameterisation, planet_params)
+        planet_rv_tlin = planet.radial_velocity(tlin)
+        planet_rv_data = planet.radial_velocity(self.time)
+        planet_rv_sorted = planet_rv_tlin[lin_inds]
+
+        # Calculate all other contributions (other planets + trend) at data times
+        other_rv = np.zeros(len(self.time))
+        for other_letter in self.planet_letters:
+            if other_letter != planet_letter:
+                other_params = {par: params[f"{par}_{other_letter}"] for par in self.parameterisation.pars}
+                other_planet = ravest.model.Planet(other_letter, self.parameterisation, other_params)
+                other_rv += other_planet.radial_velocity(self.time)
+
+        # Add trend
+        trend_params = {key: params[key] for key in ["g", "gd", "gdd"]}
+        trend = ravest.model.Trend(params=trend_params, t0=self.t0)
+        other_rv += trend.radial_velocity(self.time)
+
+        # Calculate data with other components subtracted
+        data_minus_others = self.vel - other_rv
+
+        # Calculate residuals (data - model for this planet)
+        residuals = data_minus_others - planet_rv_data
+
+        # Create figure with subplots (main plot + residuals)
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 5),
+                                      gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
+
+        # Main phase plot
+        ax1.errorbar(t_fold, data_minus_others, yerr=self.verr, marker=".",
+                    linestyle="None", color="tab:blue", markersize=8, zorder=4, label="Data")
+        ax1.errorbar(t_fold, data_minus_others, yerr=verr_with_jit, marker="None",
+                    linestyle="None", color="tab:blue", alpha=0.5, zorder=3, label="Data + jitter")
+
+        # Plot phase-folded model for this planet
+        ax1.plot(tlin_fold_sorted, planet_rv_sorted, label="Model", color="black", zorder=2)
+        ax1.set_xlim(-0.5, 0.5)
+        ax1.set_ylabel("Radial velocity [m/s]")
+        ax1.legend(loc="best")
+        ax1.set_title(title)
+        ax1.tick_params(axis='x', labelbottom=False, bottom=True, top=False, direction='in')  # Remove x-axis labels from top plot
+        ax1.tick_params(axis='y', direction='in')
+
+        # Set y-axis ticks automatically based on phase data range
+        ax1.yaxis.set_major_locator(AutoLocator())
+        ax1.yaxis.set_minor_locator(AutoMinorLocator())
+        ax1.tick_params(axis='y', which='minor', direction='in', length=3)
+
+        # Annotate with planet info
+        k_value = params[f"k_{planet_letter}"]
+        s = f"Planet {planet_letter}\nP={p:.2f} d\nK={k_value:.2f} m/s"
+        ax1.annotate(s, xy=(0, 1), xycoords="axes fraction",
+                    xytext=(+0.5, -0.5), textcoords="offset fontsize", va="top")
+
+        # Residuals plot (phase-folded)
+        ax2.errorbar(t_fold, residuals, yerr=self.verr, marker=".",
+                    linestyle="None", color="tab:blue", markersize=8, zorder=4)
+        ax2.errorbar(t_fold, residuals, yerr=verr_with_jit, marker="None",
+                    linestyle="None", color="tab:blue", alpha=0.5, zorder=3)
+        ax2.axhline(0, color="k", linestyle="--", zorder=2)
+        ax2.set_xlim(-0.5, 0.5)
+
+        # Set symmetric y-limits for residuals
+        max_abs_residual = np.max(np.abs(residuals + verr_with_jit))
+        ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
+
+        ax2.set_xlabel("Orbital phase")
+        ax2.set_ylabel("Residuals [m/s]")
+        ax2.tick_params(axis='x', direction='in')
+        ax2.tick_params(axis='y', direction='in')
+        ax2.tick_params(axis='x', top=True, labeltop=False)  # Add ticks on shared border
+
+        # Set y-axis ticks automatically based on residuals range
+        ax2.yaxis.set_major_locator(AutoLocator())
+        ax2.yaxis.set_minor_locator(AutoMinorLocator())
+        ax2.tick_params(axis='y', which='minor', direction='in', length=3)
+
+        if save:
+            plt.savefig(fname=fname, dpi=dpi)
+            print(f"Saved {fname}")
+        plt.show()
+
+    def plot_posterior_rv(self, discard_start=0, discard_end=0, thin=1, save=False, fname="posterior_rv.png", dpi=100) -> None:
+        """Plot the posterior RV model using median parameter values.
+
+        Uses the median values of each parameter from the MCMC chain to calculate
+        and plot a single RV model curve, along with residuals showing the
+        difference between the data and the model.
 
         Parameters
         ----------
@@ -912,40 +1193,24 @@ class Fitter:
             The path to save the plot to (default: "posterior_rv.png")
         dpi : int, optional
             The dpi to save the image at (default: 100)
+
+        Returns
+        -------
+        tuple
+            Time array and RV values from the helper function
         """
-        # TODO: could combine with plot_posterior_phase() to avoid recalculating posterior RVs
-        # This would improve performance for large MCMC chains
+        # Get median parameter values from MCMC chain
+        samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
+        median_params = {name: np.median(samples) for name, samples in samples_dict.items()}
 
-        # Get the posterior RVs, evaluated at each sample in the chains
-        rv_array, tlin = self._posterior_rv(discard_start=discard_start, discard_end=discard_end, thin=thin)
-        rv_percentiles = np.percentile(rv_array, [16, 50, 84], axis=0)
+        # Combine with fixed parameters
+        all_params = self.fixed_params_values_dict | median_params
 
-        # Get the new errorbars to include jit
-        if "jit" in self.fixed_params_names:
-            jit_median = self.fixed_params_dict["jit"].value
-        else:
-            jit_median = np.median(self.get_samples_df(discard_start=discard_start, discard_end=discard_end, thin=thin)["jit"])
-        verr_with_jit = np.sqrt(self.verr**2 + jit_median**2)
-
-        plt.figure(figsize=(8,3.5))
-        # TODO - multi-instrument support. Need a way to match the color of the +jit errorbars to the data points
-        plt.errorbar(self.time, self.vel, yerr=self.verr, marker=".", color="black", ecolor="black", linestyle="None", zorder=4)
-        plt.errorbar(self.time, self.vel, yerr=verr_with_jit, marker="None", ecolor="black", linestyle="None", alpha=0.5, zorder=3)
-
-        plt.plot(tlin, rv_percentiles[1], label="median", color="tab:blue", zorder=2)
-        plt.xlim(tlin[0], tlin[-1])
-        art = plt.fill_between(tlin, rv_percentiles[0], rv_percentiles[2], color="tab:blue", alpha=0.3, zorder=1)
-        art.set_edgecolor("none")
-        plt.xlabel("Time [days]")
-        plt.ylabel("Radial velocity [m/s]")
-        plt.title("Posterior RV")
-        if save:
-            plt.savefig(fname=fname, dpi=dpi)
-            print(f"Saved {fname}")
-        plt.show()
+        # Use helper function to create the plot
+        self._plot_rv(all_params, title="Posterior RV", save=save, fname=fname, dpi=dpi)
 
     def _posterior_rv_planet(self, planet_letter, times, discard_start=0, discard_end=0, thin=1):
-        """calculate the posterior rv for a planet, using all samples in the chain"""
+        """Calculate the posterior rv for a planet, using all samples in the chain."""
         samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         this_planet_rvs = np.zeros((len(samples), len(times))) # type: ignore
         fixed_params_dict = self.fixed_params_values_dict
@@ -968,7 +1233,7 @@ class Fitter:
         return this_planet_rvs
 
     def _posterior_rv_trend(self, times, discard_start=0, discard_end=0, thin=1):
-        """calculate the posterior rv for the trend, using all samples in the chain"""
+        """Calculate the posterior rv for the trend, using all samples in the chain."""
         samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         this_trend_rvs = np.zeros((len(samples), len(times))) # type: ignore
         fixed_params_dict = self.fixed_params_values_dict
@@ -985,20 +1250,17 @@ class Fitter:
 
         return this_trend_rvs
 
-    def plot_posterior_phase(self, discard_start=0, discard_end=0, thin=1, save=False, fname="posterior_phase.png", dpi=100):
-        """Plot the posterior RV model (median & 16-84 percentiles) in phase space.
+    def plot_posterior_phase(self, planet_letter, discard_start=0, discard_end=0, thin=1, save=False, fname="posterior_phase.png", dpi=100) -> None:
+        """Plot the posterior phase-folded RV model for a single planet using median parameter values.
 
-        For each sample of parameters in the MCMC chain, calculate the RV. Fold the
-        times around the median values of P and t_c for each planet. Plot the median RV
-        and the 16th and 84th percentiles as shaded region. The RVs are
-        calculated at the times in `tlin`, which is a smooth time array
-        generated for plotting purposes. This array consists of 1000 uniformly
-        spaced points spanning from the minimum to maximum of the observed
-        `time` array, with a 1% buffer added to both ends.
-
+        Uses the median values of each parameter from the MCMC chain to calculate
+        and plot a single RV model curve for the specified planet, phase-folded around
+        that planet's period and time of conjunction. Includes residuals panel.
 
         Parameters
         ----------
+        planet_letter : str
+            Letter identifying the planet to plot (e.g., 'b', 'c', 'd')
         discard_start : int, optional
             Discard the first `discard_start` steps from the start of the chain (default: 0)
         discard_end : int, optional
@@ -1012,179 +1274,65 @@ class Fitter:
         dpi : int, optional
             The dpi to save the image at (default: 100)
         """
-        # TODO: could combine with plot_posterior_phase() to avoid recalculating posterior RVs
-        # This would improve performance for large MCMC chains
+        # Get median parameter values from MCMC chain
+        samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
+        median_params = {name: np.median(samples) for name, samples in samples_dict.items()}
 
-        # get smooth linear time curve for plotting
-        _tmin, _tmax = self.time.min(), self.time.max()
-        _trange = _tmax - _tmin
-        tlin = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
+        # Combine with fixed parameters
+        all_params = self.fixed_params_values_dict | median_params
 
-        # Each parameter is either fixed, or has a (flattened) chain of samples.
-        # Construct a dict `params' to store whichever one we have.
-        # Both work for taking a median, (the median of a fixed value is just
-        # the fixed value) and the RV functions will propagate either a fixed
-        # value or an array of values through the calculations.
-        fixed_params_dict = self.fixed_params_values_dict
-        samples_df = self.get_samples_df(discard_start=discard_start, discard_end=discard_end, thin=thin)
-        samples_dict = samples_df.to_dict("list")
-        params = fixed_params_dict | samples_dict
+        # Use helper function to create the plot
+        self._plot_phase(planet_letter, all_params, title=f"Posterior Phase Plot - Planet {planet_letter}",
+                        save=save, fname=fname, dpi=dpi)
 
-        # For each planet we need to:
-        # 1) calculate the median values of p and tc
-        # 2) fold the times around median p and tc
-        # 2) calculate posterior rvs for each sample, at the data x times
-        # 3) calculate posterior rvs for each sample, at the smooth tlin times
+    def plot_MAP_rv(self, map_result, save=False, fname="MAP_rv.png", dpi=100) -> None:
+        """Plot radial velocity data and model using MAP parameter estimates.
 
-        # Dicts to store all of these, labelled with the planet letter
-        tc_medians = {}
-        p_medians = {}
-        posterior_rvs = {}
-        posterior_rvs_tlin = {}
-        t_folds = {}
-        tlin_folds = {}
-        inds = {}
-        lin_inds = {}
+        Parameters
+        ----------
+        map_result : scipy.optimize.OptimizeResult
+            Result from find_map_estimate() containing the MAP parameters
+        save : bool, optional
+            Save the plot (default: False)
+        fname : str, optional
+            Filename to save (default: "MAP_rv.png")
+        dpi : int, optional
+            Resolution for saving (default: 100)
+        """
+        # Get MAP parameter values from the optimization result
+        map_params = dict(zip(self.free_params_names, map_result.x))
 
-        for letter in self.planet_letters:
-            ### 1) Calculate median values of p and tc
-            # we (currently) don't ever reparameterise p, so it must be an entry of params dict
-            p = params[f"per_{letter}"]
+        # Combine with fixed parameters
+        all_params = self.fixed_params_values_dict | map_params
 
-            # However, we might have tp, not tc, so we may need to convert it.
-            # first check - does planet params contain tc? Otherwise, we need to convert tp to tc
-            if "tc" in self.parameterisation.pars:
-                tc = params[f"tc_{letter}"]
-            # second check - do we have e and w, for converting tp to tc?
-            elif ("e" in self.parameterisation.pars and "w" in self.parameterisation.pars):
-                _e =  params[f"e_{letter}"]
-                _w =  params[f"w_{letter}"]
-                _tp = params[f"tp_{letter}"]
-                tc = self.parameterisation.convert_tp_to_tc(_tp, p, _e, _w)
-            # else, convert to default parameterisation, giving us e and w, then get tc
-            else:
-                # get the parameterisation for this planet. Combine with planet letter
-                _keys = [f"{par}_{letter}" for par in self.parameterisation.pars]
-                _inpars = {key: samples_df[key] for key in _keys}
-                _default_parameterisation = self.parameterisation.convert_pars_to_default_parameterisation(_inpars)  # dict of converted pars
-                tc = _default_parameterisation["tc"]
+        # Use helper function to create the plot
+        self._plot_rv(all_params, title="MAP RV", save=save, fname=fname, dpi=dpi)
 
-            # get the median of the p and tc
-            p_medians[letter] = np.median(p)
-            tc_medians[letter] = np.median(tc)
+    def plot_MAP_phase(self, planet_letter, map_result, save=False, fname="MAP_phase.png", dpi=100) -> None:
+        """Plot phase-folded radial velocity data and model using MAP parameter estimates.
 
-            ### 2) fold the times using those medians
-            t_fold = (self.time - tc_medians[letter] + 0.5 * p_medians[letter]) % p_medians[letter] - 0.5 * p_medians[letter]
-            tlin_fold = (tlin - tc_medians[letter] + 0.5 * p_medians[letter]) % p_medians[letter] - 0.5 * p_medians[letter]
-            # rather than x axis being [-p, +p] days, we want to scale to [-0.5, 0.5] phase
-            t_fold /= p_medians[letter]
-            tlin_fold /= p_medians[letter]
+        Parameters
+        ----------
+        planet_letter : str
+            Letter identifying the planet to plot (e.g., 'b', 'c', 'd')
+        map_result : scipy.optimize.OptimizeResult
+            Result from find_map_estimate() containing the MAP parameters
+        save : bool, optional
+            Save the plot (default: False)
+        fname : str, optional
+            Filename to save (default: "MAP_phase.png")
+        dpi : int, optional
+            Resolution for saving (default: 100)
+        """
+        # Get MAP parameter values from the optimization result
+        map_params = dict(zip(self.free_params_names, map_result.x))
 
-            # store in the dicts
-            t_folds[letter] = t_fold
-            tlin_folds[letter] = tlin_fold
-            inds[letter] = np.argsort(t_fold)
-            lin_inds[letter] = np.argsort(tlin_fold)
+        # Combine with fixed parameters
+        all_params = self.fixed_params_values_dict | map_params
 
-            # Step 3: Calculate posterior RV matrix for current planet at data times
-            # Generates matrix with shape (times, samples) for this planet's contribution
-            posterior_rvs[letter] = self._posterior_rv_planet(letter, times=self.time, discard_start=discard_start, discard_end=discard_end, thin=thin)
-
-            # Step 4: Calculate posterior RV matrix for current planet at smooth times
-            # Used for plotting smooth model curve with uncertainties
-            posterior_rvs_tlin[letter] = self._posterior_rv_planet(letter, times=tlin, discard_start=discard_start, discard_end=discard_end, thin=thin)
-
-            # TODO: I'm not convinced that storing this all in dicts is ideal. It's a lot of writing and retrieving.
-            # There might be a better way to do this without looping through planets twice.
-
-        # Phase plot procedure:
-        # 1. Calculate overall system trend RV
-        # 2. For each planet, calculate posterior RVs for all other planets at data times
-        # 3. Add system trend posterior RV matrix at data times
-        # 4. Take median to create composite model excluding target planet
-        # 5. Subtract composite model from data to isolate target planet signal
-        # 6. Add jitter error bars to account for additional scatter
-        # 7. Calculate target planet's posterior RVs at smooth time grid (tlin)
-        # 8. Compute 16th, 50th, 84th percentiles of posterior RV matrix
-        # 9. Plot median curve with uncertainty shaded region
-
-        fig, axs = plt.subplots(len(self.planet_letters), figsize=(8, len(self.planet_letters)*10/3), sharex=True)
-        fig.subplots_adjust(hspace=0)
-
-        # Ensure axs is always an array for consistent indexing
-        if len(self.planet_letters) == 1:
-            axs = [axs]
-
-        # 1) we need the system trend RV
-        trend_rv = self._posterior_rv_trend(times=self.time, discard_start=discard_start, discard_end=discard_end, thin=thin)
-
-        jit_median = np.median(params["jit"])
-        verr_with_jit = np.sqrt(self.verr**2 + jit_median**2)
-
-        for i, letter in enumerate(self.planet_letters):
-
-            # 2) sum all of the posterior_rv matrices for the OTHER planets
-            all_other_rvs = np.zeros((len(samples_df), len(self.time)))
-            other_letters = [pl for pl in self.planet_letters if pl != letter]
-            for ol in other_letters:
-                all_other_rvs += posterior_rvs[ol]
-
-            # 3) add on the posterior RV matrix for the system trend
-            all_other_rvs += trend_rv
-
-            # 4) take the median of this
-            median_all_other_rvs = np.median(all_other_rvs, axis=0)
-
-            # 5) subtract this median from the data, to get the residual RV for this planet
-            # plot the t_fold, (data - median), observed errorbars
-            axs[i].errorbar(t_folds[letter], self.vel-median_all_other_rvs, yerr=self.verr, marker=".", linestyle="None", color="black", zorder=4)
-
-            # 6) overplot the jitter errorbars
-            axs[i].errorbar(t_folds[letter], self.vel-median_all_other_rvs, yerr=verr_with_jit, marker="None", linestyle="None", color="black", alpha=0.5, zorder=3)
-
-            # 7) get this planet's posterior RV matrix at smooth tlin times
-            this_planet_rv = posterior_rvs_tlin[letter]
-
-            # use the lin_inds to fold the RV. We do this so it's already in the
-            # "correct" order to plot folded. Otherwise, matplotlib might
-            # connect the first and last point with a horizontal line, and the
-            # fill_between doesn't always work correctly.
-            this_planet_inds = lin_inds[letter]
-            this_planet_rv_folded = this_planet_rv[:,this_planet_inds] # get every sample's posterior RV, but in the order of the inds for folding (not in time order)
-
-            # 8) calculate the 16,50,84 percentiles of the posterior RVs matrix
-            rv_percentiles = np.percentile(this_planet_rv_folded, [16, 50, 84], axis=0)
-
-            # 9) plot the median RV and the 16,50,84 percentiles as a shaded region
-            axs[i].plot(tlin_folds[letter][lin_inds[letter]], rv_percentiles[1], label="median", color="tab:blue", zorder=2)
-            axs[i].fill_between(tlin_folds[letter][lin_inds[letter]], rv_percentiles[0], rv_percentiles[2], color="tab:blue", alpha=0.3, zorder=1)
-            axs[i].set_xlim(-0.5, 0.5)
-            axs[i].set_ylabel("Radial velocity [m/s]")
-            axs[i].legend(loc="best")
-
-            # annotate plot with planet letter, median P and K values
-            # TODO: add eccentricity and argument of periastron to annotations
-            # TODO: add uncertainties to parameter values
-            # TODO: display jitter value in plot title or legend
-            _k = params[f"k_{letter}"]
-            median_k = np.median(_k)
-            s = f"Planet {letter}\nP={p_medians[letter]:.2f} d\nK={median_k:.2f} m/s"
-            axs[i].annotate(s, xy=(0, 1), xycoords="axes fraction",
-                            xytext=(+0.5, -0.5), textcoords="offset fontsize",
-                            va="top")
-
-            if i==0:
-                axs[i].set_title("Posterior RV Phase plot")
-            if i == len(self.planet_letters) - 1:
-                axs[i].set_xlabel("Phase")
-
-        if save:
-            plt.savefig(fname=fname, dpi=dpi)
-            print(f"Saved {fname}")
-        plt.show()
-
-        return
-
+        # Use helper function to create the plot
+        self._plot_phase(planet_letter, all_params, title=f"MAP Phase Plot - Planet {planet_letter}",
+                        save=save, fname=fname, dpi=dpi)
 
 class LogPosterior:
 
@@ -1199,7 +1347,7 @@ class LogPosterior:
         vel: np.ndarray,
         verr: np.ndarray,
         t0: float,
-    ):
+    ) -> None:
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
         self.priors = priors
@@ -1273,7 +1421,7 @@ class LogPosterior:
 
             return params_for_prior
 
-    def log_probability(self, free_params_dict):
+    def log_probability(self, free_params_dict: Dict[str, float]):
         # Evaluate priors on the free parameters. If any parameters are outside priors
         # (i.e. priors are infinite), then fail fast returning -infty early, so we
         # don't waste time calculating LogLikelihood when we know this step will be rejected.
@@ -1337,7 +1485,7 @@ class LogLikelihood:
         t0: float,
         planet_letters: list,
         parameterisation: Parameterisation,
-    ):
+    ) -> None:
         self.time = time
         self.vel = vel
         self.verr = verr
@@ -1353,7 +1501,7 @@ class LogLikelihood:
         self.expected_params += ["g", "gd", "gdd"]
         self.expected_params += ["jit"]
 
-    def __call__(self, params: dict):
+    def __call__(self, params: Dict[str, float]):
         rv_total = np.zeros(len(self.time))
 
         # Step 1: Calculate RV contributions from each planet
@@ -1393,10 +1541,10 @@ class LogLikelihood:
 
 
 class LogPrior:
-    def __init__(self, priors: dict):
+    def __init__(self, priors: dict) -> None:
         self.priors = priors
 
-    def __call__(self, params: dict):
+    def __call__(self, params: Dict[str, float]):
         log_prior_probability = 0
         for param in params:
             # go into the `self.priors dict``, get the Prior object for this `param`
