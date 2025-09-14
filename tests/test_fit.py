@@ -19,11 +19,11 @@ def test_data():
 def test_circular_params():
     """Simple circular orbit parameters for testing."""
     return {
-        "per_b": Parameter(2.0, "d", fixed=True),
-        "k_b": Parameter(5.0, "m/s", fixed=False),
+        "P_b": Parameter(2.0, "d", fixed=True),
+        "K_b": Parameter(5.0, "m/s", fixed=False),
         "e_b": Parameter(0.0, "", fixed=True),
         "w_b": Parameter(np.pi/2, "rad", fixed=True),
-        "tc_b": Parameter(0.0, "d", fixed=True),
+        "Tc_b": Parameter(0.0, "d", fixed=True),
         "g": Parameter(0.0, "m/s", fixed=True),
         "gd": Parameter(0.0, "m/s/day", fixed=True),
         "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
@@ -35,7 +35,7 @@ def test_circular_params():
 def test_simple_priors():
     """Simple priors for testing."""
     return {
-        "k_b": ravest.prior.Uniform(0, 20),
+        "K_b": ravest.prior.Uniform(0, 20),
         "jit": ravest.prior.Uniform(0, 5),
     }
 
@@ -45,15 +45,15 @@ class TestFitter:
 
     def test_fitter_init(self) -> None:
         """Test Fitter initialization."""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         assert fitter.planet_letters == ["b"]
-        assert fitter.parameterisation.parameterisation == "per k e w tc"
+        assert fitter.parameterisation.parameterisation == "P K e w Tc"
         assert fitter.params == {}
         assert fitter.priors == {}
 
     def test_add_data_valid(self, test_data) -> None:
         """Test adding valid data."""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         time, vel, verr = test_data
         fitter.add_data(time, vel, verr, t0=2.0)
 
@@ -64,7 +64,7 @@ class TestFitter:
 
     def test_add_data_mismatched_lengths(self) -> None:
         """Test error when data arrays have different lengths."""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         time = np.array([0.0, 1.0])
         vel = np.array([5.0, -2.0, -5.0])  # Different length
         verr = np.array([1.0, 1.0])
@@ -74,34 +74,34 @@ class TestFitter:
 
     def test_params_property_valid(self, test_circular_params) -> None:
         """Test setting valid parameters via property."""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params
         fitter.params = params
 
         assert len(fitter.params) == 9  # 5 planetary + 3 trend params + jit
-        assert "per_b" in fitter.params
+        assert "P_b" in fitter.params
         assert "jit" in fitter.params
 
     def test_add_params_wrong_count(self) -> None:
         """Test error when wrong number of parameters provided."""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
-        params = {"per_b": Parameter(2.0, "d")}  # Too few params, only 1 out of 9 provided
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        params = {"P_b": Parameter(2.0, "d")}  # Too few params, only 1 out of 9 provided
 
         with pytest.raises(ValueError, match="Missing required parameters.*Expected 9 parameters, got 1"):
             fitter.params = params
 
     def test_add_params_missing_planetary_param(self, test_circular_params) -> None:
         """Test error when planetary parameter is missing."""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params.copy()
-        del params["per_b"]  # Remove required parameter
+        del params["P_b"]  # Remove required parameter
 
         with pytest.raises(ValueError, match="Missing required parameters.*Expected 9 parameters, got 8"):
             fitter.params = params
 
     def test_add_params_unexpected_param(self, test_circular_params) -> None:
         """Test error when unexpected parameter is provided."""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params.copy()
         params["invalid_param"] = Parameter(1.0, "")  # Add unexpected parameter
 
@@ -110,7 +110,7 @@ class TestFitter:
 
     def test_add_priors_valid(self, test_circular_params, test_simple_priors) -> None:
         """Test adding valid priors."""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params
         priors = test_simple_priors
 
@@ -118,14 +118,14 @@ class TestFitter:
         fitter.priors = priors
 
         assert len(fitter.priors) == 2
-        assert "k_b" in fitter.priors
+        assert "K_b" in fitter.priors
         assert "jit" in fitter.priors
 
     def test_add_priors_missing_prior(self, test_circular_params) -> None:
         """Test error when prior is missing for free parameter."""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params
-        priors = {"k_b": ravest.prior.Uniform(0, 20)}  # Missing jit prior
+        priors = {"K_b": ravest.prior.Uniform(0, 20)}  # Missing jit prior
 
         fitter.params = params
         with pytest.raises(ValueError, match="Missing priors for parameters.*jit"):
@@ -133,34 +133,34 @@ class TestFitter:
 
     def test_add_priors_invalid_initial_value(self, test_circular_params, test_simple_priors) -> None:
         """Test error when initial parameter value is outside prior bounds."""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params.copy()
-        params["k_b"].value = 25.0  # Outside uniform prior [0, 20]
+        params["K_b"].value = 25.0  # Outside uniform prior [0, 20]
         priors = test_simple_priors
 
         fitter.params = params
-        with pytest.raises(ValueError, match="Initial value 25.0 of parameter k_b is invalid"):
+        with pytest.raises(ValueError, match="Initial value 25.0 of parameter K_b is invalid"):
             fitter.priors = priors
 
     def test_add_priors_too_many_warning(self, test_circular_params) -> None:
         """Test warning when too many priors provided (for fixed params)."""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params
         fitter.params = params
 
         # Add priors for both free AND fixed parameters
         priors = {
-            "k_b": ravest.prior.Uniform(0, 20),
+            "K_b": ravest.prior.Uniform(0, 20),
             "jit": ravest.prior.Uniform(0, 5),
-            "per_b": ravest.prior.Uniform(1, 5),  # This is fixed!
+            "P_b": ravest.prior.Uniform(1, 5),  # This is fixed!
         }
 
-        with pytest.raises(ValueError, match="Unexpected priors.*per_b"):
+        with pytest.raises(ValueError, match="Unexpected priors.*P_b"):
             fitter.priors = priors
 
     def test_get_free_params(self, test_circular_params) -> None:
         """Test getting free parameters."""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params
         fitter.params = params
 
@@ -169,7 +169,7 @@ class TestFitter:
         free_vals = fitter.free_params_values
 
         assert len(free_params) == 2  # k_b and jit
-        assert "k_b" in free_names
+        assert "K_b" in free_names
         assert "jit" in free_names
         assert len(free_vals) == 2
         assert 5.0 in free_vals  # k_b value
@@ -177,7 +177,7 @@ class TestFitter:
 
     def test_get_fixed_params(self, test_circular_params) -> None:
         """Test getting fixed parameters."""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params
         fitter.params = params
 
@@ -186,7 +186,7 @@ class TestFitter:
         fixed_vals = fitter.fixed_params_values
 
         assert len(fixed_params) == 7  # All except k_b and jit
-        assert "per_b" in fixed_names
+        assert "P_b" in fixed_names
         assert "e_b" in fixed_names
         assert len(fixed_vals) == 7
 
@@ -199,7 +199,7 @@ class TestLogLikelihood:
         time, vel, verr = test_data
         ll = LogLikelihood(
             time=time, vel=vel, verr=verr, t0=2.0,
-            planet_letters=["b"], parameterisation=Parameterisation("per k e w tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
         )
 
         np.testing.assert_array_equal(ll.time, time)
@@ -212,11 +212,11 @@ class TestLogLikelihood:
         time, vel, verr = test_data
         ll = LogLikelihood(
             time=time, vel=vel, verr=verr, t0=2.0,
-            planet_letters=["b"], parameterisation=Parameterisation("per k e w tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
         )
 
         params = {
-            "per_b": 2.0, "k_b": 5.0, "e_b": 0.0, "w_b": np.pi/2, "tc_b": 0.0,
+            "P_b": 2.0, "K_b": 5.0, "e_b": 0.0, "w_b": np.pi/2, "Tc_b": 0.0,
             "g": 0.0, "gd": 0.0, "gdd": 0.0, "jit": 2.0
         }
 
@@ -229,12 +229,12 @@ class TestLogLikelihood:
         time, vel, verr = test_data
         ll = LogLikelihood(
             time=time, vel=vel, verr=verr, t0=2.0,
-            planet_letters=["b"], parameterisation=Parameterisation("per k e w tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
         )
 
         params = {
-            "per_b": -1.0,  # Invalid negative period
-            "k_b": 5.0, "e_b": 0.0, "w_b": np.pi/2, "tc_b": 0.0,
+            "P_b": -1.0,  # Invalid negative period
+            "K_b": 5.0, "e_b": 0.0, "w_b": np.pi/2, "Tc_b": 0.0,
             "g": 0.0, "gd": 0.0, "gdd": 0.0, "jit": 1.0
         }
 
@@ -251,11 +251,11 @@ class TestLogLikelihood:
 
         ll = LogLikelihood(
             time=time, vel=vel, verr=verr, t0=1.0,
-            planet_letters=["b"], parameterisation=Parameterisation("per k e w tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
         )
 
         params = {
-            "per_b": 10.0, "k_b": 0.5, "e_b": 0.0, "w_b": np.pi/2, "tc_b": 0.0,
+            "P_b": 10.0, "K_b": 0.5, "e_b": 0.0, "w_b": np.pi/2, "Tc_b": 0.0,
             "g": 2.0, "gd": 0.0, "gdd": 0.0, "jit": 1.0
         }
 
@@ -278,7 +278,7 @@ class TestLogPrior:
         priors = test_simple_priors
         lp = LogPrior(priors)
 
-        params = {"k_b": 10.0, "jit": 2.0}
+        params = {"K_b": 10.0, "jit": 2.0}
         log_prior = lp(params)
 
         assert np.isfinite(log_prior)
@@ -289,7 +289,7 @@ class TestLogPrior:
         priors = test_simple_priors
         lp = LogPrior(priors)
 
-        params = {"k_b": -5.0, "jit": 2.0}  # k_b outside [0, 20]
+        params = {"K_b": -5.0, "jit": 2.0}  # k_b outside [0, 20]
         log_prior = lp(params)
 
         assert log_prior == -np.inf
@@ -297,12 +297,12 @@ class TestLogPrior:
     def test_logprior_multiple_params(self) -> None:
         """Test log-prior sums correctly across multiple parameters."""
         priors = {
-            "k_b": ravest.prior.Uniform(0, 10),  # log_prior = -log(10)
+            "K_b": ravest.prior.Uniform(0, 10),  # log_prior = -log(10)
             "jit": ravest.prior.Uniform(0, 5),   # log_prior = -log(5)
         }
         lp = LogPrior(priors)
 
-        params = {"k_b": 5.0, "jit": 2.5}
+        params = {"K_b": 5.0, "jit": 2.5}
         log_prior = lp(params)
 
         expected = -np.log(10) - np.log(5)
@@ -324,7 +324,7 @@ class TestLogPosterior:
 
         lpost = LogPosterior(
             planet_letters=["b"],
-            parameterisation=Parameterisation("per k e w tc"),
+            parameterisation=Parameterisation("P K e w Tc"),
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
@@ -344,14 +344,14 @@ class TestLogPosterior:
 
         lpost = LogPosterior(
             planet_letters=["b"],
-            parameterisation=Parameterisation("per k e w tc"),
+            parameterisation=Parameterisation("P K e w Tc"),
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
             time=time, vel=vel, verr=verr, t0=2.0
         )
 
-        free_params_dict = {"k_b": 5.0, "jit": 1.0}
+        free_params_dict = {"K_b": 5.0, "jit": 1.0}
         log_post = lpost.log_probability(free_params_dict)
 
         assert np.isfinite(log_post)
@@ -368,14 +368,14 @@ class TestLogPosterior:
 
         lpost = LogPosterior(
             planet_letters=["b"],
-            parameterisation=Parameterisation("per k e w tc"),
+            parameterisation=Parameterisation("P K e w Tc"),
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
             time=time, vel=vel, verr=verr, t0=2.0
         )
 
-        free_params_dict = {"k_b": -1.0, "jit": 1.0}  # Invalid k_b
+        free_params_dict = {"K_b": -1.0, "jit": 1.0}  # Invalid k_b
         log_post = lpost.log_probability(free_params_dict)
 
         assert log_post == -np.inf
@@ -391,7 +391,7 @@ class TestLogPosterior:
 
         lpost = LogPosterior(
             planet_letters=["b"],
-            parameterisation=Parameterisation("per k e w tc"),
+            parameterisation=Parameterisation("P K e w Tc"),
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
@@ -405,7 +405,7 @@ class TestLogPosterior:
         assert isinstance(neg_log_post, float)
 
         # Should be negative of log_probability
-        free_params_dict = {"k_b": 5.0, "jit": 1.0}
+        free_params_dict = {"K_b": 5.0, "jit": 1.0}
         log_post = lpost.log_probability(free_params_dict)
         assert np.isclose(neg_log_post, -log_post)
 
@@ -415,7 +415,7 @@ class TestFitterIntegration:
 
     def test_complete_setup(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test complete Fitter setup without running MCMC."""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
 
         # Add data
         time, vel, verr = test_data
@@ -437,21 +437,21 @@ class TestFitterIntegration:
 
     def test_multi_planet_setup(self, test_data) -> None:
         """Test setup with multiple planets."""
-        fitter = Fitter(["b", "c"], Parameterisation("per k e w tc"))
+        fitter = Fitter(["b", "c"], Parameterisation("P K e w Tc"))
 
         # Multi-planet parameters
         params = {
-            "per_b": Parameter(2.0, "d", fixed=True),
-            "k_b": Parameter(5.0, "m/s", fixed=False),
+            "P_b": Parameter(2.0, "d", fixed=True),
+            "K_b": Parameter(5.0, "m/s", fixed=False),
             "e_b": Parameter(0.0, "", fixed=True),
             "w_b": Parameter(np.pi/2, "rad", fixed=True),
-            "tc_b": Parameter(0.0, "d", fixed=True),
+            "Tc_b": Parameter(0.0, "d", fixed=True),
 
-            "per_c": Parameter(4.0, "d", fixed=True),
-            "k_c": Parameter(3.0, "m/s", fixed=False),
+            "P_c": Parameter(4.0, "d", fixed=True),
+            "K_c": Parameter(3.0, "m/s", fixed=False),
             "e_c": Parameter(0.0, "", fixed=True),
             "w_c": Parameter(np.pi/2, "rad", fixed=True),
-            "tc_c": Parameter(1.0, "d", fixed=True),
+            "Tc_c": Parameter(1.0, "d", fixed=True),
 
             "g": Parameter(0.0, "m/s", fixed=True),
             "gd": Parameter(0.0, "m/s/day", fixed=True),
@@ -460,8 +460,8 @@ class TestFitterIntegration:
         }
 
         priors = {
-            "k_b": ravest.prior.Uniform(0, 20),
-            "k_c": ravest.prior.Uniform(0, 20),
+            "K_b": ravest.prior.Uniform(0, 20),
+            "K_c": ravest.prior.Uniform(0, 20),
             "jit": ravest.prior.Uniform(0, 5),
         }
 

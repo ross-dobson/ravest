@@ -37,7 +37,7 @@ class Planet:
         if not set(params.keys()) == set(parameterisation.pars):
             raise ValueError(f"Parameterisation {parameterisation} does not match input params {params}")
 
-        # Convert to the per k e w tp parameterisation that we need for the RV equation
+        # Convert to the default P K e w Tp parameterisation that we need for the RV equation
         self._rvparams = self.parameterisation.convert_pars_to_default_parameterisation(self.params)
 
         # Validate parameters immediately after conversion to avoid invalid parameters
@@ -213,11 +213,11 @@ class Planet:
         `float`
             Radial velocity of the reflex motion of star due to the planet (m/s).
         """
-        P = self._rvparams["per"]
-        K = self._rvparams["k"]
+        P = self._rvparams["P"]
+        K = self._rvparams["K"]
         e = self._rvparams["e"]
         w = self._rvparams["w"]
-        tp = self._rvparams["tp"]
+        tp = self._rvparams["Tp"]
 
         n = self._calculate_mean_motion(period=P)
         M = self._calculate_mean_anomaly(t=t, n=n, time_peri=tp)
@@ -241,8 +241,8 @@ class Planet:
         `float`
             The minimum mass of the planet (solar masses).
         """
-        period = self._rvparams["per"]
-        semi_amplitude = self._rvparams["k"]
+        period = self._rvparams["P"]
+        semi_amplitude = self._rvparams["K"]
         eccentricity = self._rvparams["e"]
 
         # Convert stellar mass to kg and period to seconds for SI unit consistency
@@ -488,10 +488,10 @@ class Star:
             axs[n].axhline(y=0, color="k", alpha=0.25, linestyle="--", zorder=1)
 
             this_planet = self.planets[letter]
-            p = this_planet._rvparams["per"]
+            p = this_planet._rvparams["P"]
             e = this_planet._rvparams["e"]
             w = this_planet._rvparams["w"]
-            tp = this_planet._rvparams["tp"]
+            tp = this_planet._rvparams["Tp"]
             tc = this_planet.parameterisation.convert_tp_to_tc(tp, p, e, w)
 
             yplot = this_planet.radial_velocity(tlin)

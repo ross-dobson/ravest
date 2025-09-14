@@ -9,7 +9,7 @@ from ravest.param import Parameterisation
     (e, w) for e in np.arange(0, 1, 0.1) for w in np.arange(-np.pi/2, np.pi/2 + np.pi/4, np.pi/4)
 ])
 def test_convert_e_w_to_secosw_sesinw(e, w) -> None:
-    para = Parameterisation("per k e w tp")
+    para = Parameterisation("P K e w Tp")
     expected_secosw = np.sqrt(e) * np.cos(w)
     expected_sesinw = np.sqrt(e) * np.sin(w)
     secosw, sesinw = para.convert_e_w_to_secosw_sesinw(e, w)
@@ -20,7 +20,7 @@ def test_convert_e_w_to_secosw_sesinw(e, w) -> None:
     (e, w) for e in np.arange(0, 1, 0.1) for w in np.arange(-np.pi/2, np.pi/2 + np.pi/4, np.pi/4)
 ])
 def test_convert_e_w_to_ecosw_esinw(e, w) -> None:
-    para = Parameterisation("per k e w tp")
+    para = Parameterisation("P K e w Tp")
     expected_ecosw = e * np.cos(w)
     expected_esinw = e * np.sin(w)
     ecosw, esinw = para.convert_e_w_to_ecosw_esinw(e, w)
@@ -32,7 +32,7 @@ def test_convert_e_w_to_ecosw_esinw(e, w) -> None:
     if np.sqrt(ecosw**2 + esinw**2) < 1.0  # Only test valid combinations where e < 1
 ])
 def test_convert_ecosw_esinw_to_e_w_valid(ecosw, esinw) -> None:
-    para = Parameterisation("per k ecosw esinw tp")
+    para = Parameterisation("P K ecosw esinw Tp")
     expected_e = np.sqrt(ecosw**2 + esinw**2)
     expected_w = np.arctan2(esinw, ecosw)
     e, w = para.convert_ecosw_esinw_to_e_w(ecosw, esinw)
@@ -44,7 +44,7 @@ def test_convert_ecosw_esinw_to_e_w_valid(ecosw, esinw) -> None:
     if np.sqrt(ecosw**2 + esinw**2) >= 1.0  # Test invalid combinations where e >= 1
 ])
 def test_convert_ecosw_esinw_to_e_w_invalid(ecosw, esinw) -> None:
-    para = Parameterisation("per k ecosw esinw tp")
+    para = Parameterisation("P K ecosw esinw Tp")
     with pytest.raises(ValueError, match="Invalid eccentricity.*>= 1.0"):
         para.convert_ecosw_esinw_to_e_w(ecosw, esinw)
 
@@ -52,7 +52,7 @@ def test_convert_ecosw_esinw_to_e_w_invalid(ecosw, esinw) -> None:
     (secosw, sesinw) for secosw in np.arange(0, 1, 0.1) for sesinw in np.arange(0, 1, 0.1)
 ])
 def test_convert_secosw_sesinw_to_e_w(secosw, sesinw) -> None:
-    para = Parameterisation("per k secosw sesinw tp")
+    para = Parameterisation("P K secosw sesinw Tp")
     expected_e = secosw**2 + sesinw**2
     expected_w = np.arctan2(sesinw, secosw)
     e, w = para.convert_secosw_sesinw_to_e_w(secosw, sesinw)
@@ -63,7 +63,7 @@ def test_convert_secosw_sesinw_to_e_w(secosw, sesinw) -> None:
     tp for tp in np.arange(0, 10, 0.1)
 ])
 def test_convert_tp_to_tc_circular(tp) -> None: # if e = 0 & w = pi/2, then tp = tc
-    para = Parameterisation("per k e w tp")
+    para = Parameterisation("P K e w Tp")
     per = 10
     e = 0
     w = np.pi/2
@@ -78,7 +78,7 @@ def test_convert_tp_to_tc_circular(tp) -> None: # if e = 0 & w = pi/2, then tp =
     (8.2, 0.8,    np.pi/7, 8.34625216953673)
 ])
 def test_convert_tp_to_tc_eccentric(tp, e, w, tc) -> None:
-    para = Parameterisation("per k e w tc")
+    para = Parameterisation("P K e w Tc")
     per = 10
     assert np.isclose(tc, para.convert_tp_to_tc(tp, per, e, w))
 
@@ -86,7 +86,7 @@ def test_convert_tp_to_tc_eccentric(tp, e, w, tc) -> None:
     tc for tc in np.arange(0, 10, 0.1)
 ])
 def test_convert_tc_to_tp_circular(tc) -> None: # if e = 0 & w = pi/2, then tc = tp
-    para = Parameterisation("per k e w tc")
+    para = Parameterisation("P K e w Tc")
     expected_tp = tc
     per = 10
     e = 0
@@ -101,7 +101,7 @@ def test_convert_tc_to_tp_circular(tc) -> None: # if e = 0 & w = pi/2, then tc =
     (8.2, 0.8,    np.pi/7, 8.05374783046327)
 ])
 def test_convert_tc_to_tp_eccentric(tc, e, w, tp) -> None:
-    para = Parameterisation("per k e w tc")
+    para = Parameterisation("P K e w Tc")
     per = 10
     assert np.isclose(tp, para.convert_tc_to_tp(tc, per, e, w))
 
@@ -109,12 +109,12 @@ def test_convert_tc_to_tp_eccentric(tc, e, w, tp) -> None:
 # Second, test the automatic conversion function, for each of the
 # parameterisations
 
-ALLOWED_PARAMETERISATIONS = ["per k e w tp",
-                             "per k e w tc",
-                             "per k ecosw esinw tp",
-                             "per k ecosw esinw tc",
-                             "per k secosw sesinw tp",
-                             "per k secosw sesinw tc"]
+ALLOWED_PARAMETERISATIONS = ["P K e w Tp",
+                             "P K e w Tc",
+                             "P K ecosw esinw Tp",
+                             "P K ecosw esinw Tc",
+                             "P K secosw sesinw Tp",
+                             "P K secosw sesinw Tc"]
 
 def test_invalid_parameterisation() -> None:
     with pytest.raises(Exception):

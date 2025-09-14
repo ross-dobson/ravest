@@ -110,7 +110,7 @@ class Fitter:
 
         You can update all or some of the parameters at once, example:
         >>> fitter.params = {"g": Parameter(1.0, "m/s"), "gd": Parameter(0.1, "m/s/d")}  # only update trend parameters
-        >>> fitter.params = {"per_c": Parameter(5.0, "d"), "k_c": Parameter(3.5, "m/s")}  # only update some of planet C parameters
+        >>> fitter.params = {"P_c": Parameter(5.0, "d"), "K_c": Parameter(3.5, "m/s")}  # only update some of planet C parameters
 
         Parameters
         ----------
@@ -158,7 +158,7 @@ class Fitter:
         Examples
         --------
         >>> from ravest.prior import Uniform
-        >>> fitter.priors = {"k_b": Uniform(0, 100), "per_b": Uniform(1, 30)}
+        >>> fitter.priors = {"K_b": Uniform(0, 100), "P_b": Uniform(1, 30)}
 
         Raises
         ------
@@ -273,7 +273,7 @@ class Fitter:
         # 1. The prior has been given for the parameter, in the current parameterisation
         #    (this can also include if the user is fitting in the default parameterisation)
         # 2. The prior has been given for the Default parameterisation's equivalent parameter instead
-        #    (e.g. e & w instead of secosw & sesinw, or tp instead of tc)
+        #    (e.g. e & w instead of secosw & sesinw, or Tp instead of Tc)
         # If not, then prior isn't given for either the Current or Default parameterisation, raise an Exception
         validated_priors = {}
         missing_priors = []
@@ -338,7 +338,7 @@ class Fitter:
         """Get the names of the default parameterisation equivalent parameter(s), for a single free parameter from the current parameterisation.
 
         Note this can be more than one: e.g. if you have secosw, this affects both e & w in the default parameterisation
-        Whereas tc just maps to tp alone
+        Whereas Tc just maps to Tp alone
         """
         # Extract planet letter if this is a planetary parameter
         if '_' in free_param:
@@ -360,11 +360,11 @@ class Fitter:
                     if partner_key in self.free_params_names:
                         return [f"e_{planet_letter}", f"w_{planet_letter}"]
 
-                elif base_param == 'tc':
-                    # tc can use tp equivalent
-                    return [f"tp_{planet_letter}"]
+                elif base_param == 'Tc':
+                    # Tc can use Tp equivalent
+                    return [f"Tp_{planet_letter}"]
 
-                elif base_param in ['per', 'k', 'e', 'w', 'tp']:
+                elif base_param in ['P', 'K', 'e', 'w', 'Tp']:
                     # These are default parameterisation parameters anyway
                     # So there are no alternative priors to look for (therefore the prior is missing)
                     return None
@@ -575,7 +575,7 @@ class Fitter:
         #     sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
         #                                     parameter_names=self.free_params_names,
         #                                     pool=pool)
-        #     state = sampler.run_mcmc(mcmc_init, 10000, progress=True)
+        #     state = sampler.run_mcmc(initial_state=mcmc_init, nsteps=nsteps, progress=True)
         logging.info("...MCMC done.")
         self.sampler = sampler
 
@@ -1110,21 +1110,21 @@ class Fitter:
         verr_with_jit = np.sqrt(self.verr**2 + jit_value**2)
 
         # Get period and time of conjunction for this planet
-        p = params[f"per_{planet_letter}"]
+        p = params[f"P_{planet_letter}"]
 
         # Convert to tc if needed
-        if "tc" in self.parameterisation.pars:
-            tc = params[f"tc_{planet_letter}"]
+        if "Tc" in self.parameterisation.pars:
+            tc = params[f"Tc_{planet_letter}"]
         elif "e" in self.parameterisation.pars and "w" in self.parameterisation.pars:
             _e = params[f"e_{planet_letter}"]
             _w = params[f"w_{planet_letter}"]
-            _tp = params[f"tp_{planet_letter}"]
+            _tp = params[f"Tp_{planet_letter}"]
             tc = self.parameterisation.convert_tp_to_tc(_tp, p, _e, _w)
         else:
             # Fall back to default parameterisation conversion
             planet_params = {par: params[f"{par}_{planet_letter}"] for par in self.parameterisation.pars}
             default_params = self.parameterisation.convert_pars_to_default_parameterisation(planet_params)
-            tc = self.parameterisation.convert_tp_to_tc(default_params["tp"], p, default_params["e"], default_params["w"])
+            tc = self.parameterisation.convert_tp_to_tc(default_params["Tp"], p, default_params["e"], default_params["w"])
 
         # Calculate phase-folded time arrays (in units of orbital phase)
         t_fold = ((self.time - tc + 0.5*p) % p - 0.5*p) / p
@@ -1185,7 +1185,7 @@ class Fitter:
         ax1.tick_params(axis='y', which='minor', direction='in', length=3)
 
         # Annotate with planet info
-        k_value = params[f"k_{planet_letter}"]
+        k_value = params[f"K_{planet_letter}"]
         s = f"Planet {planet_letter}\nP={p:.2f} d\nK={k_value:.2f} m/s"
         ax1.annotate(s, xy=(0, 1), xycoords="axes fraction",
                     xytext=(+0.5, -0.5), textcoords="offset fontsize", va="top")

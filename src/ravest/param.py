@@ -2,12 +2,12 @@
 # parameterisation.py
 import numpy as np
 
-ALLOWED_PARAMETERISATIONS = ["per k e w tp",   # default - the one used in Keplerian RV equation
-                             "per k e w tc",
-                             "per k ecosw esinw tp",
-                             "per k ecosw esinw tc",
-                             "per k secosw sesinw tp",
-                             "per k secosw sesinw tc"]
+ALLOWED_PARAMETERISATIONS = ["P K e w Tp",   # default - the one used in Keplerian RV equation
+                             "P K e w Tc",
+                             "P K ecosw esinw Tp",
+                             "P K ecosw esinw Tc",
+                             "P K secosw sesinw Tp",
+                             "P K secosw sesinw Tc"]
 
 
 class Parameterisation:
@@ -52,11 +52,12 @@ class Parameterisation:
         ValueError
             If any parameter is invalid
         """
-        self._validate_period(params_dict["per"])
-        self._validate_semi_amplitude(params_dict["k"])
+        self._validate_period(params_dict["P"])
+        self._validate_semi_amplitude(params_dict["K"])
         self._validate_eccentricity(params_dict["e"])
         self._validate_argument_periastron(params_dict["w"])
         # Note: tp (time of periastron) can be any real number, so no validation needed
+        # As by the time this is called, we've already validated that all parameters are at least finite real numbers
 
     def validate_planetary_params(self, params_dict: dict[str, float]) -> None:
         """Validate planetary parameters are astrophysically valid, in any parameterisation.
@@ -71,33 +72,13 @@ class Parameterisation:
         ValueError
             If any parameter is invalid for this parameterisation
         """
-        # Always validate period and semi-amplitude (present in all parameterisations)
-        self._validate_period(params_dict["per"])
-        self._validate_semi_amplitude(params_dict["k"])
+        # convert the incoming params_dict to the default parameterisation (if we need to!)
+        # check: are we in the default parameteirsation already?
+        if self.parameterisation != "P K e w Tp":
+            # convert to default parameterisation
+            params_dict = self.convert_pars_to_default_parameterisation(params_dict)
+        self.validate_default_parameterisation_params(params_dict)
 
-        if self.parameterisation in ["per k e w tp", "per k e w tc"]:
-            self._validate_eccentricity(params_dict["e"])
-            self._validate_argument_periastron(params_dict["w"])
-
-        elif self.parameterisation in ["per k ecosw esinw tp", "per k ecosw esinw tc"]:
-            # For ecosw/esinw: check that ecosw² + esinw² < 1 (valid eccentricity)
-            e_squared = params_dict["ecosw"]**2 + params_dict["esinw"]**2
-            if e_squared >= 1.0:
-                raise ValueError(f"Invalid ecosw/esinw: ecosw²+esinw² = {e_squared:.6f} >= 1.0")
-
-        elif self.parameterisation in ["per k secosw sesinw tp", "per k secosw sesinw tc"]:
-            # For secosw/sesinw: check that secosw² + sesinw² < 1 (valid eccentricity)
-            e = params_dict["secosw"]**2 + params_dict["sesinw"]**2
-            if e >= 1.0:
-                raise ValueError(f"Invalid secosw/sesinw: secosw²+sesinw² = {e:.6f} >= 1.0")
-
-        # Validate tc and tp are finite real numbers
-        if "tc" in params_dict:
-            if not np.isfinite(params_dict["tc"]):
-                raise ValueError(f"Invalid tc: {params_dict['tc']} (must be finite)")
-        if "tp" in params_dict:
-            if not np.isfinite(params_dict["tp"]):
-                raise ValueError(f"Invalid tp: {params_dict['tp']} (must be finite)")
 
     def __init__(self, parameterisation: str) -> None:
         """Parameterisation object handles parameter conversions.
@@ -106,12 +87,12 @@ class Parameterisation:
         ----------
         parameterisation : str
             The parameterisation you wish to use. Must be one of the following:
-            - "per k e w tp"
-            - "per k e w tc"
-            - "per k ecosw esinw tp"
-            - "per k ecosw esinw tc"
-            - "per k secosw sesinw tp"
-            - "per k secosw sesinw tc"
+            - "P K e w Tp"
+            - "P K e w Tc"
+            - "P K ecosw esinw Tp"
+            - "P K ecosw esinw Tc"
+            - "P K secosw sesinw Tp"
+            - "P K secosw sesinw Tc"
 
         Raises
         ------
@@ -282,56 +263,56 @@ class Parameterisation:
         Returns
         -------
         dict
-            Parameters in default parameterisation (per k e w tp)
+            Parameters in default parameterisation (P K e w Tp)
         """
-        if self.parameterisation == "per k e w tp":
-            return {"per": inpars["per"],
-                    "k": inpars["k"],
+        if self.parameterisation == "P K e w Tp":
+            return {"P": inpars["P"],
+                    "K": inpars["K"],
                     "e": inpars["e"],
                     "w": inpars["w"],
-                    "tp": inpars["tp"]}
+                    "Tp": inpars["Tp"]}
 
-        elif self.parameterisation == "per k e w tc":
-            tp = self.convert_tc_to_tp(inpars["tc"], inpars["per"], inpars["e"], inpars["w"])
-            return {"per": inpars["per"],
-                    "k": inpars["k"],
+        elif self.parameterisation == "P K e w Tc":
+            tp = self.convert_tc_to_tp(inpars["Tc"], inpars["P"], inpars["e"], inpars["w"])
+            return {"P": inpars["P"],
+                    "K": inpars["K"],
                     "e": inpars["e"],
                     "w": inpars["w"],
-                    "tp": tp}
+                    "Tp": tp}
 
-        elif self.parameterisation == "per k ecosw esinw tp":
+        elif self.parameterisation == "P K ecosw esinw Tp":
             e, w = self.convert_ecosw_esinw_to_e_w(inpars["ecosw"], inpars["esinw"])
-            return {"per": inpars["per"],
-                    "k": inpars["k"],
+            return {"P": inpars["P"],
+                    "K": inpars["K"],
                     "e": e,
                     "w": w,
-                    "tp": inpars["tp"]}
+                    "Tp": inpars["Tp"]}
 
-        elif self.parameterisation == "per k ecosw esinw tc":
+        elif self.parameterisation == "P K ecosw esinw Tc":
             e, w = self.convert_ecosw_esinw_to_e_w(inpars["ecosw"], inpars["esinw"])
-            tp = self.convert_tc_to_tp(inpars["tc"], inpars["per"], e, w)
-            return {"per": inpars["per"],
-                    "k": inpars["k"],
+            tp = self.convert_tc_to_tp(inpars["Tc"], inpars["P"], e, w)
+            return {"P": inpars["P"],
+                    "K": inpars["K"],
                     "e": e,
                     "w": w,
-                    "tp": tp}
+                    "Tp": tp}
 
-        elif self.parameterisation == "per k secosw sesinw tp":
+        elif self.parameterisation == "P K secosw sesinw Tp":
             e, w = self.convert_secosw_sesinw_to_e_w(inpars["secosw"], inpars["sesinw"])
-            return {"per": inpars["per"],
-                    "k": inpars["k"],
+            return {"P": inpars["P"],
+                    "K": inpars["K"],
                     "e": e,
                     "w": w,
-                    "tp": inpars["tp"]}
+                    "Tp": inpars["Tp"]}
 
-        elif self.parameterisation == "per k secosw sesinw tc":
+        elif self.parameterisation == "P K secosw sesinw Tc":
             e, w, = self.convert_secosw_sesinw_to_e_w(inpars["secosw"], inpars["sesinw"])
-            tp = self.convert_tc_to_tp(inpars["tc"], inpars["per"], e, w)
-            return {"per": inpars["per"],
-                    "k": inpars["k"],
+            tp = self.convert_tc_to_tp(inpars["Tc"], inpars["P"], e, w)
+            return {"P": inpars["P"],
+                    "K": inpars["K"],
                     "e": e,
                     "w": w,
-                    "tp": tp}
+                    "Tp": tp}
 
         else:
             raise ValueError(f"parameterisation {self.parameterisation} not recognised")
@@ -349,53 +330,53 @@ class Parameterisation:
         dict
             Parameters in this parameterisation
         """
-        if self.parameterisation == "per k e w tp":
+        if self.parameterisation == "P K e w Tp":
             return {key: default_pars[key] for key in self.pars}
 
-        elif self.parameterisation == "per k e w tc":
-            tc = self.convert_tp_to_tc(default_pars["tp"], default_pars["per"],
+        elif self.parameterisation == "P K e w Tc":
+            tc = self.convert_tp_to_tc(default_pars["Tp"], default_pars["P"],
                                       default_pars["e"], default_pars["w"])
-            return {"per": default_pars["per"],
-                    "k": default_pars["k"],
+            return {"P": default_pars["P"],
+                    "K": default_pars["K"],
                     "e": default_pars["e"],
                     "w": default_pars["w"],
-                    "tc": tc}
+                    "Tc": tc}
 
-        elif self.parameterisation == "per k ecosw esinw tp":
+        elif self.parameterisation == "P K ecosw esinw Tp":
             ecosw, esinw = self.convert_e_w_to_ecosw_esinw(default_pars["e"], default_pars["w"])
-            return {"per": default_pars["per"],
-                    "k": default_pars["k"],
+            return {"P": default_pars["P"],
+                    "K": default_pars["K"],
                     "ecosw": ecosw,
                     "esinw": esinw,
-                    "tp": default_pars["tp"]}
+                    "Tp": default_pars["Tp"]}
 
-        elif self.parameterisation == "per k ecosw esinw tc":
+        elif self.parameterisation == "P K ecosw esinw Tc":
             ecosw, esinw = self.convert_e_w_to_ecosw_esinw(default_pars["e"], default_pars["w"])
-            tc = self.convert_tp_to_tc(default_pars["tp"], default_pars["per"],
+            tc = self.convert_tp_to_tc(default_pars["Tp"], default_pars["P"],
                                       default_pars["e"], default_pars["w"])
-            return {"per": default_pars["per"],
-                    "k": default_pars["k"],
+            return {"P": default_pars["P"],
+                    "K": default_pars["K"],
                     "ecosw": ecosw,
                     "esinw": esinw,
-                    "tc": tc}
+                    "Tc": tc}
 
-        elif self.parameterisation == "per k secosw sesinw tp":
+        elif self.parameterisation == "P K secosw sesinw Tp":
             secosw, sesinw = self.convert_e_w_to_secosw_sesinw(default_pars["e"], default_pars["w"])
-            return {"per": default_pars["per"],
-                    "k": default_pars["k"],
+            return {"P": default_pars["P"],
+                    "K": default_pars["K"],
                     "secosw": secosw,
                     "sesinw": sesinw,
-                    "tp": default_pars["tp"]}
+                    "Tp": default_pars["Tp"]}
 
-        elif self.parameterisation == "per k secosw sesinw tc":
+        elif self.parameterisation == "P K secosw sesinw Tc":
             secosw, sesinw = self.convert_e_w_to_secosw_sesinw(default_pars["e"], default_pars["w"])
-            tc = self.convert_tp_to_tc(default_pars["tp"], default_pars["per"],
+            tc = self.convert_tp_to_tc(default_pars["Tp"], default_pars["P"],
                                       default_pars["e"], default_pars["w"])
-            return {"per": default_pars["per"],
-                    "k": default_pars["k"],
+            return {"P": default_pars["P"],
+                    "K": default_pars["K"],
                     "secosw": secosw,
                     "sesinw": sesinw,
-                    "tc": tc}
+                    "Tc": tc}
 
         else:
             raise ValueError(f"parameterisation {self.parameterisation} not recognised")
