@@ -74,7 +74,7 @@ class Fitter:
 
         # Initialize parameter storage
         self._params: Dict[str, Parameter] = {}
-        self._priors = {}
+        self._priors: Dict[str, Callable[[float], float]] = {}
 
     def add_data(self, time: np.ndarray, vel: np.ndarray, verr: np.ndarray, t0: float) -> None:
         """Add the data to the Fitter object.
@@ -205,33 +205,38 @@ class Fitter:
             )
 
         # Validate astrophysical validity of all parameters
-        self._validate_astrophysical_validity(params)
+        params_values = {name: param.value for name, param in params.items()}
+        self._validate_astrophysical_validity(params_values)
 
         # Validate parameter coupling constraints
         # i.e. if two parameters both need to be fixed or free together
         self._validate_parameter_coupling(params)
 
-    def _validate_astrophysical_validity(self, params: Dict[str, Parameter]) -> None:
-        """Validate that all parameters are astrophysically valid."""
+    def _validate_astrophysical_validity(self, params_values: Dict[str, float]) -> None:
+        """Validate that all parameter values are astrophysically valid."""
+        # First, check that ALL parameters are finite (not NaN or infinite)
+        invalid_params = { name: value for name, value in params_values.items() if not np.isfinite(value) }
+        if invalid_params:
+            raise ValueError( "Invalid parameters detected: " + ", ".join(f"{k}={v}" for k, v in invalid_params.items()) )
+
         # Validate planetary parameters for each planet
         for planet_letter in self.planet_letters:
             planet_params = {}
             for par_name in self.parameterisation.pars:
                 key = f"{par_name}_{planet_letter}"
-                planet_params[par_name] = params[key].value
+                planet_params[par_name] = params_values[key]
 
             # Validate this planet's parameters in current parameterisation
             self.parameterisation.validate_planetary_params(planet_params)
 
-        # Validate trend parameters are finite real numbers
+        # Validate trend parameters are finite real numbers (already checked above, but kept for clarity)
         for trend_param in ["g", "gd", "gdd"]:
-            # TODO tidy up this .value hasattr else stuff
-            trend_value = params[trend_param].value
+            trend_value = params_values[trend_param]
             if not np.isfinite(trend_value):
                 raise ValueError(f"Invalid trend parameter {trend_param}: {trend_value} is not a finite real number")
 
         # Validate jitter parameter
-        jit_value = params["jit"].value
+        jit_value = params_values["jit"]
         if jit_value < 0:
             raise ValueError(f"Invalid jitter: {jit_value} < 0")
 
@@ -501,9 +506,9 @@ class Fitter:
             print(map_results)
             warnings.warn("MAP did not succeed. Check the initial values of the parameters, and the prior functions.")
 
-        # Return results as dictionary for easy access
+        # Print results as dictionary (to show param names too)
         map_results_dict = dict(zip(self.free_params_names, map_results.x))
-        print("MAP results:", map_results_dict)
+        print("MAP parameter results:", map_results_dict)
 
         return map_results
 
@@ -536,6 +541,15 @@ class Fitter:
             self.t0,
         )
 
+        # Validate the initial parameter values before starting MCMC
+        # (we don't want to start any chains in invalid parameter space)
+        initial_params_dict = dict(zip(self.free_params_names, initial_values))
+        all_params_dict = self.fixed_params_values_dict | initial_params_dict
+        try:
+            self._validate_astrophysical_validity(all_params_dict)
+        except ValueError as e:
+            raise ValueError(f"Invalid initial parameter values provided to run_mcmc: {e}") from e
+
         logging.info("Starting MCMC...")
         if nwalkers < 2 * self.ndim:
             logging.warning(f"nwalkers should be at least 2 * ndim. You have {nwalkers} walkers and {self.ndim} dimensions. Setting nwalkers to {2 * self.ndim}.")
@@ -543,8 +557,12 @@ class Fitter:
         else:
             self.nwalkers = nwalkers
 
+        # Fuzz the starting values slightly so that the walkers start in (slightly) different places
+        # It's not inconceivable that if a value was initialised on a boundary of validity (e.g. e=0),
+        # that this could push a walker out of range. But this is a small risk worth taking.
+        # The hope is that with at least 2 walkers * ndim, at least some walkers will start in valid regions.
         mcmc_init = initial_values + 1e-5 * np.random.randn(self.nwalkers, self.ndim)
-        # TODO: benchmark if parameter_names argument impacts MCMC performance
+        # TODO: parameter_names argument does slightly impact performance - but not sure if it can be avoided, we need the names
         sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
                                             parameter_names=self.free_params_names)
         sampler.run_mcmc(initial_state=mcmc_init, nsteps=nsteps, progress=progress)
@@ -1024,7 +1042,7 @@ class Fitter:
         ax1.set_xlim(tlin[0], tlin[-1])
         ax1.set_ylabel("Radial velocity [m/s]")
         ax1.set_title(title)
-        ax1.legend()
+        ax1.legend(loc="upper right")
         ax1.tick_params(axis='x', labelbottom=False, bottom=True, top=False, direction='in')  # Remove x-axis labels from top plot
         ax1.tick_params(axis='y', direction='in')
 
@@ -1156,7 +1174,7 @@ class Fitter:
         ax1.plot(tlin_fold_sorted, planet_rv_sorted, label="Model", color="black", zorder=2)
         ax1.set_xlim(-0.5, 0.5)
         ax1.set_ylabel("Radial velocity [m/s]")
-        ax1.legend(loc="best")
+        ax1.legend(loc="upper right")
         ax1.set_title(title)
         ax1.tick_params(axis='x', labelbottom=False, bottom=True, top=False, direction='in')  # Remove x-axis labels from top plot
         ax1.tick_params(axis='y', direction='in')
@@ -1390,15 +1408,7 @@ class LogPosterior:
         self.verr = verr
         self.t0 = t0
 
-        # build expected params list - 5 pars per planet, then 3 trends, then jit
-        self.expected_params = []
-        for letter in planet_letters:
-            for par in parameterisation.pars:
-                self.expected_params.append(par + "_" + letter)
-        self.expected_params += ["g", "gd", "gdd"]
-        self.expected_params += ["jit"]
-
-        # Create log-likelihood object and log-prior objects for later
+        # Create log-likelihood and log-prior objects for later
         self.log_likelihood = LogLikelihood(time=self.time,
                                             vel=self.vel,
                                             verr=self.verr,
@@ -1421,10 +1431,14 @@ class LogPosterior:
         dict
             Parameters with names/values converted for prior evaluation
         """
+        # Three cases:
+        # Case 1: User is fitting in transformed parameterisation, but priors are in same transformed parameterisation
+        # Case 2: User is fitting in default parameterisation, and priors are also in default parameterisation
+        # Case 3: User is fitting in transformed parameterisation, but priors are in default parameterisation
+
         # Simple detection: do prior keys match our current free parameter names?
         prior_keys = set(self.priors.keys())
         free_param_keys = set(self.free_params_names)
-
         if prior_keys == free_param_keys:
             # No conversion needed (Cases 1 & 2)
             return free_params_dict
@@ -1466,11 +1480,20 @@ class LogPosterior:
         float
             Log posterior probability (log likelihood + log prior)
         """
-        # Evaluate priors on the free parameters. If any parameters are outside priors
-        # (i.e. priors are infinite), then fail fast returning -infty early, so we
-        # don't waste time calculating LogLikelihood when we know this step will be rejected.
+        # Fast fail for invalid jitter (before expensive prior/likelihood calculations)
+        # We have to check jitter specifically because all other params will ultimately
+        # get checked/raise Exceptions when they are used to calculate an RV.
+        # Jitter doesn't directly contribute to calculated RV, so needs to be checked manually.
+        _all_params_for_ll = self.fixed_params | free_params_dict
+        if _all_params_for_ll["jit"] < 0:
+            return -np.inf
 
-        # Convert parameters for prior evaluation if needed
+        # Evaluate priors on the free parameters. If any parameters are outside priors
+        # (i.e. priors are infinite), then fail fast returning -inf early (before expensive likelihood calc)
+
+        # Convert free parameters for prior evaluation (if needed)
+        # This is because priors may be in current or default parameterisation
+        # (if the user is fitting in a transformed parameterisation)
         try:
             params_for_prior = self._convert_params_for_prior_evaluation(free_params_dict)
             lp = self.log_prior(params_for_prior)
@@ -1481,7 +1504,6 @@ class LogPosterior:
             return -np.inf
 
         # Calculate log-likelihood with all parameters
-        _all_params_for_ll = self.fixed_params | free_params_dict
         ll = self.log_likelihood(_all_params_for_ll)
 
         # Return combined log-posterior (log-likelihood + log-prior)
@@ -1540,15 +1562,8 @@ class LogLikelihood:
         self.verr = verr
         self.t0 = t0
 
-        # build expected params list - 5 pars per planet, then 3 trends, then jit
-        self.expected_params = []
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
-        for letter in self.planet_letters:
-            for par in self.parameterisation.pars:
-                self.expected_params.append(par + "_" + letter)
-        self.expected_params += ["g", "gd", "gdd"]
-        self.expected_params += ["jit"]
 
     def __call__(self, params: Dict[str, float]) -> float:
         """Calculate log likelihood for given parameters.

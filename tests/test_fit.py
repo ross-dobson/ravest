@@ -206,7 +206,6 @@ class TestLogLikelihood:
         np.testing.assert_array_equal(ll.vel, vel)
         np.testing.assert_array_equal(ll.verr, verr)
         assert ll.t0 == 2.0
-        assert len(ll.expected_params) == 9
 
     def test_loglikelihood_calculation(self, test_data) -> None:
         """Test log-likelihood calculation with valid parameters."""
@@ -333,7 +332,6 @@ class TestLogPosterior:
         )
 
         assert lpost.planet_letters == ["b"]
-        assert len(lpost.expected_params) == 9
 
     def test_logposterior_valid_calculation(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test log-posterior calculation with valid parameters."""
