@@ -5,8 +5,16 @@ to planetary models using various parameterisations.
 """
 # fit.py
 import logging
+import multiprocessing as mp
+import os
 import warnings
 from typing import Callable, Dict
+
+# Many builds of NumPy are linked against OpenBLAS or MKL, which can use multiple threads
+# This can cause problems with multiprocessing (that we use to speed up emcee)
+# So we set these to only use one thread
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 
 import corner
 import emcee
@@ -513,7 +521,7 @@ class Fitter:
         return map_results
 
 
-    def run_mcmc(self, initial_values: np.ndarray, nwalkers: int, nsteps: int = 5000, progress: bool = True) -> None:
+    def run_mcmc(self, initial_values: np.ndarray, nwalkers: int, nsteps: int = 5000, progress: bool = True, multiprocessing: bool = False) -> None:
         """Run MCMC sampling from given initial parameter values.
 
         Parameters
@@ -550,7 +558,6 @@ class Fitter:
         except ValueError as e:
             raise ValueError(f"Invalid initial parameter values provided to run_mcmc: {e}") from e
 
-        logging.info("Starting MCMC...")
         if nwalkers < 2 * self.ndim:
             logging.warning(f"nwalkers should be at least 2 * ndim. You have {nwalkers} walkers and {self.ndim} dimensions. Setting nwalkers to {2 * self.ndim}.")
             self.nwalkers = 2 * self.ndim
@@ -562,22 +569,25 @@ class Fitter:
         # that this could push a walker out of range. But this is a small risk worth taking.
         # The hope is that with at least 2 walkers * ndim, at least some walkers will start in valid regions.
         mcmc_init = initial_values + 1e-5 * np.random.randn(self.nwalkers, self.ndim)
-        # TODO: parameter_names argument does slightly impact performance - but not sure if it can be avoided, we need the names
-        sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
-                                            parameter_names=self.free_params_names)
-        sampler.run_mcmc(initial_state=mcmc_init, nsteps=nsteps, progress=progress)
 
-        # TODO: multiprocessing disabled for now as it's causing slowdown
-        # I suspect something might be being pickled that shouldn't be, but
-        # this requires further investigation.
-        #
-        # with Pool() as pool:
-        #     sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
-        #                                     parameter_names=self.free_params_names,
-        #                                     pool=pool)
-        #     state = sampler.run_mcmc(initial_state=mcmc_init, nsteps=nsteps, progress=True)
-        logging.info("...MCMC done.")
+        # TODO: parameter_names argument does slightly impact performance - but not sure if it can be avoided, we do need the names
+        # and I'm not sure constructing the dictionary later ourselves manually is any quicker than passing parameter_names argument
+
+        if multiprocessing:
+            logging.info("Starting MCMC (with multiprocessing)...")
+            with mp.get_context("spawn").Pool() as pool:  # Use 'spawn' to avoid issues on some Linux platforms
+                sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
+                                                parameter_names=self.free_params_names,
+                                                pool=pool)
+                sampler.run_mcmc(initial_state=mcmc_init, nsteps=nsteps, progress=True)
+        else:
+            logging.info("Starting MCMC...")
+            sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
+                                                parameter_names=self.free_params_names)
+            sampler.run_mcmc(initial_state=mcmc_init, nsteps=nsteps, progress=progress)
+
         self.sampler = sampler
+        logging.info("...MCMC done.")
 
     def get_samples_np(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, flat: bool = False) -> np.ndarray:
         """Return a contiguous numpy array of MCMC samples.
@@ -1036,7 +1046,7 @@ class Fitter:
         ax1.errorbar(self.time, self.vel, yerr=self.verr, marker=".", color="tab:blue",
                     ecolor="tab:blue", linestyle="None", markersize=8, zorder=4, label="Data")
         ax1.errorbar(self.time, self.vel, yerr=verr_with_jit, marker="None",
-                    ecolor="tab:blue", linestyle="None", alpha=0.5, zorder=3, label="Data + jitter")
+                    ecolor="tab:blue", linestyle="None", alpha=0.5, zorder=3, label="Jitter")
 
         ax1.plot(tlin, rv_total, label="Model", color="black", zorder=2)
         ax1.set_xlim(tlin[0], tlin[-1])
@@ -1168,7 +1178,7 @@ class Fitter:
         ax1.errorbar(t_fold, data_minus_others, yerr=self.verr, marker=".",
                     linestyle="None", color="tab:blue", markersize=8, zorder=4, label="Data")
         ax1.errorbar(t_fold, data_minus_others, yerr=verr_with_jit, marker="None",
-                    linestyle="None", color="tab:blue", alpha=0.5, zorder=3, label="Data + jitter")
+                    linestyle="None", color="tab:blue", alpha=0.5, zorder=3, label="Jitter")
 
         # Plot phase-folded model for this planet
         ax1.plot(tlin_fold_sorted, planet_rv_sorted, label="Model", color="black", zorder=2)
