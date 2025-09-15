@@ -385,7 +385,6 @@ class Fitter:
                 # So there are no alternative priors to look for (therefore the prior is missing)
                 return None
 
-
     def _check_params_values_against_priors(self, validated_priors: dict[str, Callable[[float], float]], current_free_param_names: list[str]) -> None:
         """Check parameter values against priors (including if Prior is for the Default parameterisation equivalent parameter)."""
         for prior_param_name, prior_function in validated_priors.items():
@@ -518,8 +517,8 @@ class Fitter:
         map_results_dict = dict(zip(self.free_params_names, map_results.x))
         print("MAP parameter results:", map_results_dict)
 
+        # Return the scipy OptimizeResult object so that user can inspect fully if needed
         return map_results
-
 
     def run_mcmc(self, initial_values: np.ndarray, nwalkers: int, nsteps: int = 5000, progress: bool = True, multiprocessing: bool = False) -> None:
         """Run MCMC sampling from given initial parameter values.
@@ -558,6 +557,7 @@ class Fitter:
         except ValueError as e:
             raise ValueError(f"Invalid initial parameter values provided to run_mcmc: {e}") from e
 
+        # Enforce minimum number of walkers (though users ideally should have many more than this)
         if nwalkers < 2 * self.ndim:
             logging.warning(f"nwalkers should be at least 2 * ndim. You have {nwalkers} walkers and {self.ndim} dimensions. Setting nwalkers to {2 * self.ndim}.")
             self.nwalkers = 2 * self.ndim
@@ -575,7 +575,7 @@ class Fitter:
 
         if multiprocessing:
             logging.info("Starting MCMC (with multiprocessing)...")
-            with mp.get_context("spawn").Pool() as pool:  # Use 'spawn' to avoid issues on some Linux platforms
+            with mp.get_context("spawn").Pool() as pool:  # Use 'spawn' instead of 'fork' to avoid issues on some Linux platforms
                 sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
                                                 parameter_names=self.free_params_names,
                                                 pool=pool)
@@ -698,7 +698,7 @@ class Fitter:
         Examples
         --------
         >>> samples_dict = fitter.get_samples_dict(discard_start=1000)
-        >>> k_b_samples = samples_dict['k_b']  # All samples for parameter k for planet b
+        >>> K_b_samples = samples_dict['K_b']  # All samples for parameter K for planet b
         """
         flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         param_names = self.free_params_names
@@ -759,7 +759,7 @@ class Fitter:
         This method creates a unified dictionary containing all model parameters:
         fixed parameters as single float values, and free parameters as arrays
         of MCMC samples. This format is ideal for functions like calculate_mpsini
-        that need all parameters, and that should propagate uncertainties from
+        that need all parameters (whether free or fixed), and that should propagate uncertainties from
         the free parameters samples.
 
         Parameters
@@ -781,7 +781,6 @@ class Fitter:
         fixed_params_dict = self.fixed_params_values_dict
         free_samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
         return fixed_params_dict | free_samples_dict
-
 
     def calculate_log_likelihood(self, params_dict: Dict[str, float]) -> float:
         """Calculate log-likelihood for given parameter values.
@@ -817,15 +816,16 @@ class Fitter:
         # TODO: dynamically scale figure height based on number of parameters
         fig.suptitle("Chains plot")
 
-        # TODO: deal with the ndim = 1 case (where axes[i] will fail as non-subscriptable)
+        if self.ndim == 1:
+            axes = [axes]
 
         samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=False)
         for i in range(self.ndim):
             ax = axes[i]
-            to_plot = samples[:, :, i]  # type: ignore
+            to_plot = samples[:, :, i]
 
             ax.plot(to_plot, "k", alpha=0.3)
-            ax.set_xlim(0, len(samples))  # type: ignore
+            ax.set_xlim(0, len(samples))
             ax.set_ylabel(self.free_params_names[i])
             ax.yaxis.set_label_coords(-0.1, 0.5)
             axes[-1].set_xlabel("Step number")
@@ -894,8 +894,9 @@ class Fitter:
             Resolution for saving (default: 100)
         """
         flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
+        param_names = self.free_params_names
         fig = corner.corner(
-        flat_samples, labels=self.free_params_names, show_titles=True,
+        flat_samples, labels=param_names, show_titles=True,
         plot_datapoints=False, quantiles=[0.16, 0.5, 0.84],
         )
         fig.suptitle("Corner plots")
