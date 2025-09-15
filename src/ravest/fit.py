@@ -1500,11 +1500,10 @@ class LogPosterior:
             return -np.inf
 
         # Evaluate priors on the free parameters. If any parameters are outside priors
-        # (i.e. priors are infinite), then fail fast returning -inf early (before expensive likelihood calc)
-
-        # Convert free parameters for prior evaluation (if needed)
-        # This is because priors may be in current or default parameterisation
-        # (if the user is fitting in a transformed parameterisation)
+        # (i.e. priors are infinite), then fail fast by returning -inf early (before expensive likelihood calc).
+        # We attempt to convert free parameters (if needed) for prior evaluation
+        # This is for if the user is fitting in transformed parameterisation,
+        # but defining their priors in the default parameterisation
         try:
             params_for_prior = self._convert_params_for_prior_evaluation(free_params_dict)
             lp = self.log_prior(params_for_prior)
@@ -1536,21 +1535,21 @@ class LogPosterior:
         free_params_vals : list
             float values of the free parameters
         """
+        # Create dicts from the names and values
+        # (Assumes the order of names matches the order of values)
         free_params_dict = dict(zip(self.free_params_names, free_params_vals))
+
+        # Calculate *negative* log_probability (MAP is backwards from MCMC)
         logprob = self.log_probability(free_params_dict)
         neg_logprob = -logprob
 
-        # Handle -inf to prevent scipy RuntimeWarnings during optimization
+        # Handle -inf log_probability to prevent scipy RuntimeWarnings during optimisation
         # scipy's optimizer can't handle -inf values in arithmetic operations
+        # (This does mean there is a non-zero chance we could end up returning a solution that doesn't satisfy the prior functions)
         if not np.isfinite(neg_logprob):
-            return 1e30  # Very large finite number instead of inf
+            return 1e30  # Very large finite number instead of +inf
 
         return neg_logprob
-
-    def _positive_log_probability_for_MCMC(self, free_params_vals: float) -> float:
-        free_params_dict = dict(zip(self.free_params_names, free_params_vals))
-        logprob = self.log_probability(free_params_dict)
-        return logprob
 
 
 class LogLikelihood:
@@ -1592,26 +1591,23 @@ class LogLikelihood:
         rv_total = np.zeros(len(self.time))
 
         # Step 1: Calculate RV contributions from each planet
-        # TODO: could we rely on dict maintaining order to just get each planet
-        # by getting 5 params each time? rather than doing this loop yet again?
-        # TODO: or is there a better way to use the list of keys that Parameterisation provides?
         for letter in self.planet_letters:
-            _this_planet_keys = [par + "_" + letter for par in self.parameterisation.pars]
-            _this_planet_params = {}
-            for _this_planet_key in _this_planet_keys:
-                _key_inside_dict = _this_planet_key[:-2]
-                _this_planet_params[_key_inside_dict] = params[_this_planet_key]
-                # Remove planet letter suffix since Planet class expects parameter names without it
-
+            # get just the parameters for this planet (and strip the _letter suffix from the keys)
+            _this_planet_params = {
+                par: params[f"{par}_{letter}"]
+                for par in self.parameterisation.pars
+            }
             try:
                 _this_planet = ravest.model.Planet(letter, self.parameterisation, _this_planet_params)
+                _this_planet_rv = _this_planet.radial_velocity(self.time)
             except ValueError:
                 # Planet.__init__ validates parameters and raises ValueError for invalid params
-                return -np.inf
+                return -np.inf  # fail-fast: return -inf log-likelihood
 
-            rv_total += _this_planet.radial_velocity(self.time)
+            # add this planet's RV contribution to the total
+            rv_total += _this_planet_rv
 
-        # Step 2: Calculate RV contribution from trend parameters
+        # Step 2: Calculate and add the RV from the system Trend
         _trend_keys = ["g", "gd", "gdd"]
         _trend_params = {key: params[key] for key in _trend_keys}
         _this_trend = ravest.model.Trend(params=_trend_params, t0=self.t0)
