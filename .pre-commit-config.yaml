@@ -19,6 +19,12 @@ repos:
     -   id: trailing-whitespace
 
 -   repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.7
+    # Ruff version.
+    rev: v0.13.0
     hooks:
-    -   id: ruff
+    # Run the linter.
+    -   id: ruff-check
+        types_or: [ python, pyi ]  # Don't run on Jupyter notebooks
+    # # Run the formatter.
+    # -   id: ruff-format
+    #     types_or: [ python, pyi ]  # Don't run on Jupyter notebooks
