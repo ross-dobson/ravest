@@ -520,20 +520,23 @@ class Fitter:
         # Return the scipy OptimizeResult object so that user can inspect fully if needed
         return map_results
 
-    def run_mcmc(self, initial_values: np.ndarray, nwalkers: int, nsteps: int = 5000, progress: bool = True, multiprocessing: bool = False) -> None:
-        """Run MCMC sampling from given initial parameter values.
+    def run_mcmc(self, initial_positions : np.ndarray, nwalkers: int, nsteps: int = 5000, progress: bool = True, multiprocessing: bool = False) -> None:
+        """Run MCMC sampling from given initial walker positions.
 
         Parameters
         ----------
-        initial_values : array-like
-            Starting parameter values for MCMC. Should match the order of
-            free parameters from free_params_names
+        initial_positions  : np.ndarray
+            Starting positions for all MCMC walkers. Shape must be (nwalkers, ndim)
+            where ndim is the number of free parameters. Each row represents the
+            starting position for one walker in the order of free_params_names.
         nwalkers : int
-            Number of MCMC walkers
+            Number of MCMC walkers (must match first dimension of initial_positions )
         nsteps : int, optional
             Number of MCMC steps to run (default: 5000)
         progress : bool, optional
             Whether to show progress bar during MCMC (default: True)
+        multiprocessing : bool, optional
+            Whether to use multiprocessing for MCMC (default: False)
         """
         # Initialize log-posterior object for MCMC sampling
         lp = LogPosterior(
@@ -548,27 +551,32 @@ class Fitter:
             self.t0,
         )
 
-        # Validate the initial parameter values before starting MCMC
+        # Validate walker positions shape
+        if initial_positions .shape != (nwalkers, self.ndim):
+            raise ValueError(f"initial_positions  must have shape ({nwalkers}, {self.ndim}), got {initial_positions .shape}")
+
+        # Validate every walker position for astrophysical validity and prior compliance
         # (we don't want to start any chains in invalid parameter space)
-        initial_params_dict = dict(zip(self.free_params_names, initial_values))
-        all_params_dict = self.fixed_params_values_dict | initial_params_dict
-        try:
-            self._validate_astrophysical_validity(all_params_dict)
-        except ValueError as e:
-            raise ValueError(f"Invalid initial parameter values provided to run_mcmc: {e}") from e
+        for i, walker_position in enumerate(initial_positions ):
+            walker_params_dict = dict(zip(self.free_params_names, walker_position))
+            all_params_dict = self.fixed_params_values_dict | walker_params_dict
 
-        # Enforce minimum number of walkers (though users ideally should have many more than this)
-        if nwalkers < 2 * self.ndim:
-            logging.warning(f"nwalkers should be at least 2 * ndim. You have {nwalkers} walkers and {self.ndim} dimensions. Setting nwalkers to {2 * self.ndim}.")
-            self.nwalkers = 2 * self.ndim
-        else:
-            self.nwalkers = nwalkers
+            # Check astrophysical validity
+            try:
+                self._validate_astrophysical_validity(all_params_dict)
+            except ValueError as e:
+                raise ValueError(f"Walker {i} has invalid astrophysical parameters: {e}") from e
 
-        # Fuzz the starting values slightly so that the walkers start in (slightly) different places
-        # It's not inconceivable that if a value was initialised on a boundary of validity (e.g. e=0),
-        # that this could push a walker out of range. But this is a small risk worth taking.
-        # The hope is that with at least 2 walkers * ndim, at least some walkers will start in valid regions.
-        mcmc_init = initial_values + 1e-5 * np.random.randn(self.nwalkers, self.ndim)
+            # Check prior compliance
+            log_prior = lp.log_prior(walker_params_dict)
+            if not np.isfinite(log_prior):
+                raise ValueError(f"Walker {i} is outside prior bounds (log_prior = {log_prior})")
+
+        # Store number of walkers
+        self.nwalkers = nwalkers
+
+        # Use provided walker positions directly
+        mcmc_init = initial_positions
 
         # TODO: parameter_names argument does slightly impact performance - but not sure if it can be avoided, we do need the names
         # and I'm not sure constructing the dictionary later ourselves manually is any quicker than passing parameter_names argument
