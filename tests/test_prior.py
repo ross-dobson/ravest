@@ -78,37 +78,37 @@ class TestUniform:
     def test_uniform_repr(self) -> None:
         """Test string representation."""
         prior = ravest.prior.Uniform(2.5, 7.5)
-        assert repr(prior) == "Uniform(2.5, 7.5)"
+        assert repr(prior) == "Uniform(lower=2.5, upper=7.5)"
 
 
-class TestGaussian:
-    """Tests for the Gaussian prior class."""
+class TestNormal:
+    """Tests for the Normal prior class."""
 
-    def test_gaussian_init(self) -> None:
-        """Test Gaussian prior initialization."""
-        prior = ravest.prior.Gaussian(0, 1)
+    def test_normal_init(self) -> None:
+        """Test Normal prior initialization."""
+        prior = ravest.prior.Normal(0, 1)
         assert prior.mean == 0
         assert prior.std == 1
 
-    def test_gaussian_at_mean(self) -> None:
+    def test_normal_at_mean(self) -> None:
         """Test log probability at the mean."""
-        prior = ravest.prior.Gaussian(5.0, 2.0)
+        prior = ravest.prior.Normal(5.0, 2.0)
 
         # At mean, log_prob = -0.5 * ln(2*pi*sigma**2)
         expected = -0.5 * np.log(2 * np.pi * 4.0)  # sigma**2 = 4
         assert np.isclose(prior(5.0), expected)
 
-    def test_gaussian_symmetric(self) -> None:
-        """Test that Gaussian is symmetric around mean."""
-        prior = ravest.prior.Gaussian(0, 1)
+    def test_normal_symmetric(self) -> None:
+        """Test that Normal is symmetric around mean."""
+        prior = ravest.prior.Normal(0, 1)
 
         # Should be symmetric around mean
         assert np.isclose(prior(1.0), prior(-1.0))
         assert np.isclose(prior(2.0), prior(-2.0))
 
-    def test_gaussian_decreases_with_distance(self) -> None:
+    def test_normal_decreases_with_distance(self) -> None:
         """Test that probability decreases as we move away from mean."""
-        prior = ravest.prior.Gaussian(0, 1)
+        prior = ravest.prior.Normal(0, 1)
 
         prob_at_mean = prior(0.0)
         prob_at_1std = prior(1.0)
@@ -116,10 +116,10 @@ class TestGaussian:
 
         assert prob_at_mean > prob_at_1std > prob_at_2std
 
-    def test_gaussian_repr(self) -> None:
+    def test_normal_repr(self) -> None:
         """Test string representation."""
-        prior = ravest.prior.Gaussian(1.5, 0.5)
-        assert repr(prior) == "Gaussian(1.5, 0.5)"
+        prior = ravest.prior.Normal(1.5, 0.5)
+        assert repr(prior) == "Normal(mean=1.5, std=0.5)"
 
 
 class TestEccentricityUniform:
@@ -171,39 +171,39 @@ class TestEccentricityUniform:
     def test_eccentricity_prior_repr(self) -> None:
         """Test string representation."""
         prior = ravest.prior.EccentricityUniform(0.7)
-        assert repr(prior) == "EccentricityUniform(0.7)"
+        assert repr(prior) == "EccentricityUniform(upper=0.7)"
 
 
-class TestTruncatedGaussian:
-    """Tests for the TruncatedGaussian prior class."""
+class TestTruncatedNormal:
+    """Tests for the TruncatedNormal prior class."""
 
-    def test_truncated_gaussian_init(self) -> None:
-        """Test TruncatedGaussian prior initialization."""
-        prior = ravest.prior.TruncatedGaussian(5.0, 1.0, 0.0, 10.0)
+    def test_truncated_normal_init(self) -> None:
+        """Test TruncatedNormal prior initialization."""
+        prior = ravest.prior.TruncatedNormal(5.0, 1.0, 0.0, 10.0)
         assert prior.mean == 5.0
         assert prior.std == 1.0
         assert prior.lower == 0.0
         assert prior.upper == 10.0
 
-    def test_truncated_gaussian_init_invalid_std(self) -> None:
+    def test_truncated_normal_init_invalid_std(self) -> None:
         """Test invalid standard deviation."""
         with pytest.raises(ValueError, match="Standard deviation must be positive"):
-            ravest.prior.TruncatedGaussian(5.0, 0.0, 0.0, 10.0)
+            ravest.prior.TruncatedNormal(5.0, 0.0, 0.0, 10.0)
 
         with pytest.raises(ValueError, match="Standard deviation must be positive"):
-            ravest.prior.TruncatedGaussian(5.0, -1.0, 0.0, 10.0)
+            ravest.prior.TruncatedNormal(5.0, -1.0, 0.0, 10.0)
 
-    def test_truncated_gaussian_init_invalid_bounds(self) -> None:
+    def test_truncated_normal_init_invalid_bounds(self) -> None:
         """Test invalid bounds."""
         with pytest.raises(ValueError, match="Lower bound must be less than upper bound"):
-            ravest.prior.TruncatedGaussian(5.0, 1.0, 10.0, 0.0)
+            ravest.prior.TruncatedNormal(5.0, 1.0, 10.0, 0.0)
 
         with pytest.raises(ValueError, match="Lower bound must be less than upper bound"):
-            ravest.prior.TruncatedGaussian(5.0, 1.0, 5.0, 5.0)
+            ravest.prior.TruncatedNormal(5.0, 1.0, 5.0, 5.0)
 
-    def test_truncated_gaussian_within_bounds(self) -> None:
+    def test_truncated_normal_within_bounds(self) -> None:
         """Test log probability for values within bounds."""
-        prior = ravest.prior.TruncatedGaussian(5.0, 1.0, 0.0, 10.0)
+        prior = ravest.prior.TruncatedNormal(5.0, 1.0, 0.0, 10.0)
 
         # Should return finite values within bounds
         assert np.isfinite(prior(5.0))  # At mean
@@ -211,42 +211,42 @@ class TestTruncatedGaussian:
         assert np.isfinite(prior(1.0))  # Lower side
         assert np.isfinite(prior(9.0))  # Upper side
 
-    def test_truncated_gaussian_outside_bounds(self) -> None:
+    def test_truncated_normal_outside_bounds(self) -> None:
         """Test log probability for values outside bounds."""
-        prior = ravest.prior.TruncatedGaussian(5.0, 1.0, 0.0, 10.0)
+        prior = ravest.prior.TruncatedNormal(5.0, 1.0, 0.0, 10.0)
 
         assert prior(-1.0) == -np.inf  # Below lower bound
         assert prior(11.0) == -np.inf  # Above upper bound
 
-    def test_truncated_gaussian_at_bounds(self) -> None:
+    def test_truncated_normal_at_bounds(self) -> None:
         """Test log probability at the boundary values."""
-        prior = ravest.prior.TruncatedGaussian(5.0, 1.0, 0.0, 10.0)
+        prior = ravest.prior.TruncatedNormal(5.0, 1.0, 0.0, 10.0)
 
         # At boundaries, should return finite values
         assert np.isfinite(prior(0.0))
         assert np.isfinite(prior(10.0))
 
-    def test_truncated_gaussian_normalization(self) -> None:
-        """Test that truncated Gaussian gives higher probabilities than unbounded (due to normalization)."""
-        # Compare truncated vs regular Gaussian - truncated should have higher density due to renormalization
+    def test_truncated_normal_normalization(self) -> None:
+        """Test that truncated Normal gives higher probabilities than unbounded (due to normalization)."""
+        # Compare truncated vs regular Normal - truncated should have higher density due to renormalization
 
         mean, std = 0.0, 1.0
         lower, upper = -1.0, 1.0  # Narrow truncation
 
-        truncated = ravest.prior.TruncatedGaussian(mean, std, lower, upper)
-        regular_gaussian = ravest.prior.Gaussian(mean, std)
+        truncated = ravest.prior.TruncatedNormal(mean, std, lower, upper)
+        regular_normal = ravest.prior.Normal(mean, std)
 
         # At the mean, truncated should give higher log probability due to renormalization
         x = 0.0
         trunc_logprob = truncated(x)
-        regular_logprob = regular_gaussian(x)
+        regular_logprob = regular_normal(x)
 
-        assert trunc_logprob > regular_logprob, "Truncated Gaussian should have higher density due to renormalization"
+        assert trunc_logprob > regular_logprob, "Truncated Normal should have higher density due to renormalization"
 
-    def test_truncated_gaussian_repr(self) -> None:
+    def test_truncated_normal_repr(self) -> None:
         """Test string representation."""
-        prior = ravest.prior.TruncatedGaussian(1.0, 0.5, -2.0, 4.0)
-        assert repr(prior) == "TruncatedGaussian(1.0, 0.5, -2.0, 4.0)"
+        prior = ravest.prior.TruncatedNormal(1.0, 0.5, -2.0, 4.0)
+        assert repr(prior) == "TruncatedNormal(mean=1.0, std=0.5, lower=-2.0, upper=4.0)"
 
 
 class TestBeta:
@@ -308,7 +308,7 @@ class TestBeta:
     def test_beta_repr(self) -> None:
         """Test string representation."""
         prior = ravest.prior.Beta(1.58, 4.4)
-        assert repr(prior) == "Beta(1.58, 4.4)"
+        assert repr(prior) == "Beta(a=1.58, b=4.4)"
 
     @pytest.fixture(scope="class")
     def beta_reference_data(self):

@@ -374,12 +374,13 @@ class TestParameterisationFlexibility:
         assert set(fitter.free_params_names) == set(priors.keys())
 
         # Run short MCMC
-        initial_values = fitter.free_params_values
-        fitter.run_mcmc(initial_values=initial_values, nwalkers=14, nsteps=50, progress=False)
+        nwalkers = 2 * len(fitter.free_params_names)  # Minimum 2 walkers per free parameter
+        initial_positions = fitter.generate_initial_walker_positions(nwalkers)
+        fitter.run_mcmc(initial_positions=initial_positions, nwalkers=nwalkers, nsteps=50, progress=False)
 
         # Verify results
         samples = fitter.get_samples_np(flat=True)
-        assert samples.shape == (700, 7)  # 14 walkers * 50 steps = 700
+        assert samples.shape == (nwalkers * 50, 7)  # nwalkers * 50 steps
 
         # Check that we get finite log probabilities
         lnprob = fitter.get_sampler_lnprob(flat=True)
@@ -421,12 +422,13 @@ class TestParameterisationFlexibility:
         assert set(fitter.free_params_names) == set(priors.keys())
 
         # Run short MCMC
-        initial_values = fitter.free_params_values
-        fitter.run_mcmc(initial_values=initial_values, nwalkers=14, nsteps=50, progress=False)
+        nwalkers = 2 * len(fitter.free_params_names)  # Minimum 2 walkers per free parameter
+        initial_positions = fitter.generate_initial_walker_positions(nwalkers)
+        fitter.run_mcmc(initial_positions=initial_positions, nwalkers=nwalkers, nsteps=50, progress=False)
 
         # Verify results
         samples = fitter.get_samples_np(flat=True)
-        assert samples.shape == (700, 7)
+        assert samples.shape == (nwalkers * 50, 7)  # nwalkers * 50 steps
 
         # Check that we get finite log probabilities
         lnprob = fitter.get_sampler_lnprob(flat=True)
@@ -470,12 +472,13 @@ class TestParameterisationFlexibility:
         assert "e_b" in fitter.priors
 
         # Run short MCMC
-        initial_values = fitter.free_params_values
-        fitter.run_mcmc(initial_values=initial_values, nwalkers=14, nsteps=50, progress=False)
+        nwalkers = 2 * len(fitter.free_params_names)  # Minimum 2 walkers per free parameter
+        initial_positions = fitter.generate_initial_walker_positions(nwalkers)
+        fitter.run_mcmc(initial_positions=initial_positions, nwalkers=nwalkers, nsteps=50, progress=False)
 
         # Verify results
         samples = fitter.get_samples_np(flat=True)
-        assert samples.shape == (700, 7)
+        assert samples.shape == (nwalkers * 50, 7)  # nwalkers * 50 steps
 
         # Check that we get finite log probabilities
         lnprob = fitter.get_sampler_lnprob(flat=True)

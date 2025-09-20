@@ -520,6 +520,134 @@ class Fitter:
         # Return the scipy OptimizeResult object so that user can inspect fully if needed
         return map_results
 
+    def generate_initial_walker_positions(self, nwalkers: int, verbose: bool = False, max_attempts: int = 1000) -> np.ndarray:
+        """Generate initial walker positions that satisfy priors and are astrophysically valid.
+
+        Creates random starting positions for MCMC walkers by sampling from
+        appropriate distributions based on each parameter's prior type. Ensures
+        that parameter combinations are astrophysically valid (e.g., eccentricity < 1).
+
+        Parameters
+        ----------
+        nwalkers : int
+            Number of MCMC walkers to generate positions for
+        verbose : bool, default False
+            If True, print walker positions during generation
+        max_attempts : int, default 1000
+            Maximum attempts to generate a valid walker position
+
+        Returns
+        -------
+        np.ndarray
+            Array of shape (nwalkers, ndim) where ndim is the number of free parameters.
+            Each row represents the starting position for one walker in the order of
+            free_params_names.
+
+        Raises
+        ------
+        ValueError
+            If a prior type is not supported for walker generation or if unable
+            to generate valid positions after max_attempts
+
+        Examples
+        --------
+        >>> # Generate positions for 40 walkers
+        >>> nwalkers = 10 * len(fitter.free_params_names)
+        >>> initial_positions = fitter.generate_initial_walker_positions(nwalkers)
+        >>> fitter.run_mcmc(initial_positions, nwalkers, nsteps=2000)
+        """
+        if verbose:
+            print("Free parameters:", self.free_params_names)
+
+        mcmc_init = []
+
+        for walker_idx in range(nwalkers):
+            attempts = 0
+            while attempts < max_attempts:
+                walker_position = []
+                for param_name in self.free_params_names:
+                    # Check if we have a direct prior for this parameter
+                    # (because user may be fitting in a transformed parameterisation, but gave priors in the default parameterisation instead)
+                    if param_name in self.priors:
+                        prior = self.priors[param_name]
+
+                        if isinstance(prior, ravest.prior.Normal):
+                            walker_position.append(np.random.normal(loc=prior.mean, scale=prior.std))
+
+                        elif isinstance(prior, ravest.prior.HalfNormal):
+                            walker_position.append(np.abs(np.random.normal(loc=0, scale=prior.std)))
+
+                        elif isinstance(prior, ravest.prior.Uniform):
+                            walker_position.append(np.random.uniform(low=prior.lower, high=prior.upper))
+
+                        elif isinstance(prior, ravest.prior.TruncatedNormal):
+                            walker_position.append(np.random.uniform(low=prior.lower, high=prior.upper))
+
+                        elif isinstance(prior, ravest.prior.Beta):
+                            walker_position.append(np.random.uniform(low=prior.a, high=prior.b))
+
+                        elif isinstance(prior, ravest.prior.EccentricityUniform):
+                            walker_position.append(np.random.uniform(low=0, high=prior.upper))
+
+                        else:
+                            raise ValueError(f"Unsupported prior type for walker generation: {type(prior)}")
+
+                    else:
+                        # No direct prior for this parameter - use current value + small perturbation
+                        center_val = self.params[param_name].value
+                        # Add small random perturbation (10% of current value + small fixed amount for near-zero values)
+                        perturbation = np.random.normal(0, abs(center_val) * 0.1 + 0.01)
+                        walker_position.append(center_val + perturbation)
+
+                # Check astrophysical validity and prior compliance
+                try:
+                    # Convert walker position to full parameter dict (free + fixed)
+                    free_params_dict = dict(zip(self.free_params_names, walker_position))
+                    all_params_dict = self.fixed_params_values_dict | free_params_dict
+
+                    # Check astrophysical validity
+                    self._validate_astrophysical_validity(all_params_dict)
+
+                    # Check prior compliance using LogPosterior, rather than calling priors direct
+                    # (because it handles Transformed->Default parameter transformations already, if needed)
+                    lp = LogPosterior(
+                        self.planet_letters,
+                        self.parameterisation,
+                        self.priors,
+                        self.fixed_params_values_dict,
+                        self.free_params_names,
+                        self.time,
+                        self.vel,
+                        self.verr,
+                        self.t0,
+                    )
+                    # Check the log-prior probability is finite (i.e. proposed initial values are within prior bounds)
+                    params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
+                    log_prior = lp.log_prior(params_for_prior)
+                    if not np.isfinite(log_prior):
+                        raise ValueError(f"Outside prior bounds (log_prior = {log_prior})")
+
+                    # If both astrophysical and priors validations pass, we have a valid walker position
+                    break
+                except ValueError:
+                    # Validation failed, try again
+                    attempts += 1
+                    continue
+
+            if attempts >= max_attempts:
+                raise ValueError(f"Could not generate astrophysically valid walker {walker_idx} after {max_attempts} attempts. "
+                               f"Consider relaxing priors or checking parameter constraints.")
+
+            if verbose:
+                print(f"Walker {walker_idx} position: {walker_position} (valid after {attempts + 1} attempts)")
+            mcmc_init.append(walker_position)
+
+        mcmc_init = np.array(mcmc_init)
+        if verbose:
+            print(f"Generated MCMC initial positions with shape: {mcmc_init.shape}")
+
+        return mcmc_init
+
     def run_mcmc(self, initial_positions : np.ndarray, nwalkers: int, nsteps: int = 5000, progress: bool = True, multiprocessing: bool = False) -> None:
         """Run MCMC sampling from given initial walker positions.
 
@@ -568,7 +696,9 @@ class Fitter:
                 raise ValueError(f"Walker {i} has invalid astrophysical parameters: {e}") from e
 
             # Check prior compliance
-            log_prior = lp.log_prior(walker_params_dict)
+            # Use LogPosterior's parameter conversion for consistency
+            params_for_prior = lp._convert_params_for_prior_evaluation(walker_params_dict)
+            log_prior = lp.log_prior(params_for_prior)
             if not np.isfinite(log_prior):
                 raise ValueError(f"Walker {i} is outside prior bounds (log_prior = {log_prior})")
 
@@ -1458,6 +1588,7 @@ class LogPosterior:
         # Simple detection: do prior keys match our current free parameter names?
         prior_keys = set(self.priors.keys())
         free_param_keys = set(self.free_params_names)
+
         if prior_keys == free_param_keys:
             # No conversion needed (Cases 1 & 2)
             return free_params_dict

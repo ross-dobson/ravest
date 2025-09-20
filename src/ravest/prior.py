@@ -4,7 +4,7 @@ import numpy as np
 from scipy.special import gammaln, xlog1py, xlogy
 from scipy.stats import halfnorm, truncnorm
 
-PRIOR_FUNCTIONS = ["Uniform", "Gaussian", "EccentricityUniform", "TruncatedGaussian", "Beta", "HalfGaussian"]
+PRIOR_FUNCTIONS = ["Uniform", "Normal", "EccentricityUniform", "TruncatedNormal", "Beta", "HalfNormal"]
 
 class Uniform:
     r"""Log of uniform prior distribution, with closed (inclusive) interval [a,b].
@@ -60,22 +60,22 @@ class Uniform:
             return -np.log(self.upper - self.lower)
 
     def __repr__(self) -> str:
-        return f"Uniform({self.lower}, {self.upper})"
+        return f"Uniform(lower={self.lower}, upper={self.upper})"
 
 
-class Gaussian:
-    r"""Log of Gaussian prior distribution.
+class Normal:
+    r"""Log of Normal prior distribution.
 
-    The log Gaussian prior function is defined as:
+    The log Normal prior function is defined as:
     .. math::
         -0.5 \left( \frac{x - \mu}{\sigma} \right)^2 - 0.5 \log{2 \pi \sigma^2} \\
 
     Parameters
     ----------
     mean : float
-        Mean of the Gaussian distribution.
+        Mean of the Normal distribution.
     std : float
-        Standard deviation of the Gaussian distribution.
+        Standard deviation of the Normal distribution.
 
     Returns
     -------
@@ -88,7 +88,7 @@ class Gaussian:
         self.std = std
 
     def __call__(self, value: float) -> float:
-        """Calculate log Gaussian prior probability.
+        """Calculate log Normal prior probability.
 
         Parameters
         ----------
@@ -103,7 +103,7 @@ class Gaussian:
         return -0.5 * ((value - self.mean) / self.std)**2 - 0.5*np.log((self.std**2)*2.*np.pi)
 
     def __repr__(self) -> str:
-        return f"Gaussian({self.mean}, {self.std})"
+        return f"Normal(mean={self.mean}, std={self.std})"
 
 
 class EccentricityUniform:
@@ -156,13 +156,13 @@ class EccentricityUniform:
             return -np.log(self.upper)
 
     def __repr__(self) -> str:
-        return f"EccentricityUniform({self.upper})"
+        return f"EccentricityUniform(upper={self.upper})"
 
 
-class TruncatedGaussian:
-    r"""Log of properly normalized truncated Gaussian prior distribution.
+class TruncatedNormal:
+    r"""Log of properly normalized truncated Normal prior distribution.
 
-    The log truncated Gaussian prior function is defined as:
+    The log truncated Normal prior function is defined as:
     .. math::
         \log \left( \frac{1}{\sigma} \phi\left(\frac{x - \mu}{\sigma}\right) \right) - \log \left( \Phi\left(\frac{b - \mu}{\sigma}\right) - \Phi\left(\frac{a - \mu}{\sigma}\right) \right) \quad \text{for} \quad a \leq x \leq b \\
         -\inf \quad \text{otherwise}
@@ -179,9 +179,9 @@ class TruncatedGaussian:
     Parameters
     ----------
     mean : float
-        Mean of the original (untruncated) Gaussian distribution.
+        Mean of the original (untruncated) Normal distribution.
     std : float
-        Standard deviation of the original Gaussian distribution.
+        Standard deviation of the original Normal distribution.
     lower : float
         Lower bound of the truncation.
     upper : float
@@ -210,7 +210,7 @@ class TruncatedGaussian:
         self._b = (upper - mean) / std  # Upper bound in standard units
 
     def __call__(self, value: float) -> float:
-        """Calculate log truncated Gaussian prior probability.
+        """Calculate log truncated Normal prior probability.
 
         Parameters
         ----------
@@ -228,7 +228,7 @@ class TruncatedGaussian:
             return truncnorm.logpdf(value, self._a, self._b, loc=self.mean, scale=self.std)
 
     def __repr__(self) -> str:
-        return f"TruncatedGaussian({self.mean}, {self.std}, {self.lower}, {self.upper})"
+        return f"TruncatedNormal(mean={self.mean}, std={self.std}, lower={self.lower}, upper={self.upper})"
 
 
 class Beta:
@@ -283,18 +283,18 @@ class Beta:
             return xlogy(self.a - 1, value) + xlog1py(self.b - 1, -value) - self._log_beta
 
     def __repr__(self) -> str:
-        return f"Beta({self.a}, {self.b})"
+        return f"Beta(a={self.a}, b={self.b})"
 
 
-class HalfGaussian:
-    r"""Log of half-Gaussian prior distribution.
+class HalfNormal:
+    r"""Log of half-Normal prior distribution.
 
-    The log half-Gaussian prior function is defined as:
+    The log half-Normal prior function is defined as:
     .. math::
         \log \left( \frac{2}{\sigma \sqrt{2\pi}} \exp\left(-\frac{x^2}{2\sigma^2}\right) \right) \quad \text{for} \quad x \geq 0 \\
         -\inf \quad \text{otherwise}
 
-    This is equivalent to a Gaussian distribution with mean=0 that has been
+    This is equivalent to a Normal distribution with mean=0 that has been
     folded about zero (or truncated at zero with the remaining mass redistributed).
 
     Commonly used for scale parameters that must be positive, such as
@@ -302,8 +302,8 @@ class HalfGaussian:
 
     Parameters
     ----------
-    scale : float
-        Scale parameter σ (sigma) of the half-Gaussian distribution. Must be > 0.
+    std : float
+        Standard deviation (sigma) of the half-Normal distribution. Must be > 0.
 
     Returns
     -------
@@ -311,13 +311,13 @@ class HalfGaussian:
         Logarithm of the prior probability density function.
     """
 
-    def __init__(self, scale: float) -> None:
-        if scale <= 0:
-            raise ValueError(f"Scale parameter must be positive, got {scale}")
-        self.scale = float(scale)
+    def __init__(self, std: float) -> None:
+        if std <= 0:
+            raise ValueError(f"Standard deviation must be positive, got {std}")
+        self.std = float(std)
 
     def __call__(self, value: float) -> float:
-        """Calculate log half-Gaussian prior probability.
+        """Calculate log half-Normal prior probability.
 
         Parameters
         ----------
@@ -332,7 +332,7 @@ class HalfGaussian:
         if value < 0.0:
             return -np.inf
         else:
-            return halfnorm.logpdf(value, scale=self.scale)
+            return halfnorm.logpdf(value, scale=self.std)
 
     def __repr__(self) -> str:
-        return f"HalfGaussian({self.scale})"
+        return f"HalfNormal(std={self.std})"
