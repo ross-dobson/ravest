@@ -1015,7 +1015,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_corner(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, save: bool = False, fname: str = "corner_plot.png", dpi: int = 100) -> None:
+    def plot_corner(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, plot_datapoints: bool = False, truths: list[float] = None, save: bool = False, fname: str = "corner_plot.png", dpi: int = 100) -> None:
         """Create a corner plot of MCMC samples.
 
         Parameters
@@ -1026,6 +1026,11 @@ class Fitter:
             Discard the last `discard_end` steps from the end of the chain (default: 0)
         thin : int, optional
             Use only every `thin` steps from the chain (default: 1)
+        plot_datapoints : bool, optional
+            Show individual data points in addition to contours (default: False)
+        truths : list of float, optional
+            True parameter values to overplot as vertical/horizontal lines (default: None).
+            Must match the order of free parameters if provided.
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -1036,8 +1041,9 @@ class Fitter:
         flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         param_names = self.free_params_names
         fig = corner.corner(
-        flat_samples, labels=param_names, show_titles=True,
-        plot_datapoints=False, quantiles=[0.16, 0.5, 0.84],
+            flat_samples, labels=param_names, show_titles=True,
+            plot_datapoints=plot_datapoints, quantiles=[0.16, 0.5, 0.84],
+            truths=truths,
         )
         fig.suptitle("Corner plots")
         if save:
