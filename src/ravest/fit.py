@@ -950,8 +950,10 @@ class Fitter:
 
     def plot_chains(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, save: bool = False, fname: str = "chains_plot.png", dpi: int = 100) -> None:
         """Plot MCMC chains for all free parameters."""
-        fig, axes = plt.subplots(self.ndim, figsize=(10,1+(self.ndim*2/3)), sharex=True)
-        # TODO: dynamically scale figure height based on number of parameters
+        # Scale figure height to maintain consistent subplot size
+        subplot_height_inches = 1.25
+        fig, axes = plt.subplots(self.ndim, figsize=(10, self.ndim * subplot_height_inches),
+                                sharex=True, constrained_layout=True)
         fig.suptitle("Chains plot")
 
         if self.ndim == 1:
