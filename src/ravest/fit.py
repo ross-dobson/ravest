@@ -696,7 +696,6 @@ class Fitter:
                 raise ValueError(f"Walker {i} has invalid astrophysical parameters: {e}") from e
 
             # Check prior compliance
-            # Use LogPosterior's parameter conversion for consistency
             params_for_prior = lp._convert_params_for_prior_evaluation(walker_params_dict)
             log_prior = lp.log_prior(params_for_prior)
             if not np.isfinite(log_prior):
@@ -1051,69 +1050,6 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def _posterior_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """For each step in the MCMC chain, calculate the RV.
-
-        The RVs are calculated at the times in `tlin`, which is a smooth time
-        array generated for plotting purposes. This array consists of 1000
-        uniformly spaced points spanning from the minimum to maximum of the
-        observed `time` array, with a 1% buffer added to both ends.
-
-        Parameters
-        ----------
-        discard_start : int, optional
-            Discard the first `discard_start` steps from the start of the chain (default: 0)
-        discard_end : int, optional
-            Discard the last `discard_end` steps from the end of the chain (default: 0)
-        thin : int, optional
-            Use only every `thin` steps from the chain. (default: 1)
-
-        Returns
-        -------
-        np.ndarray
-            Array of RVs for each sample in the chain, at the times in `tlin`.
-        np.ndarray
-            The time array `tlin` at which the RVs are calculated.
-        """
-        # Get posterior parameter samples
-        samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
-
-        # Create smooth time curve for plotting
-        _tmin, _tmax = self.time.min(), self.time.max()
-        _trange = _tmax - _tmin
-        tlin = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
-
-        # store the rv for each sample here
-        rv_array = np.zeros((len(samples), len(tlin)))
-
-        # get the free parameter names and fixed parameter values
-        # we don't need to call this repeatedly for each sample
-        free_params_names = self.free_params_names
-        fixed_params_dict = self.fixed_params_values_dict
-
-        # TODO: can we replace this loop with something faster?
-        for i, row in enumerate(samples):
-            # Combine fixed and free parameters, so we have all values needed to evaluate the model
-            free_params = dict(zip(free_params_names, row))
-            params = fixed_params_dict | free_params
-            this_row_rv = np.zeros(len(tlin))
-
-            for letter in self.planet_letters:
-                this_planet_params = {}
-                for par in self.parameterisation.pars:
-                    key = f"{par}_{letter}"
-                    this_planet_params[par] = params[key]
-                this_planet = ravest.model.Planet(letter, self.parameterisation, this_planet_params)
-                this_planet_rv = this_planet.radial_velocity(tlin)
-                this_row_rv += this_planet_rv
-            # now we're outside the planet loop, do the trend
-            this_trend = ravest.model.Trend(params={"g": params["g"], "gd": params["gd"], "gdd": params["gdd"]}, t0=self.t0)
-            this_trend_rv = this_trend.radial_velocity(tlin)
-            this_row_rv += this_trend_rv
-            rv_array[i, :] = this_row_rv
-
-        return rv_array, tlin
-
     def _plot_rv(self, params: Dict[str, float], title: str = "RV Model", save: bool = False, fname: str = "rv_plot.png", dpi: int = 100) -> None:
         """Helper function to plot RV model with given parameters.
 
@@ -1140,10 +1076,10 @@ class Fitter:
         # Create smooth time curve for plotting
         _tmin, _tmax = self.time.min(), self.time.max()
         _trange = _tmax - _tmin
-        tlin = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
+        tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
 
         # Calculate RV model for all planets and trend
-        rv_total = np.zeros(len(tlin))
+        rv_total = np.zeros(len(tsmooth))
 
         # Add planetary contributions
         for letter in self.planet_letters:
@@ -1153,12 +1089,12 @@ class Fitter:
                 planet_params[par_name] = params[key]
 
             planet = ravest.model.Planet(letter, self.parameterisation, planet_params)
-            rv_total += planet.radial_velocity(tlin)
+            rv_total += planet.radial_velocity(tsmooth)
 
         # Add trend contribution
         trend_params = {key: params[key] for key in ["g", "gd", "gdd"]}
         trend = ravest.model.Trend(params=trend_params, t0=self.t0)
-        rv_total += trend.radial_velocity(tlin)
+        rv_total += trend.radial_velocity(tsmooth)
 
         # Get jitter value for error bars
         jit_value = params["jit"]
@@ -1195,8 +1131,8 @@ class Fitter:
         ax1.errorbar(self.time, self.vel, yerr=verr_with_jit, marker="None",
                     ecolor="tab:blue", linestyle="None", alpha=0.5, zorder=3, label="Jitter")
 
-        ax1.plot(tlin, rv_total, label="Model", color="black", zorder=2)
-        ax1.set_xlim(tlin[0], tlin[-1])
+        ax1.plot(tsmooth, rv_total, label="Model", color="black", zorder=2)
+        ax1.set_xlim(tsmooth[0], tsmooth[-1])
         ax1.set_ylabel("Radial velocity [m/s]")
         ax1.set_title(title)
         ax1.legend(loc="upper right")
@@ -1214,7 +1150,7 @@ class Fitter:
         ax2.errorbar(self.time, residuals, yerr=verr_with_jit, marker="None",
                     ecolor="tab:blue", linestyle="None", alpha=0.5, zorder=3)
         ax2.axhline(0, color="k", linestyle="--", zorder=2)
-        ax2.set_xlim(tlin[0], tlin[-1])
+        ax2.set_xlim(tsmooth[0], tsmooth[-1])
 
         # Set symmetric y-limits for residuals
         max_abs_residual = np.max(np.abs(residuals + verr_with_jit))
@@ -1260,43 +1196,43 @@ class Fitter:
         # get smooth linear time curve for plotting
         _tmin, _tmax = self.time.min(), self.time.max()
         _trange = _tmax - _tmin
-        tlin = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
+        tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
 
         # Get jitter value for error bars
         jit_value = params["jit"]
         verr_with_jit = np.sqrt(self.verr**2 + jit_value**2)
 
         # Get period and time of conjunction for this planet
-        p = params[f"P_{planet_letter}"]
+        P = params[f"P_{planet_letter}"]
 
         # Convert to tc if needed
         if "Tc" in self.parameterisation.pars:
-            tc = params[f"Tc_{planet_letter}"]
+            Tc = params[f"Tc_{planet_letter}"]
         elif "e" in self.parameterisation.pars and "w" in self.parameterisation.pars:
             _e = params[f"e_{planet_letter}"]
             _w = params[f"w_{planet_letter}"]
-            _tp = params[f"Tp_{planet_letter}"]
-            tc = self.parameterisation.convert_tp_to_tc(_tp, p, _e, _w)
+            _Tp = params[f"Tp_{planet_letter}"]
+            Tc = self.parameterisation.convert_tp_to_tc(_Tp, P, _e, _w)
         else:
             # Fall back to default parameterisation conversion
             planet_params = {par: params[f"{par}_{planet_letter}"] for par in self.parameterisation.pars}
             default_params = self.parameterisation.convert_pars_to_default_parameterisation(planet_params)
-            tc = self.parameterisation.convert_tp_to_tc(default_params["Tp"], p, default_params["e"], default_params["w"])
+            Tc = self.parameterisation.convert_tp_to_tc(default_params["Tp"], P, default_params["e"], default_params["w"])
 
         # Calculate phase-folded time arrays (in units of orbital phase)
-        t_fold = ((self.time - tc + 0.5*p) % p - 0.5*p) / p
-        tlin_fold = ((tlin - tc + 0.5*p) % p - 0.5*p) / p
+        t_fold = ((self.time - Tc + 0.5*P) % P - 0.5*P) / P
+        tsmooth_fold = ((tsmooth - Tc + 0.5*P) % P - 0.5*P) / P
 
-        # Sort the tlin_fold array for proper plotting
-        lin_inds = np.argsort(tlin_fold)
-        tlin_fold_sorted = tlin_fold[lin_inds]
+        # Sort the tsmooth_fold array for proper plotting
+        smooth_inds = np.argsort(tsmooth_fold)
+        tsmooth_fold_sorted = tsmooth_fold[smooth_inds]
 
         # Calculate RV contribution from this planet only
         planet_params = {par: params[f"{par}_{planet_letter}"] for par in self.parameterisation.pars}
         planet = ravest.model.Planet(planet_letter, self.parameterisation, planet_params)
-        planet_rv_tlin = planet.radial_velocity(tlin)
+        planet_rv_tsmooth = planet.radial_velocity(tsmooth)
         planet_rv_data = planet.radial_velocity(self.time)
-        planet_rv_sorted = planet_rv_tlin[lin_inds]
+        planet_rv_sorted = planet_rv_tsmooth[smooth_inds]
 
         # Calculate all other contributions (other planets + trend) at data times
         other_rv = np.zeros(len(self.time))
@@ -1328,7 +1264,7 @@ class Fitter:
                     linestyle="None", color="tab:blue", alpha=0.5, zorder=3, label="Jitter")
 
         # Plot phase-folded model for this planet
-        ax1.plot(tlin_fold_sorted, planet_rv_sorted, label="Model", color="black", zorder=2)
+        ax1.plot(tsmooth_fold_sorted, planet_rv_sorted, label="Model", color="black", zorder=2)
         ax1.set_xlim(-0.5, 0.5)
         ax1.set_ylabel("Radial velocity [m/s]")
         ax1.legend(loc="upper right")
@@ -1342,8 +1278,8 @@ class Fitter:
         ax1.tick_params(axis='y', which='minor', direction='in', length=3)
 
         # Annotate with planet info
-        k_value = params[f"K_{planet_letter}"]
-        s = f"Planet {planet_letter}\nP={p:.2f} d\nK={k_value:.2f} m/s"
+        K_value = params[f"K_{planet_letter}"]
+        s = f"Planet {planet_letter}\nP={P:.2f} d\nK={K_value:.2f} m/s"
         ax1.annotate(s, xy=(0, 1), xycoords="axes fraction",
                     xytext=(+0.5, -0.5), textcoords="offset fontsize", va="top")
 
@@ -1376,11 +1312,11 @@ class Fitter:
         plt.show()
 
     def plot_posterior_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, save: bool = False, fname: str = "posterior_rv.png", dpi: int = 100) -> None:
-        """Plot the posterior RV model using median parameter values.
+        """Plot the posterior RV model with uncertainty bands from MCMC samples.
 
-        Uses the median values of each parameter from the MCMC chain to calculate
-        and plot a single RV model curve, along with residuals showing the
-        difference between the data and the model.
+        Calculates RV model predictions for each MCMC sample, then plots the median
+        with 16th-84th percentile uncertainty bands. Shows both the full model and
+        residuals vs data.
 
         Parameters
         ----------
@@ -1396,69 +1332,85 @@ class Fitter:
             The path to save the plot to (default: "posterior_rv.png")
         dpi : int, optional
             The dpi to save the image at (default: 100)
-
-        Returns
-        -------
-        tuple
-            Time array and RV values from the helper function
         """
-        # Get median parameter values from MCMC chain
+        # Create smooth time curve for plotting (same as _plot_rv helper)
+        _tmin, _tmax = self.time.min(), self.time.max()
+        _trange = _tmax - _tmin
+        tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
+
+        # Calculate posterior RV predictions
+        rv_pred_smooth = self.calculate_rv_from_samples(times=tsmooth, discard_start=discard_start, discard_end=discard_end, thin=thin)
+        rv_pred_data = self.calculate_rv_from_samples(times=self.time, discard_start=discard_start, discard_end=discard_end, thin=thin)
+
+        # Calculate percentiles
+        rv_smooth_percentiles = np.percentile(rv_pred_smooth, [16, 50, 84], axis=0)
+        rv_data_percentiles = np.percentile(rv_pred_data, [16, 50, 84], axis=0)
+
+        # Calculate residuals using median model at data times
+        residuals = self.vel - rv_data_percentiles[1]
+
+        # Get jitter samples for error bars
         samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
-        median_params = {name: np.median(samples) for name, samples in samples_dict.items()}
+        if 'jit' in samples_dict:
+            jit_median = np.median(samples_dict['jit'])
+        else:
+            jit_median = self.fixed_params_values_dict['jit']
+        verr_with_jit = np.sqrt(self.verr**2 + jit_median**2)
 
-        # Combine with fixed parameters
-        all_params = self.fixed_params_values_dict | median_params
+        # Create figure with subplots
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 5), gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
 
-        # Use helper function to create the plot
-        self._plot_rv(all_params, title="Posterior RV", save=save, fname=fname, dpi=dpi)
+        # Main RV plot
+        ax1.errorbar(self.time, self.vel, yerr=self.verr, marker=".", color="tab:blue", ecolor="tab:blue", linestyle="None", markersize=8, zorder=4, label="Data")
+        ax1.errorbar(self.time, self.vel, yerr=verr_with_jit, marker="None", ecolor="tab:blue", linestyle="None", alpha=0.5, zorder=3, label="Jitter")
 
-    def _posterior_rv_planet(self, planet_letter: str, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> np.ndarray:
-        """Calculate the posterior rv for a planet, using all samples in the chain."""
-        samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
-        this_planet_rvs = np.zeros((len(samples), len(times))) # type: ignore
-        fixed_params_dict = self.fixed_params_values_dict
+        # Plot median model and uncertainty
+        ax1.plot(tsmooth, rv_smooth_percentiles[1], label="Model", color="black", zorder=2)
+        ax1.fill_between(tsmooth, rv_smooth_percentiles[0], rv_smooth_percentiles[2], color="tab:gray", alpha=0.3, edgecolor="none")
 
-        for i, row in enumerate(samples):  # type: ignore
-            # Combine fixed and free parameters
-            free_params = dict(zip(self.free_params_names, row))
-            params = fixed_params_dict | free_params
+        ax1.set_xlim(tsmooth[0], tsmooth[-1])
+        ax1.set_ylabel("Radial velocity [m/s]")
+        ax1.set_title("Posterior RV")
+        ax1.legend(loc="upper right")
+        ax1.tick_params(axis='x', labelbottom=False, bottom=True, top=False, direction='in')
+        ax1.tick_params(axis='y', direction='in')
 
-            # get this planet's params
-            this_planet_params = {}
-            for par in self.parameterisation.pars:
-                key = f"{par}_{planet_letter}"
-                this_planet_params[par] = params[key]
-            # calculate this planet's RV for each entry in the chain
-            this_planet = ravest.model.Planet(planet_letter, self.parameterisation, this_planet_params)
-            this_planet_rv = this_planet.radial_velocity(times)
-            this_planet_rvs[i, :] = this_planet_rv
+        # Set y-axis ticks automatically based on data range
+        ax1.yaxis.set_major_locator(AutoLocator())
+        ax1.yaxis.set_minor_locator(AutoMinorLocator())
+        ax1.tick_params(axis='y', which='minor', direction='in', length=3)
 
-        return this_planet_rvs
+        # Residuals plot
+        ax2.errorbar(self.time, residuals, yerr=self.verr, marker=".", color="tab:blue", ecolor="tab:blue", linestyle="None", markersize=8, zorder=4)
+        ax2.errorbar(self.time, residuals, yerr=verr_with_jit, marker="None", ecolor="tab:blue", linestyle="None", alpha=0.5, zorder=3)
+        ax2.axhline(0, color="k", linestyle="--", zorder=2)
+        ax2.set_xlim(tsmooth[0], tsmooth[-1])
 
-    def _posterior_rv_trend(self, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> np.ndarray:
-        """Calculate the posterior rv for the trend, using all samples in the chain."""
-        samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
-        this_trend_rvs = np.zeros((len(samples), len(times))) # type: ignore
-        fixed_params_dict = self.fixed_params_values_dict
+        # Set symmetric y-limits for residuals plot, so 0 is in centre
+        max_abs_residual = np.max(np.abs(residuals + verr_with_jit))
+        ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
 
-        # for each sample in the chain, calculate the RV for the trend
-        for i, row in enumerate(samples):  # type: ignore
-            # Combine fixed and free parameters
-            free_params = dict(zip(self.free_params_names, row))
-            params = fixed_params_dict | free_params
+        ax2.set_xlabel("Time [days]")
+        ax2.set_ylabel("Residuals [m/s]")
+        ax2.tick_params(axis='x', direction='in')
+        ax2.tick_params(axis='y', direction='in')
+        ax2.tick_params(axis='x', top=True, labeltop=False)
 
-            this_trend = ravest.model.Trend(params={"g": params["g"], "gd": params["gd"], "gdd": params["gdd"]}, t0=self.t0)
-            this_trend_rv = this_trend.radial_velocity(times)
-            this_trend_rvs[i, :] = this_trend_rv
+        # Set y-axis ticks automatically based on residuals range
+        ax2.yaxis.set_major_locator(AutoLocator())
+        ax2.yaxis.set_minor_locator(AutoMinorLocator())
+        ax2.tick_params(axis='y', which='minor', direction='in', length=3)
 
-        return this_trend_rvs
+        if save:
+            plt.savefig(fname=fname, dpi=dpi)
+            print(f"Saved {fname}")
+        plt.show()
 
     def plot_posterior_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, save: bool = False, fname: str = "posterior_phase.png", dpi: int = 100) -> None:
-        """Plot the posterior phase-folded RV model for a single planet using median parameter values.
+        """Plot phase-folded RV model with uncertainty bands from MCMC samples.
 
-        Uses the median values of each parameter from the MCMC chain to calculate
-        and plot a single RV model curve for the specified planet, phase-folded around
-        that planet's period and time of conjunction. Includes residuals panel.
+        Shows the phase-folded planetary signal with uncertainty bands calculated
+        from MCMC samples. Removes contributions from trends and other planets.
 
         Parameters
         ----------
@@ -1477,16 +1429,234 @@ class Fitter:
         dpi : int, optional
             The dpi to save the image at (default: 100)
         """
-        # Get median parameter values from MCMC chain
+        from ravest.model import fold_time_series
+
+        # Get period (handle both free and fixed cases)
         samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
-        median_params = {name: np.median(samples) for name, samples in samples_dict.items()}
+        if f'P_{planet_letter}' in samples_dict:
+            P_med = np.median(samples_dict[f'P_{planet_letter}'])
+        else:
+            P_med = self.fixed_params_values_dict[f'P_{planet_letter}']
 
-        # Combine with fixed parameters
-        all_params = self.fixed_params_values_dict | median_params
+        # Get (or calculate) Tc for this planet for folding around
+        Tc_med = self.get_posterior_Tc(planet_letter, discard_start, discard_end, thin)
 
-        # Use helper function to create the plot
-        self._plot_phase(planet_letter, all_params, title=f"Posterior Phase Plot - Planet {planet_letter}",
-                        save=save, fname=fname, dpi=dpi)
+        # Create smooth time array (same approach as _plot_rv)
+        _tmin, _tmax = self.time.min(), self.time.max()
+        _trange = _tmax - _tmin
+        tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
+
+        # Phase fold both data and smooth times
+        t_fold, inds = fold_time_series(self.time, P_med, Tc_med)
+        tsmooth_fold_sorted, smooth_inds = fold_time_series(tsmooth, P_med, Tc_med)
+
+        # Calculate RV components from MCMC samples
+        rv_planet_data = self.calculate_rv_planet_from_samples(planet_letter, self.time, discard_start, discard_end, thin)
+        rv_planet_smooth = self.calculate_rv_planet_from_samples(planet_letter, tsmooth, discard_start, discard_end, thin)
+        rv_trend_data = self.calculate_rv_trend_from_samples(self.time, discard_start, discard_end, thin)
+
+        # Calculate RV contributions from all OTHER planets (not the target planet)
+        rv_other_planets_data = np.zeros_like(rv_trend_data)
+        for other_letter in self.planet_letters:
+            if other_letter != planet_letter:
+                rv_other_planet = self.calculate_rv_planet_from_samples(other_letter, self.time, discard_start, discard_end, thin)
+                rv_other_planets_data += rv_other_planet
+
+        # Combine all non-target contributions (other planets + trend)
+        rv_others_total_data = rv_trend_data + rv_other_planets_data
+
+        # Calculate percentiles
+        rv_planet_data_percs = np.percentile(rv_planet_data, [16, 50, 84], axis=0)
+        rv_planet_smooth_percs = np.percentile(rv_planet_smooth, [16, 50, 84], axis=0)
+        rv_others_total_percs = np.percentile(rv_others_total_data, [16, 50, 84], axis=0)
+
+        # Remove all other contributions from data (using median of combined other contributions)
+        data_minus_others = self.vel - rv_others_total_percs[1]
+
+        # Calculate residuals
+        residuals = data_minus_others - rv_planet_data_percs[1]
+
+        # Get jitter for error bars
+        if 'jit' in samples_dict:
+            jit_median = np.median(samples_dict['jit'])
+        else:
+            jit_median = self.fixed_params_values_dict['jit']
+        verr_with_jit = np.sqrt(self.verr**2 + jit_median**2)
+
+        # Create figure with subplots (main plot + residuals)
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 5), sharex=True,
+                                      gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
+
+        # Main phase plot - plot data with other contributions removed, sorted by phase
+        ax1.errorbar(t_fold, data_minus_others[inds], yerr=self.verr[inds], marker=".",
+                    linestyle="None", color="tab:blue", markersize=8, zorder=4, label="Data")
+        ax1.errorbar(t_fold, data_minus_others[inds], yerr=verr_with_jit[inds], marker="None",
+                    linestyle="None", color="tab:blue", alpha=0.5, zorder=3, label="Jitter")
+
+        # Plot planet model with uncertainty, sorted by phase
+        ax1.plot(tsmooth_fold_sorted, rv_planet_smooth_percs[1][smooth_inds],
+                linestyle="-", color="black", zorder=3, label="Model")
+        ax1.fill_between(tsmooth_fold_sorted, rv_planet_smooth_percs[0][smooth_inds],
+                        rv_planet_smooth_percs[2][smooth_inds], color="tab:gray", alpha=0.3, edgecolor="none")
+
+        ax1.set_xlim(-0.5, 0.5)
+        ax1.set_ylabel("Radial velocity [m/s]")
+        ax1.set_title(f"Posterior Phase Plot - Planet {planet_letter}")
+        ax1.legend(loc="upper right")
+        ax1.tick_params(axis='x', labelbottom=False, bottom=True, top=False, direction='in')
+        ax1.tick_params(axis='y', direction='in')
+
+        # Set y-axis ticks automatically based on phase data range
+        ax1.yaxis.set_major_locator(AutoLocator())
+        ax1.yaxis.set_minor_locator(AutoMinorLocator())
+        ax1.tick_params(axis='y', which='minor', direction='in', length=3)
+
+        # Residuals plot (phase-folded)
+        ax2.errorbar(t_fold, residuals[inds], yerr=self.verr[inds], marker=".",
+                    linestyle="None", color="tab:blue", markersize=8, zorder=4)
+        ax2.errorbar(t_fold, residuals[inds], yerr=verr_with_jit[inds], marker="None",
+                    linestyle="None", color="tab:blue", alpha=0.5, zorder=3)
+        ax2.axhline(0, color="k", linestyle="--", zorder=2)
+        ax2.set_xlim(-0.5, 0.5)
+
+        # Set symmetric y-limits for residuals
+        max_abs_residual = np.max(np.abs(residuals[inds] + verr_with_jit[inds]))
+        ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
+
+        ax2.set_xlabel("Orbital Phase")
+        ax2.set_ylabel("Residuals [m/s]")
+        ax2.tick_params(axis='x', direction='in')
+        ax2.tick_params(axis='y', direction='in')
+        ax2.tick_params(axis='x', top=True, labeltop=False)
+
+        # Set y-axis ticks automatically based on residuals range
+        ax2.yaxis.set_major_locator(AutoLocator())
+        ax2.yaxis.set_minor_locator(AutoMinorLocator())
+        ax2.tick_params(axis='y', which='minor', direction='in', length=3)
+
+        if save:
+            plt.savefig(fname=fname, dpi=dpi)
+            print(f"Saved {fname}")
+        plt.show()
+
+    def calculate_rv_planet_from_samples(self, planet_letter: str, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> np.ndarray:
+        """Calculate planetary RV for each MCMC sample.
+
+        This calculates RV(params_i) for each MCMC sample i, preserving
+        parameter correlations. This differs from using median parameters
+        which may not represent actual samples from the posterior.
+
+        Parameters
+        ----------
+        planet_letter : str
+            Planet letter (e.g., 'b', 'c')
+        times : np.ndarray
+            Time points to calculate RV at
+        discard_start : int, optional
+            Discard first N steps (default: 0)
+        discard_end : int, optional
+            Discard last N steps (default: 0)
+        thin : int, optional
+            Use every Nth sample (default: 1)
+
+        Returns
+        -------
+        np.ndarray
+            Shape (n_samples, len(times)) - RV for each sample
+        """
+        samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
+        planet_rvs = np.zeros((len(samples), len(times)))
+        fixed_params_dict = self.fixed_params_values_dict
+
+        for i, row in enumerate(samples):
+            # Combine fixed and free parameters
+            free_params = dict(zip(self.free_params_names, row))
+            params = fixed_params_dict | free_params
+
+            # Get this planet's parameters
+            planet_params = {}
+            for par in self.parameterisation.pars:
+                key = f"{par}_{planet_letter}"
+                planet_params[par] = params[key]
+
+            # Calculate this planet's RV
+            planet = ravest.model.Planet(planet_letter, self.parameterisation, planet_params)
+            planet_rv = planet.radial_velocity(times)
+            planet_rvs[i, :] = planet_rv
+
+        return planet_rvs
+
+    def calculate_rv_trend_from_samples(self, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> np.ndarray:
+        """Calculate trend RV for each MCMC sample.
+
+        This calculates RV_trend(params_i) for each MCMC sample i, preserving
+        parameter correlations. This differs from using median parameters
+        which may not represent actual samples from the posterior.
+
+        Parameters
+        ----------
+        times : np.ndarray
+            Time points to calculate RV at
+        discard_start : int, optional
+            Discard first N steps (default: 0)
+        discard_end : int, optional
+            Discard last N steps (default: 0)
+        thin : int, optional
+            Use every Nth sample (default: 1)
+
+        Returns
+        -------
+        np.ndarray
+            Shape (n_samples, len(times)) - Trend RV for each sample
+        """
+        samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
+        trend_rvs = np.zeros((len(samples), len(times)))
+        fixed_params_dict = self.fixed_params_values_dict
+
+        for i, row in enumerate(samples):
+            # Combine fixed and free parameters
+            free_params = dict(zip(self.free_params_names, row))
+            params = fixed_params_dict | free_params
+
+            # Calculate trend RV
+            trend = ravest.model.Trend(params={"g": params["g"], "gd": params["gd"], "gdd": params["gdd"]}, t0=self.t0)
+            trend_rv = trend.radial_velocity(times)
+            trend_rvs[i, :] = trend_rv
+
+        return trend_rvs
+
+    def calculate_rv_from_samples(self, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> np.ndarray:
+        """Calculate total RV (planets + trend) for each MCMC sample.
+
+        This calculates RV_total(params_i) for each MCMC sample i, preserving
+        parameter correlations. This differs from using median parameters
+        which may not represent actual samples from the posterior.
+
+        Parameters
+        ----------
+        times : np.ndarray
+            Time points to calculate RV at
+        discard_start : int, optional
+            Discard first N steps (default: 0)
+        discard_end : int, optional
+            Discard last N steps (default: 0)
+        thin : int, optional
+            Use every Nth sample (default: 1)
+
+        Returns
+        -------
+        np.ndarray
+            Shape (n_samples, len(times)) - Total RV for each sample
+        """
+        # Get trend RV for all samples
+        total_rvs = self.calculate_rv_trend_from_samples(times, discard_start, discard_end, thin)
+
+        # Add each planet's RV
+        for planet_letter in self.planet_letters:
+            planet_rvs = self.calculate_rv_planet_from_samples(planet_letter, times, discard_start, discard_end, thin)
+            total_rvs += planet_rvs
+
+        return total_rvs
 
     def plot_MAP_rv(self, map_result: scipy.optimize.OptimizeResult, save: bool = False, fname: str = "MAP_rv.png", dpi: int = 100) -> None:
         """Plot radial velocity data and model using MAP parameter estimates.
@@ -1536,6 +1706,63 @@ class Fitter:
         # Use helper function to create the plot
         self._plot_phase(planet_letter, all_params, title=f"MAP Phase Plot - Planet {planet_letter}",
                         save=save, fname=fname, dpi=dpi)
+
+    def get_posterior_Tc(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> float:
+        """Get Tc for phase folding, handling any parameterisation and fixed/free parameter mix.
+
+        This method returns the time of conjunction (Tc) for a given planet, which is needed
+        for phase folding. It handles cases where Tc is directly available as a parameter,
+        or where it needs to be calculated from the default parameterisation (P, Tp, e, w),
+        which may be a mix of free and fixed parameters. The returned Tc is the median
+        value from the resulting chain of Tc values calculated from the MCMC samples of the
+        other parameters.
+
+        Parameters
+        ----------
+        planet_letter : str
+            Letter identifying the planet (e.g., 'b', 'c', 'd')
+        discard_start : int, optional
+            Discard first N steps from MCMC chain (default: 0)
+        discard_end : int, optional
+            Discard last N steps from MCMC chain (default: 0)
+        thin : int, optional
+            Use every Nth sample (default: 1)
+
+        Returns
+        -------
+        float
+            Time of conjunction (Tc) for the planet
+
+        Examples
+        --------
+        >>> # Get Tc for planet b after discard 500 burnin steps
+        >>> tc = fitter.get_reference_time_for_planet("b", discard_start=500)
+        >>> phases, indices = fold_time_series(times, period, tc)
+        """
+        # Case 1: Tc is in the current parameterisation
+        tc_key = f"Tc_{planet_letter}"
+
+        # Check if Tc is fixed so we have a direct value already
+        if tc_key in self.params:
+            if self.params[tc_key].fixed:
+                return self.params[tc_key].value
+            else:
+                # Tc is a free parameter, so get median from samples
+                samples_dict = self.get_samples_dict(discard_start, discard_end, thin)
+                return np.median(samples_dict[tc_key])
+
+        # Case 2: Tc not in current parameterisation, so need to calculate it from Tp (using P, e and w)
+        all_params = self.get_posterior_params_dict(discard_start, discard_end, thin) # get Tp, P, e and w
+
+        # Calculate Tc for all samples at once
+        tc_samples = self.parameterisation.convert_tp_to_tc(
+            all_params[f"Tp_{planet_letter}"],
+            all_params[f"P_{planet_letter}"],
+            all_params[f"e_{planet_letter}"],
+            all_params[f"w_{planet_letter}"]
+        )
+
+        return np.median(tc_samples)
 
 class LogPosterior:
     """Log posterior probability for MCMC sampling.
@@ -1596,7 +1823,6 @@ class LogPosterior:
         # Simple detection: do prior keys match our current free parameter names?
         prior_keys = set(self.priors.keys())
         free_param_keys = set(self.free_params_names)
-
         if prior_keys == free_param_keys:
             # No conversion needed (Cases 1 & 2)
             return free_params_dict

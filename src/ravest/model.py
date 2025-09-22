@@ -495,9 +495,8 @@ class Star:
             tc = this_planet.parameterisation.convert_tp_to_tc(tp, p, e, w)
 
             yplot = this_planet.radial_velocity(tlin)
-            tlin_fold = (tlin - tc + 0.5 * p) % p - 0.5 * p
-            inds = np.argsort(tlin_fold)
-            axs[n].plot(tlin_fold[inds]/p, yplot[inds], label=f"{n},{letter}, rvplot", color="tab:blue")
+            tlin_fold_sorted, tlin_inds = fold_time_series(tlin, p, tc)
+            axs[n].plot(tlin_fold_sorted, yplot[tlin_inds], label=f"{n},{letter}, rvplot", color="tab:blue")
 
             # Calculate RV contributions from all other planets
             # Subtract from observed data to isolate the current planet's signal
@@ -508,9 +507,8 @@ class Star:
                 else:
                     other_planets_modelled_rv_tdata += self.planets[_letter].radial_velocity(t)
             subtracted_data = ydata - other_planets_modelled_rv_tdata
-            tdata_fold = (t - tc + 0.5 * p) % p - 0.5 * p
-            inds = np.argsort(tdata_fold)
-            axs[n].errorbar(tdata_fold[inds]/p, subtracted_data[inds], yerr=yerr, marker=".", mfc="white", color="k", ecolor="tab:gray", markersize=10, linestyle="None")
+            tdata_fold_sorted, tdata_inds = fold_time_series(t, p, tc)
+            axs[n].errorbar(tdata_fold_sorted, subtracted_data[tdata_inds], yerr=yerr[tdata_inds], marker=".", mfc="white", color="k", ecolor="tab:gray", markersize=10, linestyle="None")
 
 def calculate_mpsini(mass_star: float, period: float, semi_amplitude: float, eccentricity: float, unit: str = "kg") -> float:
     """Calculate the minimum mass of the planet.
@@ -552,3 +550,40 @@ def calculate_mpsini(mass_star: float, period: float, semi_amplitude: float, ecc
         return mpsini_kg / const.M_jup.value  # type: ignore
     else:
         raise ValueError(f"Unit {unit} not valid. Use 'kg', 'M_Earth' or 'M_Jupiter'")
+
+
+def fold_time_series(times: np.ndarray, period: float, t_ref: float) -> tuple[np.ndarray, np.ndarray]:
+    """Fold time series to orbital phase and return sorted arrays.
+
+    Converts times to orbital phases in the range [-0.5, 0.5] and returns
+    both the sorted phases and the indices needed to sort other arrays
+    consistently.
+
+    Parameters
+    ----------
+    times : np.ndarray
+        Time values to fold
+    period : float
+        Orbital period
+    t_ref : float
+        Reference time (usually Tc - time of transit/conjunction)
+
+    Returns
+    -------
+    phases_sorted : np.ndarray
+        Phase-folded times in range [-0.5, 0.5], sorted ascending
+    sort_indices : np.ndarray
+        Indices that sort the original times by phase
+
+    Examples
+    --------
+    >>> times = np.array([0, 1, 2, 3, 4])
+    >>> period = 2.0
+    >>> t_ref = 0.5  # Reference time
+    >>> phases, indices = fold_time_series(times, period, t_ref)
+    >>> # phases will be sorted from -0.5 to 0.5
+    >>> # indices can be used to sort other arrays consistently
+    """
+    phases = ((times - t_ref + 0.5*period) % period - 0.5*period) / period
+    sort_indices = np.argsort(phases)
+    return phases[sort_indices], sort_indices
