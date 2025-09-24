@@ -679,6 +679,13 @@ class Fitter:
             self.t0,
         )
 
+        # Enforce minimum number of walkers (though users ideally should have many more than this)
+        if nwalkers < 2 * self.ndim:
+            logging.warning(f"nwalkers should be at least 2 * ndim. You have {nwalkers} walkers and {self.ndim} dimensions. Setting nwalkers to {2 * self.ndim}.")
+            self.nwalkers = 2 * self.ndim
+        else:
+            self.nwalkers = nwalkers
+
         # Validate walker positions shape
         if initial_positions .shape != (nwalkers, self.ndim):
             raise ValueError(f"initial_positions  must have shape ({nwalkers}, {self.ndim}), got {initial_positions .shape}")
@@ -700,9 +707,6 @@ class Fitter:
             log_prior = lp.log_prior(params_for_prior)
             if not np.isfinite(log_prior):
                 raise ValueError(f"Walker {i} is outside prior bounds (log_prior = {log_prior})")
-
-        # Store number of walkers
-        self.nwalkers = nwalkers
 
         # Use provided walker positions directly
         mcmc_init = initial_positions
