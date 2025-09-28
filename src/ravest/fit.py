@@ -1778,6 +1778,81 @@ class Fitter:
         self._plot_phase(planet_letter, all_params, title=f"MAP Phase Plot - Planet {planet_letter}",
                         save=save, fname=fname, dpi=dpi)
 
+    def plot_custom_rv(self, params: dict, save: bool = False, fname: str = "custom_rv.png", dpi: int = 100) -> None:
+        """Plot radial velocity data and model using custom parameter values.
+
+        Allows plotting with arbitrary parameter values for exploring parameter space
+        or comparing theoretical models.
+
+        Parameters
+        ----------
+        params : dict
+            Dictionary of parameter values to use for plotting. Keys should match
+            parameter names, values should be floats. Must include all required
+            parameters for the current parameterisation.
+        save : bool, optional
+            Save the plot (default: False)
+        fname : str, optional
+            Filename to save (default: "custom_rv.png")
+        dpi : int, optional
+            Resolution for saving (default: 100)
+
+        Examples
+        --------
+        >>> # Plot with custom values (must include all required parameters)
+        >>> fitter.plot_custom_rv({"P_b": 4.25, "K_b": 55.0, "e_b": 0.1,
+        ...                        "w_b": 1.57, "Tc_b": 2456325.5,
+        ...                        "g": -10.2, "gd": 0.0, "gdd": 0.0, "jit": 2.0})
+        """
+        # Validate that all required parameters are present
+        expected_params = set(self.free_params_names + list(self.fixed_params_names))
+        provided_params = set(params.keys())
+        missing_params = expected_params - provided_params
+        if missing_params:
+            raise ValueError(f"Missing required parameters: {missing_params}")
+
+        # Use helper function to create the plot
+        self._plot_rv(params, title="Custom RV Plot", save=save, fname=fname, dpi=dpi)
+
+    def plot_custom_phase(self, planet_letter: str, params: dict, save: bool = False, fname: str = "custom_phase.png", dpi: int = 100) -> None:
+        """Plot phase-folded radial velocity data and model using custom parameter values.
+
+        Allows plotting phase-folded data with arbitrary parameter values for exploring
+        parameter space or comparing theoretical models.
+
+        Parameters
+        ----------
+        planet_letter : str
+            Letter identifying the planet to plot (e.g., 'b', 'c', 'd')
+        params : dict
+            Dictionary of parameter values to use for plotting. Keys should match
+            parameter names, values should be floats. Must include all required
+            parameters for the current parameterisation.
+        save : bool, optional
+            Save the plot (default: False)
+        fname : str, optional
+            Filename to save (default: "custom_phase.png")
+        dpi : int, optional
+            Resolution for saving (default: 100)
+
+        Examples
+        --------
+        >>> # Plot phase curve with custom values
+        >>> fitter.plot_custom_phase("b", {"P_b": 4.25, "K_b": 55.0, "e_b": 0.1,
+        ...                               "w_b": 1.57, "Tc_b": 2456325.5,
+        ...                               "g": -10.2, "gd": 0.0, "gdd": 0.0, "jit": 2.0})
+        """
+        # Validate that all required parameters are present
+        expected_params = set(self.free_params_names + list(self.fixed_params_names))
+        provided_params = set(params.keys())
+        missing_params = expected_params - provided_params
+        if missing_params:
+            raise ValueError(f"Missing required parameters: {missing_params}")
+
+        # Use helper function to create the plot
+        self._plot_phase(planet_letter, params, title=f"Custom Phase Plot - Planet {planet_letter}",
+                        save=save, fname=fname, dpi=dpi)
+
     def plot_best_sample_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, save: bool = False, fname: str = "best_sample_rv.png", dpi: int = 100) -> None:
         """Plot radial velocity data and model using parameter values from the MCMC sample with highest log probability.
 
