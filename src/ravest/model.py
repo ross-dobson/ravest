@@ -381,7 +381,12 @@ class Star:
         planet : `Planet`
             A `ravest.model.Planet` object
         """
-        # TODO validation of planet letter - warn for duplicates/overwrite?
+        # Warn if planet letter already exists (will overwrite)
+        if planet.letter in self.planets:
+            import warnings
+            warnings.warn(f"Planet {planet.letter} already exists and will be overwritten",
+                         UserWarning, stacklevel=2)
+
         self.planets[planet.letter] = planet
         self.num_planets = len(self.planets)
 

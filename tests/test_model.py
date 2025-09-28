@@ -88,7 +88,11 @@ def test_star_num_planets() -> None:
     star = good_star()
     star.add_planet(good_planet1())
     new_planet = Planet(letter="b", parameterisation=Parameterisation("P K e w Tp"), params=known_params2())
-    star.add_planet(new_planet)
+
+    # Test that overwriting triggers a warning
+    with pytest.warns(UserWarning, match="Planet b already exists and will be overwritten"):
+        star.add_planet(new_planet)
+
     assert star.num_planets == 1  # check the new planet "b" has replaced the old "b"
 
 
