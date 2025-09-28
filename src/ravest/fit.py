@@ -145,6 +145,9 @@ class Fitter:
         # If validation passes, update the actual params
         self._params.update(new_params)
 
+        # Update ndim based on new free parameters
+        self.ndim = len(self.free_params_values)
+
     @property
     def priors(self) -> dict:
         """Priors dictionary. Set via: fitter.priors = prior_dict."""
@@ -177,7 +180,6 @@ class Fitter:
         self._set_priors_with_validation(new_priors)
 
     def _validate_complete_params(self, params: Dict[str, Parameter]) -> None:
-        # TODO rename this function?
         """Validate that params dict has required parameters, astrophysically valid values."""
         # Build complete set of expected parameters
         expected_params = set()
@@ -295,7 +297,6 @@ class Fitter:
                 validated_priors[free_param_name] = merged_priors_dict[free_param_name]
 
                 # Check if user ALSO provided equivalent default priors (conflict!)
-                # TODO: this is a bit inefficient as we loop through all free params again
                 default_parameterisation_equivalent_free_param_names = self._get_default_parameterisation_equivalent_free_param_name(free_param_name)
                 if default_parameterisation_equivalent_free_param_names:
                     for equiv_param in default_parameterisation_equivalent_free_param_names:
@@ -340,7 +341,6 @@ class Fitter:
 
         # Update the priors with the new values
         self._priors.update(new_priors)
-        self.ndim = len(self.free_params_values)  # TODO: would this ever change (here)? I think this may only change if user changes self.params, not self.priors
 
     def _get_default_parameterisation_equivalent_free_param_name(self, free_param: str) -> str:
         """Get the names of the default parameterisation equivalent parameter(s), for a single free parameter from the current parameterisation.
@@ -467,7 +467,6 @@ class Fitter:
     @property
     def fixed_params_values_dict(self) -> Dict[str, float]:
         """Fixed parameters as dict mapping names to just the values."""
-        # TODO: where and why is this used, rather than fixed_params_dict?
         return dict(zip(self.fixed_params_names, self.fixed_params_values))
 
     def find_map_estimate(self, method: str = "Powell") -> scipy.optimize.OptimizeResult:
@@ -984,8 +983,32 @@ class Fitter:
         # Return as dictionary
         return dict(zip(self.free_params_names, best_values))
 
-    def plot_chains(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, save: bool = False, fname: str = "chains_plot.png", dpi: int = 100) -> None:
-        """Plot MCMC chains for all free parameters."""
+    def plot_chains(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, truths: list = None, save: bool = False, fname: str = "chains_plot.png", dpi: int = 100) -> None:
+        """Plot MCMC chains for all free parameters.
+
+        Displays the evolution of each free parameter across MCMC steps for all walkers.
+        Useful for diagnosing convergence, burn-in, and mixing of the MCMC chains.
+        Each parameter gets its own subplot showing all walker traces.
+
+        Parameters
+        ----------
+        discard_start : int, optional
+            Discard the first `discard_start` steps from the start of the chain (default: 0)
+        discard_end : int, optional
+            Discard the last `discard_end` steps from the end of the chain (default: 0)
+        thin : int, optional
+            Use only every `thin` steps from the chain (default: 1)
+        truths : list, optional
+            List of true parameter values to overplot as horizontal lines.
+            Must match the number of free parameters. Use None for parameters
+            without known truth values (default: None)
+        save : bool, optional
+            Save the plot (default: False)
+        fname : str, optional
+            Filename to save (default: "chains_plot.png")
+        dpi : int, optional
+            Resolution for saving (default: 100)
+        """
         # Scale figure height to maintain consistent subplot size
         subplot_height_inches = 1.25
         fig, axes = plt.subplots(self.ndim, figsize=(10, self.ndim * subplot_height_inches),
@@ -995,16 +1018,23 @@ class Fitter:
         if self.ndim == 1:
             axes = [axes]
 
+        if truths is not None:
+            if not len(truths) == self.ndim:
+                raise ValueError(f"Length of truths ({len(truths)}) must match number of free parameters ({self.ndim})")
+
         samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=False)
         for i in range(self.ndim):
             ax = axes[i]
-            to_plot = samples[:, :, i]
-
-            ax.plot(to_plot, "k", alpha=0.3)
             ax.set_xlim(0, len(samples))
             ax.set_ylabel(self.free_params_names[i])
             ax.yaxis.set_label_coords(-0.1, 0.5)
-            axes[-1].set_xlabel("Step number")
+
+            to_plot = samples[:, :, i]
+            ax.plot(to_plot, "k", alpha=0.3)
+            if truths is not None and truths[i] is not None:
+                ax.axhline(truths[i], color="tab:blue")
+
+        axes[-1].set_xlabel("Step number")
         if save:
             plt.savefig(fname=fname, dpi=dpi)
             print(f"Saved {fname}")
