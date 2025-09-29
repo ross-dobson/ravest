@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy
-from matplotlib.ticker import AutoLocator, AutoMinorLocator
+from matplotlib.ticker import AutoLocator, AutoMinorLocator, MultipleLocator
 from scipy.optimize import minimize
 
 import ravest.model
@@ -708,9 +708,6 @@ class Fitter:
             if not np.isfinite(log_prior):
                 raise ValueError(f"Walker {i} is outside prior bounds (log_prior = {log_prior})")
 
-        # Use provided walker positions directly
-        mcmc_init = initial_positions
-
         # TODO: parameter_names argument does slightly impact performance - but not sure if it can be avoided, we do need the names
         # and I'm not sure constructing the dictionary later ourselves manually is any quicker than passing parameter_names argument
 
@@ -720,12 +717,12 @@ class Fitter:
                 sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
                                                 parameter_names=self.free_params_names,
                                                 pool=pool)
-                sampler.run_mcmc(initial_state=mcmc_init, nsteps=nsteps, progress=True)
+                sampler.run_mcmc(initial_state=initial_positions, nsteps=nsteps, progress=True)
         else:
             logging.info("Starting MCMC...")
             sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
                                                 parameter_names=self.free_params_names)
-            sampler.run_mcmc(initial_state=mcmc_init, nsteps=nsteps, progress=progress)
+            sampler.run_mcmc(initial_state=initial_positions, nsteps=nsteps, progress=progress)
 
         self.sampler = sampler
         logging.info("...MCMC done.")
@@ -1322,6 +1319,7 @@ class Fitter:
         # Plot phase-folded model for this planet
         ax1.plot(tsmooth_fold_sorted, planet_rv_sorted, label="Model", color="black", zorder=2)
         ax1.set_xlim(-0.5, 0.5)
+        ax1.xaxis.set_major_locator(MultipleLocator(0.25))  # Set x-ticks every 0.25
         ax1.set_ylabel("Radial velocity [m/s]")
         ax1.legend(loc="upper right")
         ax1.set_title(title)
@@ -1346,6 +1344,7 @@ class Fitter:
                     linestyle="None", color="tab:blue", alpha=0.5, zorder=3)
         ax2.axhline(0, color="k", linestyle="--", zorder=2)
         ax2.set_xlim(-0.5, 0.5)
+        ax2.xaxis.set_major_locator(MultipleLocator(0.25))  # Set x-ticks every 0.25
 
         # Set symmetric y-limits for residuals
         max_abs_residual = np.max(np.abs(residuals_sorted + verr_with_jit_sorted))
@@ -1571,6 +1570,7 @@ class Fitter:
                             rv_planet_smooth_percs[2][smooth_inds], color="tab:gray", alpha=0.3, edgecolor="none", label="68.3% CI")
 
         ax1.set_xlim(-0.5, 0.5)
+        ax1.xaxis.set_major_locator(MultipleLocator(0.25))  # Set x-ticks every 0.25
         ax1.set_ylabel("Radial velocity [m/s]")
         ax1.set_title(f"Posterior Phase Plot - Planet {planet_letter}")
         ax1.legend(loc="upper right")
@@ -1589,6 +1589,7 @@ class Fitter:
                     linestyle="None", color="tab:blue", alpha=0.5, zorder=3)
         ax2.axhline(0, color="k", linestyle="--", zorder=2)
         ax2.set_xlim(-0.5, 0.5)
+        ax2.xaxis.set_major_locator(MultipleLocator(0.25))  # Set x-ticks every 0.25
 
         # Set symmetric y-limits for residuals
         max_abs_residual = np.max(np.abs(residuals[inds] + verr_with_jit[inds]))

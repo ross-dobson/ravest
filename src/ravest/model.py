@@ -8,6 +8,7 @@ and stellar trends (constant, linear, quadratic).
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy import constants as const
+from matplotlib.ticker import MultipleLocator
 from scipy import constants
 
 from ravest.param import Parameterisation
@@ -490,6 +491,7 @@ class Star:
             axs[n].set_xlabel("Orbital phase")
             axs[n].set_ylabel("Radial velocity [m/s]")
             axs[n].set_xlim(-0.5, 0.5)
+            axs[n].xaxis.set_major_locator(MultipleLocator(0.25))  # Set x-ticks every 0.25
             axs[n].axhline(y=0, color="k", alpha=0.25, linestyle="--", zorder=1)
 
             this_planet = self.planets[letter]
