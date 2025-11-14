@@ -20,9 +20,9 @@ class Uniform:
         -\inf \quad \text{otherwise}
 
     Uses closed interval [a, b] - both boundary values are included. Note that
-    for usage on eccentricity, we recommend the half-open interval
-    EccentricityUniform prior instead so that eccentricity is allowed to be
-    exactly 0 for circular orbits.
+    for usage on eccentricity, we recommend EccentricityUniform instead, which
+    uses a half-open interval [0, upper) to allow exactly e=0 (circular orbits)
+    whilst excluding e=upper (to allow e up to, but not including, 1).
 
     Parameters
     ----------
@@ -30,11 +30,6 @@ class Uniform:
         Lower bound of the uniform distribution.
     upper : float
         Upper bound of the uniform distribution.
-
-    Returns
-    -------
-    float
-        Logarithm of the prior probability density function.
     """
 
     def __init__(self, lower: float, upper: float) -> None:
@@ -87,15 +82,10 @@ class EccentricityUniform:
     upper : float
         Upper bound of the uniform distribution. Must satisfy 0 < upper <= 1.
 
-    Returns
-    -------
-    float
-        Logarithm of the prior probability density function.
-
     Notes
     -----
-    Uses half-open interval [0, upper) where eccentricity can be exactly 0
-    (circular orbits) but cannot be exactly upper (to avoid unphysical e=1).
+    Uses half-open interval [0, upper) to allow exactly e=0 (circular orbits)
+    whilst excluding e=upper (to allow e up to, but not including, 1).
     """
 
     def __init__(self, upper: float) -> None:
@@ -144,16 +134,14 @@ class Normal:
         Mean of the Normal distribution.
     std : float
         Standard deviation of the Normal distribution.
-
-    Returns
-    -------
-    float
-        Logarithm of the prior probability density function.
     """
 
     def __init__(self, mean: float, std: float) -> None:
+        if std <= 0:
+            raise ValueError(f"Standard deviation must be positive, got {std}")
         self.mean = mean
         self.std = std
+        self._log_norm_const = 0.5 * np.log((self.std**2)*2.*np.pi)
 
     def __call__(self, value: float) -> float:
         """Calculate log Normal prior probability.
@@ -168,7 +156,8 @@ class Normal:
         float
             Log prior probability
         """
-        return -0.5 * ((value - self.mean) / self.std)**2 - 0.5*np.log((self.std**2)*2.*np.pi)
+        return -0.5 * ((value - self.mean) / self.std)**2 - self._log_norm_const
+
 
     def __repr__(self) -> str:
         return f"Normal(mean={self.mean}, std={self.std})"
@@ -205,11 +194,6 @@ class TruncatedNormal:
         Lower bound of the truncation.
     upper : float
         Upper bound of the truncation.
-
-    Returns
-    -------
-    float
-        Logarithm of the prior probability density function.
     """
 
     def __init__(self, mean: float, std: float, lower: float, upper: float) -> None:
@@ -273,11 +257,6 @@ class HalfNormal:
     ----------
     std : float
         Standard deviation (sigma) of the half-Normal distribution. Must be > 0.
-
-    Returns
-    -------
-    float
-        Logarithm of the prior probability density function.
     """
 
     def __init__(self, std: float) -> None:
@@ -324,11 +303,6 @@ class Rayleigh:
     ----------
     scale : float
         Scale parameter (sigma) of the Rayleigh distribution. Must be > 0.
-
-    Returns
-    -------
-    float
-        Logarithm of the prior probability density function.
 
     Notes
     -----
@@ -396,11 +370,6 @@ class VanEylen19Mixture:
         Mixing fraction between 0 and 1. f=0 gives pure half-Normal,
         f=1 gives pure Rayleigh.
 
-    Returns
-    -------
-    float
-        Logarithm of the prior probability density function.
-
     References
     ----------
     Vincent Van Eylen et al 2019 AJ 157 61 (https://doi.org/10.3847/1538-3881/aaf22f)
@@ -467,11 +436,6 @@ class Beta:
         Shape parameter a of the Beta distribution. Must be > 0.
     b : float
         Shape parameter b of the Beta distribution. Must be > 0.
-
-    Returns
-    -------
-    float
-        Logarithm of the prior probability density function.
 
     Notes
     -----

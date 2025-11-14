@@ -90,6 +90,14 @@ class TestNormal:
         assert prior.mean == 0
         assert prior.std == 1
 
+    def test_normal_init_invalid_std(self) -> None:
+        """Test invalid standard deviation."""
+        with pytest.raises(ValueError, match="Standard deviation must be positive, got 0"):
+            ravest.prior.Normal(0, 0)
+
+        with pytest.raises(ValueError, match="Standard deviation must be positive, got -1"):
+            ravest.prior.Normal(0, -1)
+
     def test_normal_at_mean(self) -> None:
         """Test log probability at the mean."""
         prior = ravest.prior.Normal(5.0, 2.0)
