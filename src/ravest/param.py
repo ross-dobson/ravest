@@ -129,8 +129,6 @@ class Parameterisation:
         `float`
             The time corresponding to the given true anomaly (days).
         """
-        # TODO update this docstring to better reflect it is inverse of other equation (eastman et al)?
-        # and also include in the notes a list of the angles we can get (Eastman et al equation 11)?
         eccentric_anomaly = 2 * np.arctan(np.sqrt((1 - eccentricity) / (1 + eccentricity)) * np.tan(true_anomaly / 2))
         mean_anomaly = eccentric_anomaly - (eccentricity * np.sin(eccentric_anomaly))
 
