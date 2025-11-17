@@ -253,7 +253,11 @@ class Planet:
 
 
 class Trend:
-    """Trend in the radial velocity of the star.
+    """System-wide trend in the radial velocity of the star.
+
+    Handles linear and quadratic trends that apply to the entire system
+    across all instruments. The constant offset (gamma) is now handled
+    per-instrument and not included in this class.
 
     Parameters
     ----------
@@ -261,32 +265,30 @@ class Trend:
         The reference zero-point time for the linear and quadratic trend.
         Recommended to be the mean of the input times.
     params : `dict`
-        The parameters of the trend: the constant, linear, and quadratic
-        components. These must be named "g", "gd", and "gdd" respectively (which
-        stands for gamma, gamma-dot, gamma-dot-dot). These are in units of m/s,
-        m/s/day, and m/s/day^2 respectively.
+        The parameters of the trend: linear and quadratic components.
+        These must be named "gd" and "gdd" respectively (gamma-dot,
+        gamma-dot-dot). These are in units of m/s/day and m/s/day^2 respectively.
 
     Returns
     -------
     `float`
-        The radial velocity of the star due to the trend (m/s).
+        The radial velocity of the star due to the system-wide trend (m/s).
 
     Notes
     -----
     The radial velocity of the star due to the trend is calculated as the sum of
-    the constant, linear, and quadratic components. The constant component is
-    simply a constant offset of value gamma. The linear and quadratic components
-    are calculated as `gd*(t-t0)` and `gdd*((t-t0)**2)` respectively.
+    the linear and quadratic components, calculated as `gd*(t-t0)` and
+    `gdd*((t-t0)**2)` respectively.
 
-    In general the trend is used to account for any unexpected effects. These
-    could be due to instrumental effects, or for example a very long-term
-    companion could show as a linear and/or quadratic trend in the data. If you
-    see a strong linear or quadratic trend in the data, it is worth
-    investigating.
+    The constant offset (gamma) is now instrument-specific and handled separately
+    in the fitting process via parameters like `g_HARPS`, `g_PFS`, etc.
+
+    In general the trend is used to account for long-term effects such as a
+    very long-period companion. If you see a strong linear or quadratic trend
+    in the data, it is worth investigating.
     """
 
     def __init__(self, t0: float, params: dict[str, float]) -> None:
-        self.gamma = params["g"]
         self.gammadot = params["gd"]
         self.gammadotdot = params["gdd"]
 
@@ -297,13 +299,10 @@ class Trend:
             raise ValueError(f"t0 must be a numeric value (recommend mean or median of observation times), but got {type(t0).__name__}: {t0}") from e
 
     def __str__(self) -> str:
-        return f"Trend: $\\gamma$={self.gamma}, $\\dot\\gamma$={self.gammadot}, $\\ddot\\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
+        return f"Trend: $\\dot\\gamma$={self.gammadot}, $\\ddot\\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
 
     def __repr__(self) -> str:
-        return f"Trend(params={{'g': {self.gamma}, 'gd': {self.gammadot}, 'gdd': {self.gammadotdot} }}, t0={self.t0:.2f})"
-
-    def _constant(self, t: np.ndarray) -> float:
-        return self.gamma
+        return f"Trend(params={{'gd': {self.gammadot}, 'gdd': {self.gammadotdot}}}, t0={self.t0:.2f})"
 
     def _linear(self, t: np.ndarray, t0: float) -> np.ndarray:
         if self.gammadot == 0:
@@ -326,10 +325,9 @@ class Trend:
         Returns
         -------
         array_like
-            RV trend values (constant + linear + quadratic terms)
+            RV trend values (linear + quadratic terms only, no constant offset)
         """
         rv = 0
-        rv += self._constant(t)
         rv += self._linear(t, self.t0)
         rv += self._quadratic(t, self.t0)
         return rv

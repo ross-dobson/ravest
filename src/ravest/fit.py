@@ -84,7 +84,7 @@ class Fitter:
         self._params: Dict[str, Parameter] = {}
         self._priors: Dict[str, Callable[[float], float]] = {}
 
-    def add_data(self, time: np.ndarray, vel: np.ndarray, verr: np.ndarray, t0: float) -> None:
+    def add_data(self, time: np.ndarray, vel: np.ndarray, verr: np.ndarray, instrument: np.ndarray, t0: float) -> None:
         """Add the data to the Fitter object.
 
         Parameters
@@ -95,16 +95,21 @@ class Fitter:
             Radial velocity at each time [m/s]
         verr : array-like
             Uncertainty on the radial velocity at each time [m/s]
+        instrument : array-like of str
+            Instrument/telescope name for each observation (e.g., 'HARPS', 'PFS', 'HIRES').
+            Used to assign instrument-specific gamma offsets and jitter values.
         t0 : float
             Reference time for the trend [days].
             Recommended to set this as mean or median of input `time` array.
         """
-        if len(time) != len(vel) or len(time) != len(verr):
-            raise ValueError("Time, velocity, and uncertainty arrays must be the same length.")
+        if len(time) != len(vel) or len(time) != len(verr) or len(time) != len(instrument):
+            raise ValueError("Time, velocity, uncertainty, and instrument arrays must be the same length.")
 
         self.time = np.ascontiguousarray(time)
         self.vel = np.ascontiguousarray(vel)
         self.verr = np.ascontiguousarray(verr)
+        self.instrument = np.ascontiguousarray(instrument)
+        self.unique_instruments = np.unique(self.instrument)
         self.t0 = t0
 
     @property
@@ -117,7 +122,7 @@ class Fitter:
         """Set parameters with a dict, checking all required params are present.
 
         You can update all or some of the parameters at once, example:
-        >>> fitter.params = {"g": Parameter(1.0, "m/s"), "gd": Parameter(0.1, "m/s/d")}  # only update trend parameters
+        >>> fitter.params = {"gd": Parameter(0.1, "m/s/d"), "g_HARPS": Parameter(1.0, "m/s")}  # only update some trend/instrument parameters
         >>> fitter.params = {"P_c": Parameter(5.0, "d"), "K_c": Parameter(3.5, "m/s")}  # only update some of planet C parameters
 
         Parameters
@@ -189,11 +194,16 @@ class Fitter:
             for par_name in self.parameterisation.pars:
                 expected_params.add(f"{par_name}_{planet_letter}")
 
-        # Add trend parameters
-        expected_params.update(["g", "gd", "gdd"])
+        # Add system-wide trend parameters (linear and quadratic only)
+        expected_params.update(["gd", "gdd"])
 
-        # Add jitter parameter
-        expected_params.add("jit")
+        # Add instrument-specific parameters (gamma offset and jitter for each instrument)
+        if hasattr(self, 'unique_instruments'):
+            for inst in self.unique_instruments:
+                expected_params.add(f"g_{inst}")
+                expected_params.add(f"jit_{inst}")
+        else:
+            raise ValueError("Data must be added with add_data() before setting parameters.")
 
         # Convert to sets for easy comparison
         provided_params = set(params.keys())
@@ -239,16 +249,23 @@ class Fitter:
             # Validate this planet's parameters in current parameterisation
             self.parameterisation.validate_planetary_params(planet_params)
 
-        # Validate trend parameters are finite real numbers (already checked above, but kept for clarity)
-        for trend_param in ["g", "gd", "gdd"]:
+        # Validate system-wide trend parameters are finite real numbers (already checked above, but kept for clarity)
+        for trend_param in ["gd", "gdd"]:
             trend_value = params_values[trend_param]
             if not np.isfinite(trend_value):
                 raise ValueError(f"Invalid trend parameter {trend_param}: {trend_value} is not a finite real number")
 
-        # Validate jitter parameter
-        jit_value = params_values["jit"]
-        if jit_value < 0:
-            raise ValueError(f"Invalid jitter: {jit_value} < 0")
+        # Validate instrument-specific parameters (gamma offset and jitter)
+        for inst in self.unique_instruments:
+            # Validate gamma offset is finite (already checked above, but kept for clarity)
+            gamma_key = f"g_{inst}"
+            if not np.isfinite(params_values[gamma_key]):
+                raise ValueError(f"Invalid gamma for {inst}: {params_values[gamma_key]} is not a finite real number")
+
+            # Validate jitter is non-negative
+            jit_key = f"jit_{inst}"
+            if params_values[jit_key] < 0:
+                raise ValueError(f"Invalid jitter for {inst}: {params_values[jit_key]} < 0")
 
     def _validate_parameter_coupling(self, params: Dict[str, Parameter]) -> None:
         """Validate parameter coupling constraints (e.g., secosw/sesinw must both be free or both fixed)."""
@@ -379,9 +396,13 @@ class Fitter:
             else:
                 raise Exception(f"Parameter {free_param} has invalid planet letter {planet_letter}")
         else:
-            # Non-planetary parameter (g, gd, gdd, jit)
-            if free_param in ['g', 'gd', 'gdd', 'jit']:
-                # These are the same in all parameterisations
+            # Non-planetary parameter (gd, gdd, or instrument-specific g_*, jit_*)
+            if free_param in ['gd', 'gdd']:
+                # System-wide trend parameters - same in all parameterisations
+                # So there are no alternative priors to look for (therefore the prior is missing)
+                return None
+            elif free_param.startswith('g_') or free_param.startswith('jit_'):
+                # Instrument-specific parameters - same in all parameterisations
                 # So there are no alternative priors to look for (therefore the prior is missing)
                 return None
 
@@ -497,6 +518,8 @@ class Fitter:
             self.time,
             self.vel,
             self.verr,
+            self.instrument,
+            self.unique_instruments,
             self.t0,
         )
 
@@ -619,6 +642,8 @@ class Fitter:
                         self.time,
                         self.vel,
                         self.verr,
+                        self.instrument,
+                        self.unique_instruments,
                         self.t0,
                     )
                     # Check the log-prior probability is finite (i.e. proposed initial values are within prior bounds)
@@ -676,6 +701,8 @@ class Fitter:
             self.time,
             self.vel,
             self.verr,
+            self.instrument,
+            self.unique_instruments,
             self.t0,
         )
 
@@ -941,6 +968,8 @@ class Fitter:
             time=self.time,
             vel=self.vel,
             verr=self.verr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
             t0=self.t0,
             planet_letters=self.planet_letters,
             parameterisation=self.parameterisation,
@@ -1159,15 +1188,30 @@ class Fitter:
             rv_all_planets_smooth += planet.radial_velocity(tsmooth)
             rv_all_planets_obs += planet.radial_velocity(self.time)
 
-        # Add trend contribution
-        trend_params = {key: params[key] for key in ["g", "gd", "gdd"]}
+        # Add system-wide trend contribution (linear and quadratic only)
+        trend_params = {"gd": params["gd"], "gdd": params["gdd"]}
         trend = ravest.model.Trend(params=trend_params, t0=self.t0)
         rv_total_smooth = rv_all_planets_smooth + trend.radial_velocity(tsmooth)
         rv_total_obs = rv_all_planets_obs + trend.radial_velocity(self.time)
 
-        # Get jitter value for error bars
-        jit_value = params["jit"]
-        verr_with_jit = np.sqrt(self.verr**2 + jit_value**2)
+        # Add instrument-specific gamma offsets to observations
+        # (For smooth curve, we'll use the mean gamma for visualization)
+        gamma_offsets_obs = np.zeros(len(self.time))
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            gamma_offsets_obs[mask] = params[f"g_{inst}"]
+        rv_total_obs += gamma_offsets_obs
+
+        # For smooth curve, add mean gamma offset
+        mean_gamma = np.mean([params[f"g_{inst}"] for inst in self.unique_instruments])
+        rv_total_smooth += mean_gamma
+
+        # Get instrument-specific jitter values for error bars
+        verr_with_jit = np.zeros(len(self.time))
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit_value = params[f"jit_{inst}"]
+            verr_with_jit[mask] = np.sqrt(self.verr[mask]**2 + jit_value**2)
 
         # Calculate residuals
         residuals = self.vel - rv_total_obs
@@ -1249,9 +1293,12 @@ class Fitter:
         _trange = _tmax - _tmin
         tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
 
-        # Get jitter value for error bars
-        jit_value = params["jit"]
-        verr_with_jit = np.sqrt(self.verr**2 + jit_value**2)
+        # Get instrument-specific jitter values for error bars
+        verr_with_jit = np.zeros(len(self.time))
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit_value = params[f"jit_{inst}"]
+            verr_with_jit[mask] = np.sqrt(self.verr[mask]**2 + jit_value**2)
 
         # Get period and time of conjunction for this planet
         P = params[f"P_{planet_letter}"]
@@ -1406,13 +1453,17 @@ class Fitter:
         # Calculate residuals using median model at data times
         residuals = self.vel - rv_percentiles_obs[1]
 
-        # Get jitter samples for error bars
+        # Get instrument-specific jitter samples for error bars
         samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
-        if 'jit' in samples_dict:
-            jit_median = np.median(samples_dict['jit'])
-        else:
-            jit_median = self.fixed_params_values_dict['jit']
-        verr_with_jit = np.sqrt(self.verr**2 + jit_median**2)
+        verr_with_jit = np.zeros(len(self.time))
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit_key = f"jit_{inst}"
+            if jit_key in samples_dict:
+                jit_median = np.median(samples_dict[jit_key])
+            else:
+                jit_median = self.fixed_params_values_dict[jit_key]
+            verr_with_jit[mask] = np.sqrt(self.verr[mask]**2 + jit_median**2)
 
         # Create figure with subplots
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 5), gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
@@ -1500,9 +1551,12 @@ class Fitter:
         _trange = _tmax - _tmin
         tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
 
-        # Get jitter value for error bars
-        jit_med = np.median(params["jit"])
-        verr_with_jit = np.sqrt(self.verr**2 + jit_med**2)
+        # Get instrument-specific median jitter values for error bars
+        verr_with_jit = np.zeros(len(self.time))
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit_med = np.median(params[f"jit_{inst}"])
+            verr_with_jit[mask] = np.sqrt(self.verr[mask]**2 + jit_med**2)
 
         # Get period value
         _P = params[f'P_{planet_letter}']
@@ -1690,10 +1744,22 @@ class Fitter:
             free_params = dict(zip(self.free_params_names, row))
             params = fixed_params_dict | free_params
 
-            # Calculate trend RV
-            trend = ravest.model.Trend(params={"g": params["g"], "gd": params["gd"], "gdd": params["gdd"]}, t0=self.t0)
+            # Calculate system-wide trend RV (linear and quadratic only)
+            trend = ravest.model.Trend(params={"gd": params["gd"], "gdd": params["gdd"]}, t0=self.t0)
             trend_rv = trend.radial_velocity(times)
-            trend_rvs[i, :] = trend_rv
+
+            # Add instrument-specific gamma offsets if times match observation times
+            if len(times) == len(self.time) and np.allclose(times, self.time):
+                # We're at observation times, so add instrument-specific gamma offsets
+                gamma_offsets = np.zeros(len(times))
+                for inst in self.unique_instruments:
+                    mask = (self.instrument == inst)
+                    gamma_offsets[mask] = params[f"g_{inst}"]
+                trend_rvs[i, :] = trend_rv + gamma_offsets
+            else:
+                # We're at arbitrary times (e.g., smooth curve), use mean gamma
+                mean_gamma = np.mean([params[f"g_{inst}"] for inst in self.unique_instruments])
+                trend_rvs[i, :] = trend_rv + mean_gamma
 
         return trend_rvs
 
@@ -1800,10 +1866,10 @@ class Fitter:
 
         Examples
         --------
-        >>> # Plot with custom values (must include all required parameters)
+        >>> # Plot with custom values (must include all required parameters, including instrument-specific ones)
         >>> fitter.plot_custom_rv({"P_b": 4.25, "K_b": 55.0, "e_b": 0.1,
         ...                        "w_b": 1.57, "Tc_b": 2456325.5,
-        ...                        "g": -10.2, "gd": 0.0, "gdd": 0.0, "jit": 2.0})
+        ...                        "g_HARPS": -10.2, "gd": 0.0, "gdd": 0.0, "jit_HARPS": 2.0})
         """
         # Validate that all required parameters are present
         expected_params = set(self.free_params_names + list(self.fixed_params_names))
@@ -1838,10 +1904,10 @@ class Fitter:
 
         Examples
         --------
-        >>> # Plot phase curve with custom values
+        >>> # Plot phase curve with custom values (including instrument-specific parameters)
         >>> fitter.plot_custom_phase("b", {"P_b": 4.25, "K_b": 55.0, "e_b": 0.1,
         ...                               "w_b": 1.57, "Tc_b": 2456325.5,
-        ...                               "g": -10.2, "gd": 0.0, "gdd": 0.0, "jit": 2.0})
+        ...                               "g_HARPS": -10.2, "gd": 0.0, "gdd": 0.0, "jit_HARPS": 2.0})
         """
         # Validate that all required parameters are present
         expected_params = set(self.free_params_names + list(self.fixed_params_names))
@@ -1935,6 +2001,8 @@ class LogPosterior:
         time: np.ndarray,
         vel: np.ndarray,
         verr: np.ndarray,
+        instrument: np.ndarray,
+        unique_instruments: np.ndarray,
         t0: float,
     ) -> None:
         self.planet_letters = planet_letters
@@ -1945,12 +2013,16 @@ class LogPosterior:
         self.time = time
         self.vel = vel
         self.verr = verr
+        self.instrument = instrument
+        self.unique_instruments = unique_instruments
         self.t0 = t0
 
         # Create log-likelihood and log-prior objects for later
         self.log_likelihood = LogLikelihood(time=self.time,
                                             vel=self.vel,
                                             verr=self.verr,
+                                            instrument=self.instrument,
+                                            unique_instruments=self.unique_instruments,
                                             t0=self.t0,
                                             planet_letters=self.planet_letters,
                                             parameterisation=self.parameterisation,
@@ -2024,8 +2096,9 @@ class LogPosterior:
         # get checked/raise Exceptions when they are used to calculate an RV.
         # Jitter doesn't directly contribute to calculated RV, so needs to be checked manually.
         _all_params_for_ll = self.fixed_params | free_params_dict
-        if _all_params_for_ll["jit"] < 0:
-            return -np.inf
+        for inst in self.unique_instruments:
+            if _all_params_for_ll[f"jit_{inst}"] < 0:
+                return -np.inf
 
         # Evaluate priors on the free parameters. If any parameters are outside priors
         # (i.e. priors are infinite), then fail fast by returning -inf early (before expensive likelihood calc).
@@ -2084,6 +2157,7 @@ class LogLikelihood:
     """Log likelihood calculation for radial velocity data.
 
     Calculates log likelihood given RV model parameters and data.
+    Supports multiple instruments with instrument-specific gamma offsets and jitter.
     """
 
     def __init__(
@@ -2091,6 +2165,8 @@ class LogLikelihood:
         time: np.ndarray,
         vel: np.ndarray,
         verr: np.ndarray,
+        instrument: np.ndarray,
+        unique_instruments: np.ndarray,
         t0: float,
         planet_letters: list[str],
         parameterisation: Parameterisation,
@@ -2098,6 +2174,8 @@ class LogLikelihood:
         self.time = time
         self.vel = vel
         self.verr = verr
+        self.instrument = instrument
+        self.unique_instruments = unique_instruments
         self.t0 = t0
 
         self.planet_letters = planet_letters
@@ -2135,19 +2213,30 @@ class LogLikelihood:
             # add this planet's RV contribution to the total
             rv_total += _this_planet_rv
 
-        # Step 2: Calculate and add the RV from the system Trend
-        _trend_keys = ["g", "gd", "gdd"]
-        _trend_params = {key: params[key] for key in _trend_keys}
+        # Step 2: Calculate and add the RV from the system-wide Trend (linear and quadratic only)
+        _trend_params = {"gd": params["gd"], "gdd": params["gdd"]}
         _this_trend = ravest.model.Trend(params=_trend_params, t0=self.t0)
         _rv_trend = _this_trend.radial_velocity(self.time)
         rv_total += _rv_trend
 
-        # Step 3: Calculate log-likelihood including jitter term
-        verr_jitter_squared = self.verr**2 + params["jit"]**2
-        penalty_term = np.log(2 * np.pi * verr_jitter_squared)
-        residuals = rv_total - self.vel
-        chi2 = residuals**2 / verr_jitter_squared
-        ll = -0.5 * np.sum(chi2 + penalty_term)
+        # Step 3: Add instrument-specific gamma offsets
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            rv_total[mask] += params[f"g_{inst}"]
+
+        # Step 4: Calculate log-likelihood with instrument-specific jitter
+        ll = 0.0
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit = params[f"jit_{inst}"]
+
+            # Calculate likelihood for this instrument's observations
+            verr_jit_sq = self.verr[mask]**2 + jit**2
+            penalty = np.log(2 * np.pi * verr_jit_sq)
+            residuals = rv_total[mask] - self.vel[mask]
+            chi2 = residuals**2 / verr_jit_sq
+            ll += -0.5 * np.sum(chi2 + penalty)
+
         return ll
 
 
