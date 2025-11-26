@@ -375,8 +375,8 @@ class TestParameterisationFlexibility:
 
         # Run short MCMC
         nwalkers = 2 * len(fitter.free_params_names)  # Minimum 2 walkers per free parameter
-        initial_positions = fitter.generate_initial_walker_positions(nwalkers)
-        fitter.run_mcmc(initial_positions=initial_positions, nwalkers=nwalkers, nsteps=50, progress=False)
+        initial_positions = fitter.generate_initial_walker_positions_random(nwalkers)
+        fitter.run_mcmc(initial_positions=initial_positions, nwalkers=nwalkers, max_steps=50, progress=False)
 
         # Verify results
         samples = fitter.get_samples_np(flat=True)
@@ -423,8 +423,8 @@ class TestParameterisationFlexibility:
 
         # Run short MCMC
         nwalkers = 2 * len(fitter.free_params_names)  # Minimum 2 walkers per free parameter
-        initial_positions = fitter.generate_initial_walker_positions(nwalkers)
-        fitter.run_mcmc(initial_positions=initial_positions, nwalkers=nwalkers, nsteps=50, progress=False)
+        initial_positions = fitter.generate_initial_walker_positions_random(nwalkers)
+        fitter.run_mcmc(initial_positions=initial_positions, nwalkers=nwalkers, max_steps=50, progress=False)
 
         # Verify results
         samples = fitter.get_samples_np(flat=True)
@@ -473,8 +473,8 @@ class TestParameterisationFlexibility:
 
         # Run short MCMC
         nwalkers = 2 * len(fitter.free_params_names)  # Minimum 2 walkers per free parameter
-        initial_positions = fitter.generate_initial_walker_positions(nwalkers)
-        fitter.run_mcmc(initial_positions=initial_positions, nwalkers=nwalkers, nsteps=50, progress=False)
+        initial_positions = fitter.generate_initial_walker_positions_random(nwalkers)
+        fitter.run_mcmc(initial_positions=initial_positions, nwalkers=nwalkers, max_steps=50, progress=False)
 
         # Verify results
         samples = fitter.get_samples_np(flat=True)

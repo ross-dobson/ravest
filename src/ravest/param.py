@@ -135,16 +135,16 @@ class Parameterisation:
         return mean_anomaly * (period / (2 * np.pi)) + time_peri
 
     def convert_tp_to_tc(self, time_peri: float, period: float, eccentricity: float, arg_peri: float) -> float:
-        """Calculate the time of transit center, given time of periastron passage.
+        """Calculate the time of transit centre, given time of periastron passage.
 
-        This is only a time of (primary) transit center if the planet is actually
+        This is only a time of (primary) transit centre if the planet is actually
         transiting the star from the observer's viewpoint/inclination. Therefore
         technically this is a time of (inferior) conjunction.
 
         Returns
         -------
         `float`
-            Time of primary transit center/inferior conjunction (days)
+            Time of primary transit centre/inferior conjunction (days)
         """
         theta_tc = (np.pi / 2) - arg_peri  # true anomaly at time t_c (Eastman et. al. 2013)
         return self._time_given_true_anomaly(theta_tc, period, eccentricity, time_peri)
