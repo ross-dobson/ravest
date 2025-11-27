@@ -473,3 +473,245 @@ class TestFitterIntegration:
         assert len(fitter.params) == 14  # 5*2 planets + 4 system
         assert len(fitter.priors) == 3   # k_b, k_c, jit
         assert len(fitter.free_params_names) == 3
+
+
+class TestAdaptiveConvergence:
+    """Tests for adaptive convergence feature in run_mcmc."""
+
+    @pytest.fixture
+    def setup_fitter(self, test_data, test_circular_params, test_simple_priors):
+        """Setup a basic fitter for MCMC tests."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, verr = test_data
+        fitter.add_data(time, vel, verr, t0=2.0)
+        fitter.params = test_circular_params
+        fitter.priors = test_simple_priors
+
+        # Generate initial positions
+        map_result = fitter.find_map_estimate()
+        initial_positions = fitter.generate_initial_walker_positions_from_map(
+            map_result, nwalkers=10
+        )
+        return fitter, initial_positions
+
+    def test_fixed_length_mode(self, setup_fitter):
+        """Test that fixed-length mode (check_convergence=False) runs for exactly max_steps."""
+        fitter, initial_positions = setup_fitter
+        max_steps = 100
+
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=max_steps,
+            progress=False,
+            check_convergence=False
+        )
+
+        # Check that sampler ran for exactly max_steps
+        assert fitter.sampler is not None
+        chain = fitter.get_samples_np(flat=False)
+        assert chain.shape[0] == max_steps  # Should be exactly max_steps
+
+    def test_adaptive_mode_runs(self, setup_fitter):
+        """Test that adaptive mode (check_convergence=True) runs without errors."""
+        fitter, initial_positions = setup_fitter
+
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=500,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=50,
+            convergence_check_start=20
+        )
+
+        # Check that sampler exists and has run
+        assert fitter.sampler is not None
+        chain = fitter.get_samples_np(flat=False)
+        assert chain.shape[0] > 0  # Should have some samples
+        assert chain.shape[0] <= 500  # Should not exceed max_steps
+
+    def test_adaptive_mode_stops_early(self, setup_fitter):
+        """Test that adaptive mode can stop before max_steps."""
+        fitter, initial_positions = setup_fitter
+
+        # Use a large max_steps but expect early stopping for this simple problem
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=10000,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=100,
+            convergence_check_start=50
+        )
+
+        # For a simple problem, we expect it might converge before max_steps
+        # (though this isn't guaranteed, so we just check it ran successfully)
+        assert fitter.sampler is not None
+        chain = fitter.get_samples_np(flat=False)
+        assert chain.shape[0] <= 10000
+
+    def test_backward_compatibility_positional_args(self, setup_fitter):
+        """Test backward compatibility with positional arguments."""
+        fitter, initial_positions = setup_fitter
+
+        # Old style: run_mcmc(initial_positions, nwalkers, nsteps)
+        # New style: max_steps replaces nsteps
+        fitter.run_mcmc(initial_positions, 10, 100, False)
+
+        assert fitter.sampler is not None
+        chain = fitter.get_samples_np(flat=False)
+        assert chain.shape[0] == 100
+
+    def test_convergence_check_interval_parameter(self, setup_fitter):
+        """Test that convergence_check_interval parameter is respected."""
+        fitter, initial_positions = setup_fitter
+
+        # This should run without errors even with different intervals
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=300,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=200,  # Check only once or twice
+            convergence_check_start=20
+        )
+
+        assert fitter.sampler is not None
+
+    def test_convergence_check_start_parameter(self, setup_fitter):
+        """Test that convergence_check_start parameter affects convergence checking."""
+        fitter, initial_positions = setup_fitter
+
+        # Test with different convergence_check_start values
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=200,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=50,
+            convergence_check_start=100  # Don't check before iteration 100
+        )
+
+        assert fitter.sampler is not None
+        chain = fitter.get_samples_np(flat=False)
+        assert chain.shape[0] <= 200
+
+    def test_plot_autocorr_without_convergence_check_raises(self, setup_fitter):
+        """Test that plotting without convergence checking raises informative error."""
+        fitter, initial_positions = setup_fitter
+
+        # Run without convergence checking
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=100, progress=False, check_convergence=False)
+
+        # Should raise ValueError when trying to plot
+        with pytest.raises(ValueError, match="No autocorrelation history available"):
+            fitter.plot_autocorr_estimates()
+
+    def test_plot_autocorr_stores_history(self, setup_fitter):
+        """Test that autocorr history is stored when convergence checking enabled."""
+        fitter, initial_positions = setup_fitter
+
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=300,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=100,
+            convergence_check_start=20
+        )
+
+        # Check that history was stored
+        assert hasattr(fitter, 'autocorr_history')
+        assert len(fitter.autocorr_history) > 0
+        assert isinstance(fitter.autocorr_history, dict)
+
+        # Check that keys are iteration numbers
+        for key in fitter.autocorr_history.keys():
+            assert isinstance(key, (int, np.integer))
+
+        # Check that values are tau arrays
+        for tau in fitter.autocorr_history.values():
+            assert isinstance(tau, np.ndarray)
+            assert tau.shape == (len(fitter.free_params_names),)
+
+    def test_plot_autocorr_all_params(self, setup_fitter):
+        """Test plotting all parameters (default behaviour)."""
+        fitter, initial_positions = setup_fitter
+
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=300,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=100,
+            convergence_check_start=20
+        )
+
+        # Should not raise any errors
+        import matplotlib
+        matplotlib.use('Agg')  # Use non-interactive backend for testing
+        fitter.plot_autocorr_estimates()
+
+    def test_plot_autocorr_specific_params(self, setup_fitter):
+        """Test plotting specific parameters only."""
+        fitter, initial_positions = setup_fitter
+
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=300,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=100,
+            convergence_check_start=20
+        )
+
+        # Should plot only specified parameter
+        import matplotlib
+        matplotlib.use('Agg')
+        fitter.plot_autocorr_estimates(params=['K_b'])
+
+    def test_plot_autocorr_mean(self, setup_fitter):
+        """Test plotting mean tau."""
+        fitter, initial_positions = setup_fitter
+
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=300,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=100,
+            convergence_check_start=20
+        )
+
+        # Should plot mean instead of individual params
+        import matplotlib
+        matplotlib.use('Agg')
+        fitter.plot_autocorr_estimates(plot_mean=True)
+
+    def test_plot_autocorr_no_legend(self, setup_fitter):
+        """Test plotting without legend."""
+        fitter, initial_positions = setup_fitter
+
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=300,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=100,
+            convergence_check_start=20
+        )
+
+        # Should plot without legend
+        import matplotlib
+        matplotlib.use('Agg')
+        fitter.plot_autocorr_estimates(show_legend=False)

@@ -552,8 +552,8 @@ class Fitter:
         --------
         >>> # Generate positions for 40 walkers
         >>> nwalkers = 10 * len(fitter.free_params_names)
-        >>> initial_positions = fitter.generate_random_initial_walker_positions(nwalkers)
-        >>> fitter.run_mcmc(initial_positions, nwalkers, nsteps=2000)
+        >>> initial_positions = fitter.generate_initial_walker_positions_random(nwalkers)
+        >>> fitter.run_mcmc(initial_positions, nwalkers, max_steps=2000)
         """
         if verbose:
             print("Free parameters:", self.free_params_names)
@@ -701,7 +701,7 @@ class Fitter:
         >>> initial_positions = fitter.generate_initial_walker_positions_around_point(
         ...     centre=map_result.x, nwalkers=40, scale=1e-4
         ... )
-        >>> fitter.run_mcmc(initial_positions, nwalkers, nsteps=2000)
+        >>> fitter.run_mcmc(initial_positions, nwalkers=40, max_steps=2000)
         """
         centre = np.asarray(centre)
 
@@ -847,7 +847,7 @@ class Fitter:
         >>> initial_positions = fitter.generate_initial_walker_positions_from_map(
         ...     map_result=map_result, nwalkers=40
         ... )
-        >>> fitter.run_mcmc(initial_positions, nwalkers=40, nsteps=2000)
+        >>> fitter.run_mcmc(initial_positions, nwalkers=40, max_steps=2000)
         """
         return self.generate_initial_walker_positions_around_point(
             centre=map_result.x,
@@ -858,7 +858,7 @@ class Fitter:
             max_attempts=max_attempts
         )
 
-    def run_mcmc(self, initial_positions : np.ndarray, nwalkers: int, nsteps: int = 5000, progress: bool = True, multiprocessing: bool = False) -> None:
+    def run_mcmc(self, initial_positions : np.ndarray, nwalkers: int, max_steps: int = 5000, progress: bool = True, multiprocessing: bool = False, check_convergence: bool = False, convergence_check_interval: int = 1000, convergence_check_start: int = 0) -> None:
         """Run MCMC sampling from given initial walker positions.
 
         Parameters
@@ -869,12 +869,24 @@ class Fitter:
             starting position for one walker in the order of free_params_names.
         nwalkers : int
             Number of MCMC walkers (must match first dimension of initial_positions )
-        nsteps : int, optional
-            Number of MCMC steps to run (default: 5000)
+        max_steps : int, optional
+            Maximum number of MCMC steps to run. If check_convergence=False, runs for
+            exactly this many steps. If check_convergence=True, runs up to this many
+            steps, stopping early when convergence criteria are met (default: 5000)
         progress : bool, optional
             Whether to show progress bar during MCMC (default: True)
         multiprocessing : bool, optional
             Whether to use multiprocessing for MCMC (default: False)
+        check_convergence : bool, optional
+            If True, check for convergence and stop early when criteria met.
+            Convergence requires: chain length > 50 times max autocorrelation time,
+            and autocorrelation time estimate stable to 1 percent.
+            If False, run for exactly max_steps (default: False)
+        convergence_check_interval : int, optional
+            Steps between convergence checks (only used if check_convergence=True) (default: 1000)
+        convergence_check_start : int, optional
+            Minimum iteration before starting convergence checks. Set this sensibly
+            (e.g. 2x burn-in) to avoid inaccurate tau estimates on short chains (default: 0)
         """
         # Initialize log-posterior object for MCMC sampling
         lp = LogPosterior(
@@ -921,21 +933,77 @@ class Fitter:
         # TODO: parameter_names argument does slightly impact performance - but not sure if it can be avoided, we do need the names
         # and I'm not sure constructing the dictionary later ourselves manually is any quicker than passing parameter_names argument
 
+        # Create sampler
         if multiprocessing:
-            logging.info("Starting MCMC (with multiprocessing)...")
-            with mp.get_context("spawn").Pool() as pool:  # Use 'spawn' instead of 'fork' to avoid issues on some Linux platforms
-                sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
-                                                parameter_names=self.free_params_names,
-                                                pool=pool)
-                sampler.run_mcmc(initial_state=initial_positions, nsteps=nsteps, progress=True)
-        else:
-            logging.info("Starting MCMC...")
+            pool = mp.get_context("spawn").Pool()  # Use 'spawn' instead of 'fork' to avoid issues on some Linux platforms
             sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
-                                                parameter_names=self.free_params_names)
-            sampler.run_mcmc(initial_state=initial_positions, nsteps=nsteps, progress=progress)
+                                            parameter_names=self.free_params_names,
+                                            pool=pool)
+        else:
+            sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
+                                            parameter_names=self.free_params_names)
+
+        # Run MCMC with or without convergence checking
+        if not check_convergence:
+            # Fixed-length mode - run for exactly max_steps
+            logging.info(f"Starting MCMC for {max_steps} steps...")
+            sampler.run_mcmc(initial_state=initial_positions, nsteps=max_steps, progress=progress)
+            logging.info("...MCMC done.")
+        else:
+            # Convergence checking - run up to max_steps, stopping early if converged
+            logging.info(f"Starting MCMC with convergence checks. (Maximum {max_steps} steps, checking convergence every {convergence_check_interval} steps after iteration {convergence_check_start})...")
+
+            # Initialize autocorrelation history storage
+            self.autocorr_history = {}
+
+            old_tau = np.inf
+
+            for sample in sampler.sample(initial_state=initial_positions, iterations=max_steps, progress=progress):
+                # Only check at specified intervals
+                if sampler.iteration % convergence_check_interval != 0:
+                    continue
+
+                # Don't check before we have reached convergence_check_start
+                if sampler.iteration < convergence_check_start:
+                    continue
+
+                # Get autocorrelation time estimate
+                tau = sampler.get_autocorr_time(tol=0)
+
+                # Store autocorrelation history for plotting/diagnostics later
+                self.autocorr_history[sampler.iteration] = tau.copy()
+
+                # Log progress
+                logging.info(f"Convergence check: Step {sampler.iteration}: mean(tau)={np.mean(tau):.1f}, max(tau)={np.max(tau):.1f}")
+
+                # Check convergence criteria
+                check_chain_length = np.all(sampler.iteration > 50 * tau)  # Chain length > 50 * tau
+                check_stable_tau = np.all(np.abs(old_tau - tau) / tau < 0.01)  # Tau stable to 1 percent
+                converged = check_chain_length and check_stable_tau
+
+                if converged:
+                    logging.info(f"Converged at iteration {sampler.iteration}")
+                    break
+                else:
+                    logging.info(f"Not yet converged (N/50>tau check: {check_chain_length}, tau stability check: {check_stable_tau})")
+
+                # Warn if approaching max steps without convergence
+                if sampler.iteration > 0.8 * max_steps:
+                    logging.warning(f"Approaching max iterations ({max_steps}) without convergence! (max tau={np.max(tau):.1f}, tau stability change={np.abs(old_tau - tau) / tau})")
+
+                # Update old tau for next check
+                old_tau = tau
+
+            # Final log
+            final_steps = sampler.iteration
+            logging.info(f"MCMC complete: {final_steps} steps total")
+
+        # Close multiprocessing pool if used
+        if multiprocessing:
+            pool.close()
+            pool.join()
 
         self.sampler = sampler
-        logging.info("...MCMC done.")
 
     def get_samples_np(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, flat: bool = False) -> np.ndarray:
         """Return a contiguous numpy array of MCMC samples.
@@ -1189,6 +1257,102 @@ class Fitter:
 
         # Return as dictionary
         return dict(zip(self.free_params_names, best_values))
+
+    def plot_autocorr_estimates(
+        self,
+        params: list[str] | None = None,
+        plot_mean: bool = False,
+        show_legend: bool = True,
+        save: bool = False,
+        fname: str = "autocorr_plot.png",
+        dpi: int = 100
+    ) -> None:
+        """Plot autocorrelation time estimates from adaptive MCMC run.
+
+        Shows how autocorrelation time evolved during the MCMC run and
+        the convergence threshold line (N / 50).
+
+        Only available if run_mcmc was called with check_convergence=True.
+
+        Parameters
+        ----------
+        params : list[str] or None, optional
+            List of parameter names to plot. If None, plots all free parameters (default: None)
+        plot_mean : bool, optional
+            If True, plot mean tau instead of individual parameter taus.
+            Overrides params argument (default: False)
+        show_legend : bool, optional
+            Whether to show legend (default: True)
+        save : bool, optional
+            Save the plot to path `fname` (default: False)
+        fname : str, optional
+            The path to save the plot to (default: "autocorr_plot.png")
+        dpi : int, optional
+            The dpi to save the image at (default: 100)
+
+        Raises
+        ------
+        ValueError
+            If no autocorrelation history is available (run_mcmc was not called
+            with check_convergence=True, or has not been called yet)
+        """
+        # Check if data available
+        if not hasattr(self, 'autocorr_history') or len(self.autocorr_history) == 0:
+            raise ValueError(
+                "No autocorrelation history available. "
+                "Please run run_mcmc() with check_convergence=True first."
+            )
+
+        iterations = np.array(list(self.autocorr_history.keys()))
+        max_iteration = np.max(iterations)
+        tau_history = np.array(list(self.autocorr_history.values()))  # Shape: (n_checks, n_params)
+
+        # Create plot
+        fig, ax = plt.subplots(1, figsize=(10, 6))
+        fig.suptitle("Autocorrelation Time Estimates")
+
+        # Plot convergence threshold (N/50)
+        ax.plot([0, max_iteration], [0, max_iteration / 50], "--k", linewidth=2,
+                label="N/50 convergence threshold")
+
+        if plot_mean:
+            # Plot mean tau
+            mean_tau = np.mean(tau_history, axis=1)
+            ax.plot(iterations, mean_tau, linewidth=2, label="Mean τ")
+        else:
+            # Determine which parameters to plot
+            if params is None:
+                params_to_plot = self.free_params_names
+                indices_to_plot = range(len(self.free_params_names))
+            else:
+                params_to_plot = []
+                indices_to_plot = []
+                for param in params:
+                    if param in self.free_params_names:
+                        idx = self.free_params_names.index(param)
+                        params_to_plot.append(param)
+                        indices_to_plot.append(idx)
+                    else:
+                        logging.warning(f"Parameter '{param}' not found in free parameters, skipping")
+
+            # Plot individual parameter taus
+            for i, param_name in zip(indices_to_plot, params_to_plot):
+                ax.plot(iterations, tau_history[:, i], alpha=0.7, label=param_name)
+
+        ax.set_xlim(0, iterations.max())
+        ax.set_ylim(0, tau_history.max() * 1.1)
+        ax.set_xlabel("Step number")
+        ax.set_ylabel(r"Autocorrelation time $\tau$")
+
+        if show_legend:
+            ax.legend(loc='upper left')
+
+        ax.grid(True, alpha=0.3)
+
+        if save:
+            plt.savefig(fname=fname, dpi=dpi)
+            print(f"Saved {fname}")
+        plt.show()
 
     def plot_chains(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, truths: list = None, save: bool = False, fname: str = "chains_plot.png", dpi: int = 100) -> None:
         """Plot MCMC chains for all free parameters.
@@ -2147,6 +2311,29 @@ class LogPosterior:
         verr: np.ndarray,
         t0: float,
     ) -> None:
+        """Initialize the LogPosterior object.
+
+        Parameters
+        ----------
+        planet_letters : list[str]
+            List of single-character planet identifiers.
+        parameterisation : Parameterisation
+            The orbital parameterisation to use.
+        priors : dict[str, Callable[[float], float]]
+            Dictionary mapping parameter names to their prior probability functions.
+        fixed_params : dict[str, float]
+            Dictionary of fixed parameter values.
+        free_params_names : list[str]
+            List of free parameter names to sample.
+        time : np.ndarray
+            Time of each observation [days].
+        vel : np.ndarray
+            Radial velocity at each time [m/s].
+        verr : np.ndarray
+            Uncertainty on the radial velocity at each time [m/s].
+        t0 : float
+            Reference time for the trend [days].
+        """
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
         self.priors = priors
@@ -2305,6 +2492,23 @@ class LogLikelihood:
         planet_letters: list[str],
         parameterisation: Parameterisation,
     ) -> None:
+        """Initialize the LogLikelihood object.
+
+        Parameters
+        ----------
+        time : np.ndarray
+            Time of each observation [days].
+        vel : np.ndarray
+            Radial velocity at each time [m/s].
+        verr : np.ndarray
+            Uncertainty on the radial velocity at each time [m/s].
+        t0 : float
+            Reference time for the trend [days].
+        planet_letters : list[str]
+            List of single-character planet identifiers.
+        parameterisation : Parameterisation
+            The orbital parameterisation to use.
+        """
         self.time = time
         self.vel = vel
         self.verr = verr
