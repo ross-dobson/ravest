@@ -943,6 +943,14 @@ class Fitter:
             sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
                                             parameter_names=self.free_params_names)
 
+        # Warn if convergence arguments provided but convergence checking disabled
+        if not check_convergence:
+            if convergence_check_interval != 1000 or convergence_check_start != 0:
+                logging.warning(
+                    "Convergence checking arguments provided but check_convergence=False. "
+                    "These arguments will be ignored. Did you forget to set check_convergence=True?"
+                )
+
         # Run MCMC with or without convergence checking
         if not check_convergence:
             # Fixed-length mode - run for exactly max_steps
