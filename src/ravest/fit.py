@@ -30,44 +30,6 @@ from ravest.param import Parameter, Parameterisation
 
 logging.basicConfig(level=logging.INFO)
 
-def calculate_aic(log_likelihood: float, num_params: int) -> float:
-    """Calculate Akaike Information Criterion (AIC).
-
-    Parameters
-    ----------
-    log_likelihood : float
-        The log-likelihood of the model
-    num_params : int
-        Number of free parameters in the model
-
-    Returns
-    -------
-    float
-        AIC = 2*k - 2*ln(L), where k is the number of parameters and L is the likelihood
-    """
-    return 2 * num_params - 2 * log_likelihood
-
-
-def calculate_bic(log_likelihood: float, num_params: int, num_observations: int) -> float:
-    """Calculate Bayesian Information Criterion (BIC).
-
-    Parameters
-    ----------
-    log_likelihood : float
-        The log-likelihood of the model
-    num_params : int
-        Number of free parameters in the model
-    num_observations : int
-        Number of data points used to fit the model
-
-    Returns
-    -------
-    float
-        BIC = k*ln(n) - 2*ln(L), where n is the number of observations,
-        k is the number of parameters, and L is the likelihood
-    """
-    return num_params * np.log(num_observations) - 2 * log_likelihood
-
 
 class Fitter:
     """Main class for fitting radial velocity data to planetary models.
@@ -1232,6 +1194,141 @@ class Fitter:
             parameterisation=self.parameterisation,
         )
         return log_likelihood(params_dict)
+
+    def build_complete_params_dict(self, free_params: Dict[str, float] | np.ndarray | list) -> Dict[str, float]:
+        """Build a params dict by providing free param vals, combine with fixed param vals.
+
+        Takes free parameter values from (which can be from any source e.g. MAP results, MCMC posteriors,
+        or any custom values) and combines them with the fixed parameter values to create
+        a complete parameter dictionary. This dict is ideal for calculating chi2, log-likelihood,
+        AIC, and BIC.
+
+        Parameters
+        ----------
+        free_params : list, np.ndarray, or dict
+            Free parameter values from any source:
+            - list/array: values in order of self.free_params_names
+            - dict: mapping of free param names to values
+
+        Returns
+        -------
+        Dict[str, float]
+            Complete parameters dict with both free and fixed parameter values
+
+        Examples
+        --------
+        >>> # From MAP optimization result
+        >>> map_result = fitter.find_map_estimate()
+        >>> params = fitter.build_complete_params_dict(map_result.x)
+        >>> aic = fitter.calculate_aic(params)
+        >>>
+        >>> # From best MCMC sample
+        >>> best_sample = fitter.get_sample_with_best_lnprob(discard_start=1000)
+        >>> params = fitter.build_complete_params_dict(best_sample)
+        >>> bic = fitter.calculate_bic(params)
+        >>>
+        >>> # From custom array of values (in order of free_params_names)
+        >>> custom_values = [5.0, 50.0, 0.1, 0.0, 2450000.0]  # example values
+        >>> params = fitter.build_complete_params_dict(custom_values)
+        >>> log_like = fitter.calculate_log_likelihood(params)
+        """
+        if isinstance(free_params, dict):
+            # Validate that all expected free parameters are present
+            expected_names = set(self.free_params_names)
+            provided_names = set(free_params.keys())
+
+            missing = expected_names - provided_names
+            if missing:
+                raise ValueError(f"Missing required free parameters: {missing}")
+
+            extra = provided_names - expected_names
+            if extra:
+                raise ValueError(f"Unexpected parameters provided: {extra}")
+
+            return self.fixed_params_values_dict | free_params
+        else:
+            # Validate that array/list has correct length
+            if len(free_params) != len(self.free_params_names):
+                raise ValueError(
+                    f"Expected {len(self.free_params_names)} free parameter values "
+                    f"but got {len(free_params)} "
+                    f"(expecting values for {self.free_params_names})"
+                )
+
+            free_dict = dict(zip(self.free_params_names, free_params))
+            return self.fixed_params_values_dict | free_dict
+
+    def calculate_chi2(self, params_dict: Dict[str, float]) -> float:
+        """Calculate chi-squared for given parameter values.
+
+        Uses LogLikelihood to avoid code duplication. Works backwards from
+        log-likelihood: ll = -0.5 * (chi2 + penalty_term)
+
+        Parameters
+        ----------
+        params_dict : dict
+            Dictionary of all parameter values (both fixed and free parameters)
+
+        Returns
+        -------
+        float
+            Chi-squared value: sum((data - model)^2 / (error^2 + jitter^2))
+        """
+        # Create LogLikelihood instance to reuse RV model calculation
+        ll = LogLikelihood(
+            self.time, self.vel, self.verr, self.t0,
+            self.planet_letters, self.parameterisation
+        )
+
+        # Get log-likelihood
+        log_like = ll(params_dict)
+
+        # Work backwards to get chi2
+        # ll = -0.5 * (chi2 + penalty_term)
+        # chi2 = -2 * ll - penalty_term
+        verr_jitter_squared = self.verr**2 + params_dict["jit"]**2
+        penalty_term = np.sum(np.log(2 * np.pi * verr_jitter_squared))
+        chi2 = -2 * log_like - penalty_term
+
+        return chi2
+
+    def calculate_aic(self, params_dict: Dict[str, float]) -> float:
+        """Calculate Akaike Information Criterion (AIC) for given parameters.
+
+        AIC = 2*k - 2*ln(L), where k is the number of free parameters
+        and L is the likelihood.
+
+        Parameters
+        ----------
+        params_dict : dict
+            Dictionary of all parameter values (both fixed and free parameters)
+
+        Returns
+        -------
+        float
+            AIC value
+        """
+        log_like = self.calculate_log_likelihood(params_dict)
+        return 2 * self.ndim - 2 * log_like
+
+    def calculate_bic(self, params_dict: Dict[str, float]) -> float:
+        """Calculate Bayesian Information Criterion (BIC) for given parameters.
+
+        BIC = k*ln(n) - 2*ln(L), where k is the number of free parameters,
+        n is the number of observations, and L is the likelihood.
+
+        Parameters
+        ----------
+        params_dict : dict
+            Dictionary of all parameter values (both fixed and free parameters)
+
+        Returns
+        -------
+        float
+            BIC value
+        """
+        log_like = self.calculate_log_likelihood(params_dict)
+        return self.ndim * np.log(len(self.time)) - 2 * log_like
 
     def get_sample_with_best_lnprob(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> Dict[str, float]:
         """Get parameter values from the MCMC sample with the highest log probability.
