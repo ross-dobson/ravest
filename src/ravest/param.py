@@ -14,32 +14,78 @@ class Parameterisation:
     """Handle conversions between different orbital parameterisations."""
 
     @staticmethod
-    def _validate_period(per: float) -> None:
-        """Validate orbital period."""
-        if per <= 0:
-            raise ValueError(f"Invalid period: {per} <= 0")
+    def _validate_period(per: float | np.ndarray) -> None:
+        """Validate orbital period.
+
+        Parameters
+        ----------
+        per : float or array-like
+            Orbital period(s) to validate.
+        """
+        if isinstance(per, (int, float)):
+            if per <= 0:
+                raise ValueError(f"Invalid period: {per} <= 0")
+        else:
+            per = np.asarray(per)
+            if np.any(per <= 0):
+                raise ValueError("Invalid period: some values <= 0")
 
     @staticmethod
-    def _validate_semi_amplitude(k: float) -> None:
-        """Validate RV semi-amplitude."""
-        if k <= 0:
-            raise ValueError(f"Invalid semi-amplitude: {k} <= 0")
+    def _validate_semi_amplitude(k: float | np.ndarray) -> None:
+        """Validate RV semi-amplitude.
+
+        Parameters
+        ----------
+        k : float or array-like
+            RV semi-amplitude(s) to validate.
+        """
+        if isinstance(k, (int, float)):
+            if k <= 0:
+                raise ValueError(f"Invalid semi-amplitude: {k} <= 0")
+        else:
+            k = np.asarray(k)
+            if np.any(k <= 0):
+                raise ValueError("Invalid semi-amplitude: some values <= 0")
 
     @staticmethod
-    def _validate_eccentricity(e: float) -> None:
-        """Validate orbital eccentricity."""
-        if e < 0:
-            raise ValueError(f"Invalid eccentricity: {e} < 0")
-        if e >= 1.0:
-            raise ValueError(f"Invalid eccentricity: {e} >= 1.0")
+    def _validate_eccentricity(e: float | np.ndarray) -> None:
+        """Validate orbital eccentricity.
+
+        Parameters
+        ----------
+        e : float or array-like
+            Eccentricity value(s) to validate.
+        """
+        if isinstance(e, (int, float)):
+            if e < 0:
+                raise ValueError(f"Invalid eccentricity: {e} < 0")
+            if e >= 1.0:
+                raise ValueError(f"Invalid eccentricity: {e} >= 1.0")
+        else:
+            e = np.asarray(e)
+            if np.any(e < 0):
+                raise ValueError("Invalid eccentricity: some values < 0")
+            if np.any(e >= 1.0):
+                raise ValueError("Invalid eccentricity: some values >= 1.0")
 
     @staticmethod
-    def _validate_argument_periastron(w: float) -> None:
-        """Validate argument of periastron."""
-        if not -np.pi <= w < np.pi:
-            raise ValueError(f"Invalid argument of periastron: {w} not in [-pi, +pi)")
+    def _validate_argument_periastron(w: float | np.ndarray) -> None:
+        """Validate argument of periastron.
 
-    def validate_default_parameterisation_params(self, params_dict: dict[str, float]) -> None:
+        Parameters
+        ----------
+        w : float or array-like
+            Argument of periastron value(s) to validate.
+        """
+        if isinstance(w, (int, float)):
+            if not -np.pi <= w < np.pi:
+                raise ValueError(f"Invalid argument of periastron: {w} not in [-pi, +pi)")
+        else:
+            w = np.asarray(w)
+            if np.any(w < -np.pi) or np.any(w >= np.pi):
+                raise ValueError("Invalid argument of periastron: some values not in [-pi, +pi)")
+
+    def validate_default_parameterisation_params(self, params_dict: dict[str, float | np.ndarray]) -> None:
         """Validate all parameters in default parameterisation (per k e w tp).
 
         Parameters
@@ -59,7 +105,7 @@ class Parameterisation:
         # Note: tp (time of periastron) can be any real number, so no validation needed
         # As by the time this is called, we've already validated that all parameters are at least finite real numbers
 
-    def validate_planetary_params(self, params_dict: dict[str, float]) -> None:
+    def validate_planetary_params(self, params_dict: dict[str, float | np.ndarray]) -> None:
         """Validate planetary parameters are astrophysically valid, in any parameterisation.
 
         Parameters
@@ -110,7 +156,7 @@ class Parameterisation:
     def __repr__(self) -> str:
         return f"Parameterisation({self.parameterisation})"
 
-    def _time_given_true_anomaly(self, true_anomaly: float, period: float, eccentricity: float, time_peri: float) -> float:
+    def _time_given_true_anomaly(self, true_anomaly: float | np.ndarray, period: float | np.ndarray, eccentricity: float | np.ndarray, time_peri: float | np.ndarray) -> float | np.ndarray:
         """Calculate the time that the star will be at a given true anomaly.
 
         Parameters
@@ -134,7 +180,7 @@ class Parameterisation:
 
         return mean_anomaly * (period / (2 * np.pi)) + time_peri
 
-    def convert_tp_to_tc(self, time_peri: float, period: float, eccentricity: float, arg_peri: float) -> float:
+    def convert_tp_to_tc(self, time_peri: float | np.ndarray, period: float | np.ndarray, eccentricity: float | np.ndarray, arg_peri: float | np.ndarray) -> float | np.ndarray:
         """Calculate the time of transit centre, given time of periastron passage.
 
         This is only a time of (primary) transit centre if the planet is actually
@@ -149,7 +195,7 @@ class Parameterisation:
         theta_tc = (np.pi / 2) - arg_peri  # true anomaly at time t_c (Eastman et. al. 2013)
         return self._time_given_true_anomaly(theta_tc, period, eccentricity, time_peri)
 
-    def convert_tc_to_tp(self, time_conj: float, period: float, eccentricity: float, arg_peri: float) -> float:
+    def convert_tc_to_tp(self, time_conj: float | np.ndarray, period: float | np.ndarray, eccentricity: float | np.ndarray, arg_peri: float | np.ndarray) -> float | np.ndarray:
         """Calculate the time of periastron passage, given time of primary transit.
 
         Returns
@@ -162,13 +208,13 @@ class Parameterisation:
         # Validate eccentricity before sqrt operations (prevents RuntimeWarnings)
         self._validate_eccentricity(eccentricity)
 
-        # Calculate eccentric anomaly using the relation: E = 2*arctan(sqrt((1-e)/(1+e)) * tan(θ_tc/2))
+        # Calculate eccentric anomaly using the relation: E = 2*arctan(sqrt((1-e)/(1+e)) * tan(theta_tc/2))
         eccentric_anomaly = 2 * np.arctan(np.sqrt((1 - eccentricity) / (1 + eccentricity)) * np.tan(theta_tc / 2))
 
         mean_anomaly = eccentric_anomaly - (eccentricity * np.sin(eccentric_anomaly))
         return time_conj - (period / (2 * np.pi)) * mean_anomaly
 
-    def convert_secosw_sesinw_to_e_w(self, secosw: float, sesinw: float) -> tuple[float, float]:
+    def convert_secosw_sesinw_to_e_w(self, secosw: float | np.ndarray, sesinw: float | np.ndarray) -> tuple[float | np.ndarray, float | np.ndarray]:
         """Convert sqrt(e)cos(w), sqrt(e)sin(w) to eccentricity and argument of periastron.
 
         Parameters
@@ -187,7 +233,7 @@ class Parameterisation:
         w = np.arctan2(sesinw, secosw)
         return e, w
 
-    def convert_e_w_to_secosw_sesinw(self, e: float, w: float) -> tuple[float, float]:
+    def convert_e_w_to_secosw_sesinw(self, e: float | np.ndarray, w: float | np.ndarray) -> tuple[float | np.ndarray, float | np.ndarray]:
         """Convert eccentricity and argument of periastron to sqrt(e)cos(w), sqrt(e)sin(w).
 
         Parameters
@@ -209,7 +255,7 @@ class Parameterisation:
         sesinw = sqrt_e * np.sin(w)
         return secosw, sesinw
 
-    def convert_ecosw_esinw_to_e_w(self, ecosw: float, esinw: float) -> tuple[float, float]:
+    def convert_ecosw_esinw_to_e_w(self, ecosw: float | np.ndarray, esinw: float | np.ndarray) -> tuple[float | np.ndarray, float | np.ndarray]:
         """Convert e*cos(w), e*sin(w) to eccentricity and argument of periastron.
 
         Parameters
@@ -231,7 +277,7 @@ class Parameterisation:
         w = np.arctan2(esinw, ecosw)
         return e, w
 
-    def convert_e_w_to_ecosw_esinw(self, e: float, w: float) -> tuple[float, float]:
+    def convert_e_w_to_ecosw_esinw(self, e: float | np.ndarray, w: float | np.ndarray) -> tuple[float | np.ndarray, float | np.ndarray]:
         """Convert eccentricity and argument of periastron to e*cos(w), e*sin(w).
 
         Parameters
@@ -250,7 +296,7 @@ class Parameterisation:
         esinw = e * np.sin(w)
         return ecosw, esinw
 
-    def convert_pars_to_default_parameterisation(self, inpars: dict[str, float]) -> dict[str, float]:
+    def convert_pars_to_default_parameterisation(self, inpars: dict[str, float | np.ndarray]) -> dict[str, float | np.ndarray]:
         """Convert parameters from this parameterisation to default (per k e w tp).
 
         Parameters
