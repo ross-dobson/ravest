@@ -1150,14 +1150,14 @@ class Fitter:
 
         return np.ascontiguousarray(lnprob)
 
-    def get_posterior_params_dict(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> dict:
-        """Return dict combining fixed parameter values, and MCMC samples for the free ones.
+    def get_mcmc_posterior_dict(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> dict:
+        """Return dict combining MCMC samples for free params, and the fixed values for the fixed params.
 
         This method creates a unified dictionary containing all model parameters:
         fixed parameters as single float values, and free parameters as arrays
         of MCMC samples. This format is ideal for functions like calculate_mpsini
-        that need all parameters (whether free or fixed), and that should propagate uncertainties from
-        the free parameters samples.
+        that need all parameters (whether free or fixed), and that should propagate
+        uncertainties from the free parameters samples.
 
         Parameters
         ----------
@@ -1206,13 +1206,17 @@ class Fitter:
         )
         return log_likelihood(params_dict)
 
-    def build_complete_params_dict(self, free_params: np.ndarray | list | Dict[str, float]) -> Dict[str, float]:
+    def build_params_dict(self, free_params: np.ndarray | list | Dict[str, float]) -> Dict[str, float]:
         """Build a params dict by providing free param vals, combine with fixed param vals.
 
-        Takes free parameter values from (which can be from any source e.g. MAP results, MCMC posteriors,
+        Takes free parameter float values (which can be from any source e.g. MAP results, MCMC posteriors,
         or any custom values) and combines them with the fixed parameter values to create
         a complete parameter dictionary. This dict is ideal for calculating chi2, log-likelihood,
         AIC, and BIC.
+
+        This is designed for a single value per parameter. For combining the MCMC posterior
+        chains for free parameters and the fixed values for fixed parameters, use
+        `get_mcmc_posterior_dict` method.
 
         Parameters
         ----------
@@ -1230,17 +1234,17 @@ class Fitter:
         --------
         >>> # From MAP optimization result
         >>> map_result = fitter.find_map_estimate()
-        >>> params = fitter.build_complete_params_dict(map_result.x)
+        >>> params = fitter.build_params_dict(map_result.x)
         >>> aic = fitter.calculate_aic(params)
         >>>
         >>> # From best MCMC sample
         >>> best_sample = fitter.get_sample_with_best_lnprob(discard_start=1000)
-        >>> params = fitter.build_complete_params_dict(best_sample)
+        >>> params = fitter.build_params_dict(best_sample)
         >>> bic = fitter.calculate_bic(params)
         >>>
         >>> # From custom array of values (in order of free_params_names)
         >>> custom_values = [5.0, 50.0, 0.1, 0.0, 2450000.0]  # example values
-        >>> params = fitter.build_complete_params_dict(custom_values)
+        >>> params = fitter.build_params_dict(custom_values)
         >>> log_like = fitter.calculate_log_likelihood(params)
         """
         if isinstance(free_params, dict):
@@ -1263,7 +1267,7 @@ class Fitter:
                 raise ValueError(
                     f"Expected {len(self.free_params_names)} free parameter values "
                     f"but got {len(free_params)} "
-                    f"(expecting values for {self.free_params_names})"
+                    f"(expecting {len(self.free_params_names)} values for {self.free_params_names})"
                 )
 
             free_dict = dict(zip(self.free_params_names, free_params))
