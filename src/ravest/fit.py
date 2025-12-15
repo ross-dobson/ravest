@@ -24,6 +24,7 @@ import pandas as pd
 import scipy
 from matplotlib.ticker import AutoLocator, AutoMinorLocator, MultipleLocator
 from scipy.optimize import minimize
+from tqdm import tqdm
 
 import ravest.model
 from ravest.param import Parameter, Parameterisation
@@ -1948,8 +1949,8 @@ class Fitter:
         tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
 
         # Calculate posterior RV predictions
-        rv_all_planets_trend_matrix_smooth = self.calculate_rv_from_samples(times=tsmooth, discard_start=discard_start, discard_end=discard_end, thin=thin)
-        rv_all_planets_trend_matrix_obs = self.calculate_rv_from_samples(times=self.time, discard_start=discard_start, discard_end=discard_end, thin=thin)
+        rv_all_planets_trend_matrix_smooth = self.calculate_rv_total_from_samples(times=tsmooth, discard_start=discard_start, discard_end=discard_end, thin=thin)
+        rv_all_planets_trend_matrix_obs = self.calculate_rv_total_from_samples(times=self.time, discard_start=discard_start, discard_end=discard_end, thin=thin)
 
         # Calculate percentiles
         rv_percentiles_smooth = np.percentile(rv_all_planets_trend_matrix_smooth, [15.85, 50, 84.15], axis=0)
@@ -2181,7 +2182,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def calculate_rv_planet_from_samples(self, planet_letter: str, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> np.ndarray:
+    def calculate_rv_planet_from_samples(self, planet_letter: str, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1, progress: bool = False) -> np.ndarray:
         """Calculate planetary RV for each MCMC sample.
 
         This calculates RV(params_i) for each MCMC sample i, preserving
@@ -2200,6 +2201,8 @@ class Fitter:
             Discard last N steps (default: 0)
         thin : int, optional
             Use every Nth sample (default: 1)
+        progress : bool, optional
+            Show progress bar (default: False)
 
         Returns
         -------
@@ -2210,7 +2213,8 @@ class Fitter:
         planet_rvs = np.zeros((len(samples), len(times)))
         fixed_params_dict = self.fixed_params_values_dict
 
-        for i, row in enumerate(samples):
+        iterator = tqdm(enumerate(samples), total=len(samples), disable=not progress, desc=f"Calculating planet {planet_letter} RV from samples")
+        for i, row in iterator:
             # Combine fixed and free parameters
             free_params = dict(zip(self.free_params_names, row))
             params = fixed_params_dict | free_params
@@ -2228,7 +2232,7 @@ class Fitter:
 
         return planet_rvs
 
-    def calculate_rv_trend_from_samples(self, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> np.ndarray:
+    def calculate_rv_trend_from_samples(self, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1, progress: bool = False) -> np.ndarray:
         """Calculate trend RV for each MCMC sample.
 
         This calculates RV_trend(params_i) for each MCMC sample i, preserving
@@ -2245,6 +2249,8 @@ class Fitter:
             Discard last N steps (default: 0)
         thin : int, optional
             Use every Nth sample (default: 1)
+        progress : bool, optional
+            Show progress bar (default: False)
 
         Returns
         -------
@@ -2255,7 +2261,8 @@ class Fitter:
         trend_rvs = np.zeros((len(samples), len(times)))
         fixed_params_dict = self.fixed_params_values_dict
 
-        for i, row in enumerate(samples):
+        iterator = tqdm(enumerate(samples), total=len(samples), disable=not progress, desc="Calculating trend RV from samples")
+        for i, row in iterator:
             # Combine fixed and free parameters
             free_params = dict(zip(self.free_params_names, row))
             params = fixed_params_dict | free_params
@@ -2267,7 +2274,7 @@ class Fitter:
 
         return trend_rvs
 
-    def calculate_rv_from_samples(self, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> np.ndarray:
+    def calculate_rv_total_from_samples(self, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1, progress: bool = False) -> np.ndarray:
         """Calculate total RV (planets + trend) for each MCMC sample.
 
         This calculates RV_total(params_i) for each MCMC sample i, preserving
@@ -2284,6 +2291,8 @@ class Fitter:
             Discard last N steps (default: 0)
         thin : int, optional
             Use every Nth sample (default: 1)
+        progress : bool, optional
+            Show progress bar (default: False)
 
         Returns
         -------
@@ -2291,11 +2300,11 @@ class Fitter:
             Shape (n_samples, len(times)) - Total RV for each sample
         """
         # Get trend RV for all samples
-        total_rvs = self.calculate_rv_trend_from_samples(times, discard_start, discard_end, thin)
+        total_rvs = self.calculate_rv_trend_from_samples(times, discard_start, discard_end, thin, progress)
 
         # Add each planet's RV
         for planet_letter in self.planet_letters:
-            planet_rvs = self.calculate_rv_planet_from_samples(planet_letter, times, discard_start, discard_end, thin)
+            planet_rvs = self.calculate_rv_planet_from_samples(planet_letter, times, discard_start, discard_end, thin, progress)
             total_rvs += planet_rvs
 
         return total_rvs
