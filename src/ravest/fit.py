@@ -2211,24 +2211,14 @@ class Fitter:
         """
         samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         planet_rvs = np.zeros((len(samples), len(times)))
-        fixed_params_dict = self.fixed_params_values_dict
 
         iterator = tqdm(enumerate(samples), total=len(samples), disable=not progress, desc=f"Calculating planet {planet_letter} RV from samples")
         for i, row in iterator:
-            # Combine fixed and free parameters
-            free_params = dict(zip(self.free_params_names, row))
-            params = fixed_params_dict | free_params
+            # Build complete params dict for this sample
+            params = self.build_params_dict(row)
 
-            # Get this planet's parameters
-            planet_params = {}
-            for par in self.parameterisation.pars:
-                key = f"{par}_{planet_letter}"
-                planet_params[par] = params[key]
-
-            # Calculate this planet's RV
-            planet = ravest.model.Planet(planet_letter, self.parameterisation, planet_params)
-            planet_rv = planet.radial_velocity(times)
-            planet_rvs[i, :] = planet_rv
+            # Use custom method
+            planet_rvs[i, :] = self.calculate_rv_planet_custom(planet_letter, times, params)
 
         return planet_rvs
 
@@ -2259,18 +2249,14 @@ class Fitter:
         """
         samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         trend_rvs = np.zeros((len(samples), len(times)))
-        fixed_params_dict = self.fixed_params_values_dict
 
         iterator = tqdm(enumerate(samples), total=len(samples), disable=not progress, desc="Calculating trend RV from samples")
         for i, row in iterator:
-            # Combine fixed and free parameters
-            free_params = dict(zip(self.free_params_names, row))
-            params = fixed_params_dict | free_params
+            # Build complete params dict for this sample
+            params = self.build_params_dict(row)
 
-            # Calculate trend RV
-            trend = ravest.model.Trend(params={"g": params["g"], "gd": params["gd"], "gdd": params["gdd"]}, t0=self.t0)
-            trend_rv = trend.radial_velocity(times)
-            trend_rvs[i, :] = trend_rv
+            # Use custom method
+            trend_rvs[i, :] = self.calculate_rv_trend_custom(times, params)
 
         return trend_rvs
 
@@ -2332,18 +2318,15 @@ class Fitter:
 
         Examples
         --------
-        >>> # Using best lnprob sample
-        >>> samples = fitter.get_samples_np(discard_start=1000, flat=True)
-        >>> best_idx = fitter.sampler.flatlnprobability[1000:].argmax()
-        >>> free_params = dict(zip(fitter.free_params_names, samples[best_idx]))
-        >>> params = fitter.build_params_dict(free_params)
+        >>> # Using MAP result
+        >>> map_result = fitter.find_map_estimate()
+        >>> params = fitter.build_params_dict(map_result.x)
         >>> rv = fitter.calculate_rv_planet_custom('b', times, params)
         >>>
-        >>> # Using custom experimental values
-        >>> custom_params = fitter.params.copy()
-        >>> custom_params['K_b'] = 100.0  # Try different amplitude
-        >>> params_dict = {k: v.value for k, v in custom_params.items()}
-        >>> rv = fitter.calculate_rv_planet_custom('b', times, params_dict)
+        >>> # Using best lnprob sample
+        >>> best_params = fitter.get_sample_with_best_lnprob(discard_start=1000)
+        >>> params = fitter.build_params_dict(best_params)
+        >>> rv = fitter.calculate_rv_planet_custom('b', times, params)
         """
         # Extract planet parameters
         planet_params = {}
@@ -2406,6 +2389,11 @@ class Fitter:
 
         Examples
         --------
+        >>> # Using MAP result
+        >>> map_result = fitter.find_map_estimate()
+        >>> params = fitter.build_params_dict(map_result.x)
+        >>> total_rv = fitter.calculate_rv_total_custom(times, params)
+        >>>
         >>> # Using median parameters
         >>> samples_df = fitter.get_samples_df(discard_start=1000)
         >>> median_values = samples_df.median().to_dict()
