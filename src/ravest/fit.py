@@ -2309,6 +2309,119 @@ class Fitter:
 
         return total_rvs
 
+    def calculate_rv_planet_custom(self, planet_letter: str, times: np.ndarray, params: dict[str, float]) -> np.ndarray:
+        """Calculate planetary RV for a single set of custom parameters.
+
+        Useful for calculating RV with specific parameter values (e.g., best lnprob
+        sample, median parameters, or experimental values).
+
+        Parameters
+        ----------
+        planet_letter : str
+            Planet letter (e.g., 'b', 'c')
+        times : np.ndarray
+            Time points to calculate RV at
+        params : dict[str, float]
+            Complete parameter dictionary (both free and fixed parameters).
+            Can be created using build_params_dict() or manually constructed.
+
+        Returns
+        -------
+        np.ndarray
+            RV values at the requested times
+
+        Examples
+        --------
+        >>> # Using best lnprob sample
+        >>> samples = fitter.get_samples_np(discard_start=1000, flat=True)
+        >>> best_idx = fitter.sampler.flatlnprobability[1000:].argmax()
+        >>> free_params = dict(zip(fitter.free_params_names, samples[best_idx]))
+        >>> params = fitter.build_params_dict(free_params)
+        >>> rv = fitter.calculate_rv_planet_custom('b', times, params)
+        >>>
+        >>> # Using custom experimental values
+        >>> custom_params = fitter.params.copy()
+        >>> custom_params['K_b'] = 100.0  # Try different amplitude
+        >>> params_dict = {k: v.value for k, v in custom_params.items()}
+        >>> rv = fitter.calculate_rv_planet_custom('b', times, params_dict)
+        """
+        # Extract planet parameters
+        planet_params = {}
+        for par in self.parameterisation.pars:
+            key = f"{par}_{planet_letter}"
+            planet_params[par] = params[key]
+
+        # Calculate planet RV
+        planet = ravest.model.Planet(planet_letter, self.parameterisation, planet_params)
+        return planet.radial_velocity(times)
+
+    def calculate_rv_trend_custom(self, times: np.ndarray, params: dict[str, float]) -> np.ndarray:
+        """Calculate trend RV for a single set of custom parameters.
+
+        Useful for calculating RV with specific parameter values (e.g., best lnprob
+        sample, median parameters, or experimental values).
+
+        Parameters
+        ----------
+        times : np.ndarray
+            Time points to calculate RV at
+        params : dict[str, float]
+            Complete parameter dictionary (both free and fixed parameters).
+            Can be created using build_params_dict() or manually constructed.
+
+        Returns
+        -------
+        np.ndarray
+            Trend RV values at the requested times
+
+        Examples
+        --------
+        >>> # Using MAP result
+        >>> map_result = fitter.find_map_estimate()
+        >>> params = fitter.build_params_dict(map_result.x)
+        >>> trend_rv = fitter.calculate_rv_trend_custom(times, params)
+        """
+        # Calculate trend RV
+        trend = ravest.model.Trend(params={"g": params["g"], "gd": params["gd"], "gdd": params["gdd"]}, t0=self.t0)
+        return trend.radial_velocity(times)
+
+    def calculate_rv_total_custom(self, times: np.ndarray, params: dict[str, float]) -> np.ndarray:
+        """Calculate total RV (trend + all planets) for a single set of custom parameters.
+
+        Useful for calculating RV with specific parameter values (e.g., best lnprob
+        sample, median parameters, or experimental values).
+
+        Parameters
+        ----------
+        times : np.ndarray
+            Time points to calculate RV at
+        params : dict[str, float]
+            Complete parameter dictionary (both free and fixed parameters).
+            Can be created using build_params_dict() or manually constructed.
+
+        Returns
+        -------
+        np.ndarray
+            Total RV values (trend + all planets) at the requested times
+
+        Examples
+        --------
+        >>> # Using median parameters
+        >>> samples_df = fitter.get_samples_df(discard_start=1000)
+        >>> median_values = samples_df.median().to_dict()
+        >>> params = fitter.build_params_dict(median_values)
+        >>> total_rv = fitter.calculate_rv_total_custom(times, params)
+        """
+        # Calculate trend
+        total_rv = self.calculate_rv_trend_custom(times, params)
+
+        # Add each planet
+        for planet_letter in self.planet_letters:
+            planet_rv = self.calculate_rv_planet_custom(planet_letter, times, params)
+            total_rv += planet_rv
+
+        return total_rv
+
     def plot_MAP_rv(self, map_result: scipy.optimize.OptimizeResult, title: str | None = "MAP RV", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "MAP_rv.png", dpi: int = 100) -> None:
         """Plot radial velocity data and model using MAP parameter estimates.
 
