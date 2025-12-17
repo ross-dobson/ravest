@@ -2966,6 +2966,234 @@ class LogPrior:
 
         return log_prior_probability
 
+class GPLogPosterior:
+    """Log posterior probability for GP MCMC sampling.
+
+    Combines GP log likelihood and log priors for both parameters and hyperparameters.
+    """
+
+    def __init__(
+        self,
+        planet_letters: list[str],
+        parameterisation: Parameterisation,
+        gp_kernel: GPKernel,
+        priors: dict[str, Callable[[float], float]],
+        hyperpriors: dict[str, Callable[[float], float]],
+        fixed_params: dict[str, float],
+        fixed_hyperparams: dict[str, float],
+        free_params_names: list[str],
+        free_hyperparams_names: list[str],
+        time: np.ndarray,
+        vel: np.ndarray,
+        verr: np.ndarray,
+        t0: float,
+    ) -> None:
+        """Initialize the GPLogPosterior object.
+
+        Parameters
+        ----------
+        planet_letters : list[str]
+            List of single-character planet identifiers.
+        parameterisation : Parameterisation
+            The orbital parameterisation to use.
+        gp_kernel : GPKernel
+            The Gaussian Process kernel to use.
+        priors : dict[str, Callable[[float], float]]
+            Dictionary mapping parameter names to their prior probability functions.
+        hyperpriors : dict[str, Callable[[float], float]]
+            Dictionary mapping hyperparameter names to their prior probability functions.
+        fixed_params : dict[str, float]
+            Dictionary of fixed parameter values.
+        fixed_hyperparams : dict[str, float]
+            Dictionary of fixed hyperparameter values.
+        free_params_names : list[str]
+            List of free parameter names to sample.
+        free_hyperparams_names : list[str]
+            List of free hyperparameter names to sample.
+        time : np.ndarray
+            Time of each observation [days].
+        vel : np.ndarray
+            Radial velocity at each time [m/s].
+        verr : np.ndarray
+            Uncertainty on the radial velocity at each time [m/s].
+        t0 : float
+            Reference time for the trend [days].
+        """
+        self.planet_letters = planet_letters
+        self.parameterisation = parameterisation
+        self.gp_kernel = gp_kernel
+        self.priors = priors
+        self.hyperpriors = hyperpriors
+        self.fixed_params = fixed_params
+        self.fixed_hyperparams = fixed_hyperparams
+        self.free_params_names = free_params_names
+        self.free_hyperparams_names = free_hyperparams_names
+        self.time = time
+        self.vel = vel
+        self.verr = verr
+        self.t0 = t0
+
+        # Create GP log-likelihood and GP log-prior objects for later
+        self.gp_log_likelihood = GPLogLikelihood(
+            time=self.time,
+            vel=self.vel,
+            verr=self.verr,
+            t0=self.t0,
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            gp_kernel=self.gp_kernel,
+        )
+
+        # Create LogPrior objects for parameters and hyperparameters
+        self.log_prior = LogPrior(self.priors)
+        self.log_hyperprior = LogPrior(self.hyperpriors)
+
+    def _convert_params_for_prior_evaluation(self, free_params_dict: dict[str, float]) -> Dict[str, float]:
+        """Convert free parameters for prior evaluation if needed.
+
+        Parameters
+        ----------
+        free_params_dict : dict
+            Free parameters in current parameterisation
+
+        Returns
+        -------
+        dict
+            Parameters with names/values converted for prior evaluation
+        """
+        # Three cases:
+        # Case 1: User is fitting in transformed parameterisation, but priors are in same transformed parameterisation
+        # Case 2: User is fitting in default parameterisation, and priors are also in default parameterisation
+        # Case 3: User is fitting in transformed parameterisation, but priors are in default parameterisation
+
+        # Simple detection: do prior keys match our current free parameter names?
+        prior_keys = set(self.priors.keys())
+        free_param_keys = set(self.free_params_names)
+        if prior_keys == free_param_keys:
+            # No conversion needed (Cases 1 & 2)
+            return free_params_dict
+        else:
+            # Conversion needed (Case 3) - convert to default parameterisation equivalents
+            # Start with just the non-planetary parameters that match
+            params_for_prior = {key: value for key, value in free_params_dict.items()
+                              if key in prior_keys}
+
+            all_params = self.fixed_params | free_params_dict
+
+            # Convert each planet's parameters
+            for planet_letter in self.planet_letters:
+                # Get current planet parameters
+                planet_params = {par: all_params[f"{par}_{planet_letter}"]
+                               for par in self.parameterisation.pars}
+
+                # Convert to default parameterisation
+                default_params = self.parameterisation.convert_pars_to_default_parameterisation(planet_params)
+
+                # Add the converted parameter values for priors that need them
+                for default_par, value in default_params.items():
+                    default_param_key = f"{default_par}_{planet_letter}"
+                    if default_param_key in prior_keys:  # Only add if we have a prior for it
+                        params_for_prior[default_param_key] = value
+
+            return params_for_prior
+
+    def log_probability(self, combined_params_hyperparams: Dict[str, float]) -> float:
+        """Calculate log posterior probability for given free parameters and hyperparameters.
+
+        Parameters
+        ----------
+        combined_params_hyperparams : Dict[str, float]
+            Combined dictionary of free parameters and hyperparameters
+
+        Returns
+        -------
+        float
+            Log posterior probability (log likelihood + log prior + log hyperprior)
+        """
+        # Split the combined dictionary into parameters and hyperparameters
+        free_params_dict = {name: combined_params_hyperparams[name] for name in self.free_params_names}
+        free_hyperparams_dict = {name: combined_params_hyperparams[name] for name in self.free_hyperparams_names}
+        # Fast fail for invalid jitter (before expensive prior/likelihood calculations)
+        # We have to check jitter specifically because all other params will ultimately
+        # get checked/raise Exceptions when they are used to calculate an RV.
+        # Jitter doesn't directly contribute to calculated RV, so needs to be checked manually.
+        _all_params_for_ll = self.fixed_params | free_params_dict
+        if _all_params_for_ll["jit"] < 0:
+            return -np.inf
+
+        # Fast fail for invalid GP hyperparameters
+        # This is a check for unphysical values, not for if they are within the hyperpriors or not
+        try:
+            all_hyperparams_values = self.fixed_hyperparams | free_hyperparams_dict
+            self.gp_kernel._validate_hyperparams_values(all_hyperparams_values)
+        except ValueError:
+            return -np.inf
+
+        # Evaluate priors on the free parameters. If any parameters are outside priors
+        # (i.e. priors are infinite), then fail fast by returning -inf early (before expensive likelihood calc).
+        # We attempt to convert free parameters (if needed) for prior evaluation
+        # This is for if the user is fitting in transformed parameterisation,
+        # but defining their priors in the default parameterisation
+        try:
+            params_for_prior = self._convert_params_for_prior_evaluation(free_params_dict)
+            lp = self.log_prior(params_for_prior)
+        except ValueError:
+            # Invalid parameter conversion (e.g., unphysical eccentricity)
+            return -np.inf
+        if not np.isfinite(lp):
+            return -np.inf
+
+        # Evaluate hyperpriors on the free hyperparameters - fail fast if any hyperparameters are outside priors
+        lhp = self.log_hyperprior(free_hyperparams_dict)
+        if not np.isfinite(lhp):
+            return -np.inf
+
+        # Calculate GP log-likelihood with all parameters and hyperparameters
+        all_params = self.fixed_params | free_params_dict
+        all_hyperparams = self.fixed_hyperparams | free_hyperparams_dict
+        ll = self.gp_log_likelihood(params=all_params, hyperparams=all_hyperparams)
+
+        # Return combined log-posterior (log-likelihood + log-prior + log-hyperprior)
+        logprob = ll + lp + lhp
+        return logprob
+
+    def _negative_log_probability_for_MAP(self, combined_free_params_hyperparams_vals: list[float]) -> float:
+        """For MAP: run __call__ only passing in a list, not dict, of params.
+
+        Because scipy.optimize.minimise only takes list of values, not a dict,
+        we need to assign the values back to their corresponding keys, and pass
+        that to __call__().
+
+        This does not check that the values are in the correct order, it is
+        assumed. As we're dealing with dicts, this hopefully is the case.
+
+        Parameters
+        ----------
+        combined_free_params_hyperparams_vals : list
+            Combined list of free parameter and free hyperparameter values
+        """
+        # Split the list back into params values and hyperparams values
+        n_params = len(self.free_params_names)
+        params_values = combined_free_params_hyperparams_vals[:n_params]
+        hyperparams_values = combined_free_params_hyperparams_vals[n_params:]
+
+        # Create combined dict from the names and values
+        # (Assumes the order of names matches the order of values)
+        params_dict = dict(zip(self.free_params_names, params_values))
+        hyperparams_dict = dict(zip(self.free_hyperparams_names, hyperparams_values))
+        combined_dict = params_dict | hyperparams_dict
+
+        # Calculate *negative* log_probability (MAP is backwards from MCMC)
+        logprob = self.log_probability(combined_dict)
+        neg_logprob = -logprob
+
+        # Handle -inf log_probability to prevent scipy RuntimeWarnings during optimisation
+        # scipy's optimizer can't handle -inf values in arithmetic operations
+        # (This does mean there is a non-zero chance we could end up returning a solution that doesn't satisfy the prior functions)
+        if not np.isfinite(neg_logprob):
+            return 1e30  # Very large finite number instead of +inf
+
+        return neg_logprob
 class GPLogLikelihood:
     """GP version of Log likelihood calculation for radial velocity data.
 
