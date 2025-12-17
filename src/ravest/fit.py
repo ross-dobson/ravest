@@ -18,16 +18,23 @@ os.environ["MKL_NUM_THREADS"] = "1"
 
 import corner
 import emcee
+import jax
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy
 from matplotlib.ticker import AutoLocator, AutoMinorLocator, MultipleLocator
 from scipy.optimize import minimize
+from tinygp import GaussianProcess, kernels
 from tqdm import tqdm
 
 import ravest.model
+from ravest.gp import GPKernel
 from ravest.param import Parameter, Parameterisation
+
+# Enable 64-bit precision for better numerical accuracy
+jax.config.update("jax_enable_x64", True)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -2958,3 +2965,133 @@ class LogPrior:
             log_prior_probability += self.priors[param](params[param])
 
         return log_prior_probability
+
+class GPLogLikelihood:
+    """GP version of Log likelihood calculation for radial velocity data.
+
+    Calculates log likelihood given RV model parameters and data, and GP hyperparameters.
+    """
+
+    def __init__(
+        self,
+        time: np.ndarray,
+        vel: np.ndarray,
+        verr: np.ndarray,
+        t0: float,
+        planet_letters: list[str],
+        parameterisation: Parameterisation,
+        gp_kernel: GPKernel,
+    ) -> None:
+        self.time = time
+        self.vel = vel
+        self.verr = verr
+        self.t0 = t0
+        self.planet_letters = planet_letters
+        self.parameterisation = parameterisation
+        self.gp_kernel = gp_kernel
+
+        # Convert data to JAX array for tinygp
+        self.jax_time = jnp.array(self.time)
+        self.jax_vel = jnp.array(self.vel)
+        self.jax_verr = jnp.array(self.verr)
+
+    def _calculate_mean_model(self, params: Dict[str, float]) -> jnp.ndarray:
+        """Calculate the Keplerian RV model (the mean function for the GP).
+
+        Takes planetary parameters and trend parameters.
+
+        Parameters
+        ----------
+        params : Dict[str, float]
+            Dictionary of all parameter values
+
+        Returns
+        -------
+        jnp.ndarray
+            Mean model RV values at observation times
+        """
+        rv_total = jnp.zeros(len(self.time))
+
+        # Step 1: Calculate RV contributions from each planet
+        for letter in self.planet_letters:
+            # get just the parameters for this planet (and strip the _letter suffix from the keys)
+            _this_planet_params = {
+                par: params[f"{par}_{letter}"]
+                for par in self.parameterisation.pars
+            }
+
+            try:
+                _this_planet = ravest.model.Planet(letter, self.parameterisation, _this_planet_params)
+                _this_planet_rv = _this_planet.radial_velocity(self.time)
+            except ValueError:
+                # Planet.__init__ validates parameters and raises ValueError for invalid params
+                return -np.inf  # fail-fast: return -inf log-likelihood
+
+            # add this planet's RV contribution to the total
+            rv_total += _this_planet_rv
+
+        # Step 2: Calculate and add the RV from the system Trend
+        _trend_keys = ["g", "gd", "gdd"]
+        _trend_params = {key: params[key] for key in _trend_keys}
+        _this_trend = ravest.model.Trend(params=_trend_params, t0=self.t0)
+        _rv_trend = _this_trend.radial_velocity(self.time)
+        rv_total += jnp.array(_rv_trend)
+
+        return rv_total
+
+    @staticmethod
+    @jax.jit
+    def _compute_gp_log_likelihood(
+        kernel: kernels.Kernel,
+        time_array: jnp.ndarray,
+        vel_array: jnp.ndarray,
+        verr_squared_array: jnp.ndarray,
+        mean_model: jnp.ndarray
+    ) -> float:
+        """JIT-compiled GP log likelihood computation.
+
+        This is the expensive numerical part that benefits from JIT compilation.
+        """
+        gp = GaussianProcess(kernel=kernel, X=time_array, diag=verr_squared_array)
+        residuals = vel_array - mean_model
+        return gp.log_probability(y=residuals)
+
+    def __call__(self, params: Dict[str, float], hyperparams: Dict[str, float]) -> float:
+        """Calculate GP log likelihood for given parameters and hyperparameters.
+
+        Parameters
+        ----------
+        params : Dict[str, float]
+            Dictionary of all parameter values
+        hyperparams : Dict[str, float]
+            Dictionary of all hyperparameter values
+
+        Returns
+        -------
+        float
+            Log likelihood value
+        """
+        # Calculate mean model (RV signal from planets + system trend)
+        mean_model = self._calculate_mean_model(params)
+
+        # Check if mean model calculation failed
+        # (no point doing expensive GP calculation if we don't need to)
+        if not jnp.isfinite(mean_model).all():
+            return -np.inf
+
+        # Build GP kernel with hyperparameters
+        kernel = self.gp_kernel.build_kernel(hyperparams)
+
+        # Add jitter to observational uncertainties
+        jit_value = params["jit"]
+        jit2_verr2 = self.jax_verr**2 + jit_value**2
+        # N.B. we don't sqrt here - tinygp diag wants variance, not stddev
+
+        # Use JIT-compiled helper for the expensive GP computation
+        return self._compute_gp_log_likelihood(
+            kernel=kernel,
+            time_array=self.jax_time,
+            vel_array=self.jax_vel,
+            verr_squared_array=jit2_verr2,
+            mean_model=mean_model
+        )
