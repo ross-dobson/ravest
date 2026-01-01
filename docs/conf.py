@@ -29,6 +29,7 @@ autoapi_dirs = ["../src"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 nb_execution_timeout = 600
+nb_execution_mode = "auto"
 
 myst_enable_extensions = [
     "dollarmath",
