@@ -2,8 +2,16 @@ repos:
 -   repo: https://github.com/kynan/nbstripout
     rev: 0.8.1
     hooks:
+      # Light notebooks: Strip outputs and metadata
       - id: nbstripout
+        args: ['--extra-keys=metadata.kernelspec']
+        files: 'docs/Examples/.*\.ipynb'
+        exclude: 'docs/Examples/(example_fitting|K2-24|example_GP)\.ipynb'
+      # Heavy notebooks: Keep outputs, strip metadata only
+      - id: nbstripout
+        name: nbstripout-keep-output
         args: ['--keep-output', '--extra-keys=metadata.kernelspec']
+        files: 'docs/Examples/(example_fitting|K2-24|example_GP)\.ipynb'
 
 -   repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
