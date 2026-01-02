@@ -65,6 +65,10 @@ convention = "numpy"
 "tests/*" = ["D100", "D103", "ANN"]  # Ignore docstrings and all type annotations in tests
 "docs/*" = ["D100", "ANN"]  # Ignore docstrings and type annotations in docs (because conf.py isn't a real python package file)
 
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:FigureCanvasAgg is non-interactive, and thus cannot be shown:UserWarning",
+]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
