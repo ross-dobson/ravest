@@ -1478,7 +1478,7 @@ class Fitter:
                 ax.plot(iterations, tau_history[:, i], alpha=0.7, label=param_name)
 
         ax.set_xlim(0, iterations.max())
-        ax.set_ylim(0, tau_history.max() * 1.1)
+        ax.set_ylim(bottom=0)
         if xlabel:
             ax.set_xlabel(xlabel)
         if ylabel:
@@ -4767,7 +4767,7 @@ class GPFitter:
                 ax.plot(iterations, tau_history[:, idx], alpha=0.7, label=name)
 
         ax.set_xlim(0, iterations.max())
-        ax.set_ylim(0, tau_history.max() * 1.1)
+        ax.set_ylim(bottom=0)
         if xlabel:
             ax.set_xlabel(xlabel)
         if ylabel:
