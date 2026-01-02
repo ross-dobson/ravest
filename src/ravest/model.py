@@ -1,8 +1,14 @@
+"""Radial velocity models for planets, stars, and trends.
+
+Provides classes for modelling radial velocity signals from planetary orbits
+and stellar trends (constant, linear, quadratic).
+"""
 # model.py
 
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy import constants as const
+from matplotlib.ticker import MultipleLocator
 from scipy import constants
 
 from ravest.param import Parameterisation
@@ -21,7 +27,7 @@ class Planet:
         The orbital parameters, matching the parameterisation.
     """
 
-    def __init__(self, letter: str, parameterisation: Parameterisation, params: dict):
+    def __init__(self, letter: str, parameterisation: Parameterisation, params: dict[str, float]) -> None:
         if not (letter.isalpha() and (letter == letter[0] * len(letter))):
             raise ValueError(f"Letter {letter} is not a single alphabet character.")
         self.letter = letter
@@ -32,7 +38,7 @@ class Planet:
         if not set(params.keys()) == set(parameterisation.pars):
             raise ValueError(f"Parameterisation {parameterisation} does not match input params {params}")
 
-        # Convert to the per k e w tp parameterisation that we need for the RV equation
+        # Convert to the default P K e w Tp parameterisation that we need for the RV equation
         self._rvparams = self.parameterisation.convert_pars_to_default_parameterisation(self.params)
 
         # Validate parameters immediately after conversion to avoid invalid parameters
@@ -40,11 +46,11 @@ class Planet:
         self.parameterisation.validate_default_parameterisation_params(self._rvparams)
 
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         class_name = type(self).__name__
         return f"{class_name}(letter={self.letter!r}, parameterisation={self.parameterisation!r}, params={self.params!r})"
 
-    def __str__(self):
+    def __str__(self) -> str:
         class_name = type(self).__name__
         return f"{class_name} {self.letter} {self.params}"
 
@@ -67,7 +73,7 @@ class Planet:
         return 2 * np.pi / period
 
     def _calculate_mean_anomaly(self, t: np.ndarray, n: float, time_peri: float) -> np.ndarray:
-        """Calculate mean anomaly (radians)
+        """Calculate mean anomaly (radians).
 
         For an eccentric orbit with period P, mean anomaly is a fictitious
         angle that increases linearly with time ``t`` for an angular rate ``n``, the
@@ -208,11 +214,11 @@ class Planet:
         `float`
             Radial velocity of the reflex motion of star due to the planet (m/s).
         """
-        P = self._rvparams["per"]
-        K = self._rvparams["k"]
+        P = self._rvparams["P"]
+        K = self._rvparams["K"]
         e = self._rvparams["e"]
         w = self._rvparams["w"]
-        tp = self._rvparams["tp"]
+        tp = self._rvparams["Tp"]
 
         n = self._calculate_mean_motion(period=P)
         M = self._calculate_mean_anomaly(t=t, n=n, time_peri=tp)
@@ -221,7 +227,7 @@ class Planet:
 
         return self._radial_velocity(true_anomaly=f, semi_amplitude=K, eccentricity=e, omega_star=w)
 
-    def mpsini(self, mass_star, unit="kg"):
+    def mpsini(self, mass_star: float, unit: str = "kg") -> float:
         """Calculate the minimum mass of the planet.
 
         Parameters
@@ -236,14 +242,97 @@ class Planet:
         `float`
             The minimum mass of the planet (solar masses).
         """
-        period = self._rvparams["per"]
-        semi_amplitude = self._rvparams["k"]
+        period = self._rvparams["P"]
+        semi_amplitude = self._rvparams["K"]
         eccentricity = self._rvparams["e"]
 
         # Convert stellar mass to kg and period to seconds for SI unit consistency
         # Formula requires SI units: M_s [kg], P [s], K [m/s]
         mpsini = calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit)
         return mpsini
+
+
+class Trend:
+    """Trend in the radial velocity of the star.
+
+    Parameters
+    ----------
+    t0 : `float`
+        The reference zero-point time for the linear and quadratic trend.
+        Recommended to be the mean of the input times.
+    params : `dict`
+        The parameters of the trend: the constant, linear, and quadratic
+        components. These must be named "g", "gd", and "gdd" respectively (which
+        stands for gamma, gamma-dot, gamma-dot-dot). These are in units of m/s,
+        m/s/day, and m/s/day^2 respectively.
+
+    Returns
+    -------
+    `float`
+        The radial velocity of the star due to the trend (m/s).
+
+    Notes
+    -----
+    The radial velocity of the star due to the trend is calculated as the sum of
+    the constant, linear, and quadratic components. The constant component is
+    simply a constant offset of value gamma. The linear and quadratic components
+    are calculated as `gd*(t-t0)` and `gdd*((t-t0)**2)` respectively.
+
+    In general the trend is used to account for any unexpected effects. These
+    could be due to instrumental effects, or for example a very long-term
+    companion could show as a linear and/or quadratic trend in the data. If you
+    see a strong linear or quadratic trend in the data, it is worth
+    investigating.
+    """
+
+    def __init__(self, t0: float, params: dict[str, float]) -> None:
+        self.gamma = params["g"]
+        self.gammadot = params["gd"]
+        self.gammadotdot = params["gdd"]
+
+        # Validate and store reference time t0
+        try:
+            self.t0 = float(t0)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"t0 must be a numeric value (recommend mean or median of observation times), but got {type(t0).__name__}: {t0}") from e
+
+    def __str__(self) -> str:
+        return f"Trend: $\\gamma$={self.gamma}, $\\dot\\gamma$={self.gammadot}, $\\ddot\\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
+
+    def __repr__(self) -> str:
+        return f"Trend(params={{'g': {self.gamma}, 'gd': {self.gammadot}, 'gdd': {self.gammadotdot} }}, t0={self.t0:.2f})"
+
+    def _constant(self, t: np.ndarray) -> float:
+        return self.gamma
+
+    def _linear(self, t: np.ndarray, t0: float) -> np.ndarray:
+        if self.gammadot == 0:
+            return np.zeros(len(t))
+        return self.gammadot * (t - t0)
+
+    def _quadratic(self, t: np.ndarray, t0: float) -> np.ndarray:
+        if self.gammadotdot == 0:
+            return np.zeros(len(t))
+        return self.gammadotdot * ((t - t0) ** 2)
+
+    def radial_velocity(self, t: np.ndarray) -> np.ndarray:
+        """Calculate radial velocity contribution from trend components.
+
+        Parameters
+        ----------
+        t : array_like
+            Time values
+
+        Returns
+        -------
+        array_like
+            RV trend values (constant + linear + quadratic terms)
+        """
+        rv = 0
+        rv += self._constant(t)
+        rv += self._linear(t, self.t0)
+        rv += self._quadratic(t, self.t0)
+        return rv
 
 
 class Star:
@@ -265,7 +354,7 @@ class Star:
         The number of `Planet` objects stored in the `Star` object.
     """
 
-    def __init__(self, name: str, mass: float):
+    def __init__(self, name: str, mass: float) -> None:
         self.name = name
         self.mass = mass
         self.planets = {}
@@ -273,16 +362,16 @@ class Star:
         if mass <= 0:
             raise ValueError(f"Stellar mass {self.mass} must be greater than zero")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"Star(name={self.name!r}, mass={self.mass!r})"
 
-    def __str__(self):
+    def __str__(self) -> str:
         if hasattr(self, "trend"):
             return f"Star {self.name}, {self.num_planets} planets: {[*self.planets]}, {self.trend}"
         else:
             return f"Star {self.name!r}, {self.num_planets!r} planets: {[*self.planets]!r}"
 
-    def add_planet(self, planet):
+    def add_planet(self, planet: Planet) -> None:
         """Store `Planet` object in `planets` dict with the key `Planet.letter`.
 
         Planets cannot share letters; if two planets have the same letter then the
@@ -293,11 +382,16 @@ class Star:
         planet : `Planet`
             A `ravest.model.Planet` object
         """
-        # TODO validation of planet letter - warn for duplicates/overwrite?
+        # Warn if planet letter already exists (will overwrite)
+        if planet.letter in self.planets:
+            import warnings
+            warnings.warn(f"Planet {planet.letter} already exists and will be overwritten",
+                         UserWarning, stacklevel=2)
+
         self.planets[planet.letter] = planet
         self.num_planets = len(self.planets)
 
-    def add_trend(self, trend):
+    def add_trend(self, trend: Trend) -> None:
         """Store `Trend` object in `trend` attribute.
 
         Parameters
@@ -307,8 +401,9 @@ class Star:
         """
         self.trend = trend
 
-    def radial_velocity(self, t):
-        """
+    def radial_velocity(self, t: np.ndarray) -> np.ndarray:
+        """Calculate the radial velocity of the star at time ``t`` due to the planets and trend.
+
         Calculate the radial velocity of the star at time ``t`` due to the
         planets and the trend (constant velocity, linear, and quadratic.)
         This is a linear sum of the RVs of each of the `Planet` objects stored in
@@ -333,7 +428,7 @@ class Star:
 
         return rv
 
-    def mpsini(self, planet_letter, unit="kg"):
+    def mpsini(self, planet_letter: str, unit: str = "kg") -> float:
         """Calculate the minimum mass of a planet in the star system.
 
         Parameters
@@ -350,8 +445,10 @@ class Star:
         """
         return self.planets[planet_letter].mpsini(self.mass, unit)
 
-    def phase_plot(self, t, ydata, yerr):
-        """Given RV ``ydata`` at time ``t`` with errorbars ``yerr``, generates a phase
+    def phase_plot(self, t: float, ydata: float, yerr: float) -> None:
+        """Generate a phase plot for each planet.
+
+        Given RV ``ydata`` at time ``t`` with errorbars ``yerr``, generates a phase
         plot for each planet.
 
         Parameters
@@ -394,19 +491,19 @@ class Star:
             axs[n].set_xlabel("Orbital phase")
             axs[n].set_ylabel("Radial velocity [m/s]")
             axs[n].set_xlim(-0.5, 0.5)
+            axs[n].xaxis.set_major_locator(MultipleLocator(0.25))  # Set x-ticks every 0.25
             axs[n].axhline(y=0, color="k", alpha=0.25, linestyle="--", zorder=1)
 
             this_planet = self.planets[letter]
-            p = this_planet._rvparams["per"]
+            p = this_planet._rvparams["P"]
             e = this_planet._rvparams["e"]
             w = this_planet._rvparams["w"]
-            tp = this_planet._rvparams["tp"]
+            tp = this_planet._rvparams["Tp"]
             tc = this_planet.parameterisation.convert_tp_to_tc(tp, p, e, w)
 
             yplot = this_planet.radial_velocity(tlin)
-            tlin_fold = (tlin - tc + 0.5 * p) % p - 0.5 * p
-            inds = np.argsort(tlin_fold)
-            axs[n].plot(tlin_fold[inds]/p, yplot[inds], label=f"{n},{letter}, rvplot", color="tab:blue")
+            tlin_fold_sorted, tlin_inds = fold_time_series(tlin, p, tc)
+            axs[n].plot(tlin_fold_sorted, yplot[tlin_inds], label=f"{n},{letter}, rvplot", color="tab:blue")
 
             # Calculate RV contributions from all other planets
             # Subtract from observed data to isolate the current planet's signal
@@ -417,82 +514,10 @@ class Star:
                 else:
                     other_planets_modelled_rv_tdata += self.planets[_letter].radial_velocity(t)
             subtracted_data = ydata - other_planets_modelled_rv_tdata
-            tdata_fold = (t - tc + 0.5 * p) % p - 0.5 * p
-            inds = np.argsort(tdata_fold)
-            axs[n].errorbar(tdata_fold[inds]/p, subtracted_data[inds], yerr=yerr, marker=".", mfc="white", color="k", ecolor="tab:gray", markersize=10, linestyle="None")
+            tdata_fold_sorted, tdata_inds = fold_time_series(t, p, tc)
+            axs[n].errorbar(tdata_fold_sorted, subtracted_data[tdata_inds], yerr=yerr[tdata_inds], marker=".", mfc="white", color="k", ecolor="tab:gray", markersize=10, linestyle="None")
 
-class Trend:
-    """Trend in the radial velocity of the star.
-
-    Parameters
-    ----------
-    t0 : `float`
-        The reference zero-point time for the linear and quadratic trend.
-        Recommended to be the mean of the input times.
-    params : `dict`
-        The parameters of the trend: the constant, linear, and quadratic
-        components. These must be named "g", "gd", and "gdd" respectively (which
-        stands for gamma, gamma-dot, gamma-dot-dot). These are in units of m/s,
-        m/s/day, and m/s/day^2 respectively.
-
-    Returns
-    -------
-    `float`
-        The radial velocity of the star due to the trend (m/s).
-
-    Notes
-    -----
-    The radial velocity of the star due to the trend is calculated as the sum of
-    the constant, linear, and quadratic components. The constant component is
-    simply a constant offset of value gamma. The linear and quadratic components
-    are calculated as `gd*(t-t0)` and `gdd*((t-t0)**2)` respectively.
-
-    In general the trend is used to account for any unexpected effects. These
-    could be due to instrumental effects, or for example a very long-term
-    companion could show as a linear and/or quadratic trend in the data. If you
-    see a strong linear or quadratic trend in the data, it is worth
-    investigating.
-    """
-
-    def __init__(self, t0, params: dict):
-        self.gamma = params["g"]
-        self.gammadot = params["gd"]
-        self.gammadotdot = params["gdd"]
-
-        # Validate and store reference time t0
-        try:
-            self.t0 = float(t0)
-        except (TypeError, ValueError) as e:
-            raise ValueError(f"t0 must be a numeric value (recommend mean or median of observation times), but got {type(t0).__name__}: {t0}") from e
-
-    def __str__(self):
-        return f"Trend: $\\gamma$={self.gamma}, $\\dot\\gamma$={self.gammadot}, $\\ddot\\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
-
-    def __repr__(self):
-        return f"Trend(params={{'g': {self.gamma}, 'gd': {self.gammadot}, 'gdd': {self.gammadotdot} }}, t0={self.t0:.2f})"
-
-    def _constant(self, t):
-        return self.gamma
-
-    def _linear(self, t, t0):
-        if self.gammadot == 0:
-            return np.zeros(len(t))
-        return self.gammadot * (t - t0)
-
-    def _quadratic(self, t, t0):
-        if self.gammadotdot == 0:
-            return np.zeros(len(t))
-        return self.gammadotdot * ((t - t0) ** 2)
-
-    def radial_velocity(self, t):
-        rv = 0
-        rv += self._constant(t)
-        rv += self._linear(t, self.t0)
-        rv += self._quadratic(t, self.t0)
-        return rv
-
-
-def calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit="kg"):
+def calculate_mpsini(mass_star: float, period: float, semi_amplitude: float, eccentricity: float, unit: str = "kg") -> float:
     """Calculate the minimum mass of the planet.
 
     Parameters
@@ -518,7 +543,6 @@ def calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit="kg")
     ValueError
         If the unit is not one of "kg", "M_earth", "M_jupiter".
     """
-
     # convert M_s to kg, and period to s, as the formula is in SI units
     mass_star = mass_star * (1*const.M_sun).value  # type: ignore
     period = period * (1*constants.day)
@@ -533,3 +557,40 @@ def calculate_mpsini(mass_star, period, semi_amplitude, eccentricity, unit="kg")
         return mpsini_kg / const.M_jup.value  # type: ignore
     else:
         raise ValueError(f"Unit {unit} not valid. Use 'kg', 'M_Earth' or 'M_Jupiter'")
+
+
+def fold_time_series(times: np.ndarray, period: float, t_ref: float) -> tuple[np.ndarray, np.ndarray]:
+    """Fold time series to orbital phase and return sorted arrays.
+
+    Converts times to orbital phases in the range [-0.5, 0.5] and returns
+    both the sorted phases and the indices needed to sort other arrays
+    consistently.
+
+    Parameters
+    ----------
+    times : np.ndarray
+        Time values to fold
+    period : float
+        Orbital period
+    t_ref : float
+        Reference time (usually Tc - time of transit/conjunction)
+
+    Returns
+    -------
+    phases_sorted : np.ndarray
+        Phase-folded times in range [-0.5, 0.5], sorted ascending
+    sort_indices : np.ndarray
+        Indices that sort the original times by phase
+
+    Examples
+    --------
+    >>> times = np.array([0, 1, 2, 3, 4])
+    >>> period = 2.0
+    >>> t_ref = 0.5  # Reference time
+    >>> phases, indices = fold_time_series(times, period, t_ref)
+    >>> # phases will be sorted from -0.5 to 0.5
+    >>> # indices can be used to sort other arrays consistently
+    """
+    phases = ((times - t_ref + 0.5*period) % period - 0.5*period) / period
+    sort_indices = np.argsort(phases)
+    return phases[sort_indices], sort_indices

@@ -53,11 +53,22 @@ pre-commit = "^4.2.0"
 
 [tool.ruff]
 line-length = 88
-lint.select = ["E", "F", "I"]  # E = pycodestyle, F = pyflakes, I = isort
-lint.ignore = ["E501", "E266"]
+lint.select = ["E", "F", "I", "D", "ANN"]  # E = pycodestyle, F = pyflakes, I = isort, D = pydocstyle, ANN = flake8-annotations
+lint.ignore = ["E501", "E266", "D401", "D105"]
 fix = true
 unsafe-fixes = true
 
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D100", "D103", "ANN"]  # Ignore docstrings and all type annotations in tests
+"docs/*" = ["D100", "ANN"]  # Ignore docstrings and type annotations in docs (because conf.py isn't a real python package file)
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:FigureCanvasAgg is non-interactive, and thus cannot be shown:UserWarning",
+]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

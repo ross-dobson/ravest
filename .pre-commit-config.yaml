@@ -2,8 +2,16 @@ repos:
 -   repo: https://github.com/kynan/nbstripout
     rev: 0.8.1
     hooks:
+      # Light notebooks: Strip outputs and metadata
       - id: nbstripout
+        args: ['--extra-keys=metadata.kernelspec']
+        files: 'docs/Examples/.*\.ipynb'
+        exclude: 'docs/Examples/(example_fitting|K2-24|example_GP)\.ipynb'
+      # Heavy notebooks: Keep outputs, strip metadata only
+      - id: nbstripout
+        name: nbstripout-keep-output
         args: ['--keep-output', '--extra-keys=metadata.kernelspec']
+        files: 'docs/Examples/(example_fitting|K2-24|example_GP)\.ipynb'
 
 -   repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -19,6 +27,12 @@ repos:
     -   id: trailing-whitespace
 
 -   repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.7
+    # Ruff version.
+    rev: v0.13.0
     hooks:
-    -   id: ruff
+    # Run the linter.
+    -   id: ruff-check
+        types_or: [ python, pyi ]  # Don't run on Jupyter notebooks
+    # # Run the formatter.
+    # -   id: ruff-format
+    #     types_or: [ python, pyi ]  # Don't run on Jupyter notebooks

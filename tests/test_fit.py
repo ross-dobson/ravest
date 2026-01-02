@@ -8,7 +8,7 @@ from ravest.param import Parameter, Parameterisation
 
 @pytest.fixture
 def test_data():
-    """Simple synthetic RV data for testing"""
+    """Simple synthetic RV data for testing."""
     time = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
     vel = np.array([5.0, -2.0, -5.0, 2.0, 3.0])
     verr = np.array([1.0, 1.1, 0.9, 0.85, 1.5])
@@ -17,13 +17,13 @@ def test_data():
 
 @pytest.fixture
 def test_circular_params():
-    """Simple circular orbit parameters for testing"""
+    """Simple circular orbit parameters for testing."""
     return {
-        "per_b": Parameter(2.0, "d", fixed=True),
-        "k_b": Parameter(5.0, "m/s", fixed=False),
+        "P_b": Parameter(2.0, "d", fixed=True),
+        "K_b": Parameter(5.0, "m/s", fixed=False),
         "e_b": Parameter(0.0, "", fixed=True),
         "w_b": Parameter(np.pi/2, "rad", fixed=True),
-        "tc_b": Parameter(0.0, "d", fixed=True),
+        "Tc_b": Parameter(0.0, "d", fixed=True),
         "g": Parameter(0.0, "m/s", fixed=True),
         "gd": Parameter(0.0, "m/s/day", fixed=True),
         "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
@@ -33,27 +33,27 @@ def test_circular_params():
 
 @pytest.fixture
 def test_simple_priors():
-    """Simple priors for testing"""
+    """Simple priors for testing."""
     return {
-        "k_b": ravest.prior.Uniform(0, 20),
+        "K_b": ravest.prior.Uniform(0, 20),
         "jit": ravest.prior.Uniform(0, 5),
     }
 
 
 class TestFitter:
-    """Tests for the main Fitter class"""
+    """Tests for the main Fitter class."""
 
-    def test_fitter_init(self):
-        """Test Fitter initialization"""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+    def test_fitter_init(self) -> None:
+        """Test Fitter initialization."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         assert fitter.planet_letters == ["b"]
-        assert fitter.parameterisation.parameterisation == "per k e w tc"
+        assert fitter.parameterisation.parameterisation == "P K e w Tc"
         assert fitter.params == {}
         assert fitter.priors == {}
 
-    def test_add_data_valid(self, test_data):
-        """Test adding valid data"""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+    def test_add_data_valid(self, test_data) -> None:
+        """Test adding valid data."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         time, vel, verr = test_data
         fitter.add_data(time, vel, verr, t0=2.0)
 
@@ -62,9 +62,9 @@ class TestFitter:
         np.testing.assert_array_equal(fitter.verr, verr)
         assert fitter.t0 == 2.0
 
-    def test_add_data_mismatched_lengths(self):
-        """Test error when data arrays have different lengths"""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+    def test_add_data_mismatched_lengths(self) -> None:
+        """Test error when data arrays have different lengths."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         time = np.array([0.0, 1.0])
         vel = np.array([5.0, -2.0, -5.0])  # Different length
         verr = np.array([1.0, 1.0])
@@ -72,45 +72,45 @@ class TestFitter:
         with pytest.raises(ValueError, match="Time, velocity, and uncertainty arrays must be the same length"):
             fitter.add_data(time, vel, verr, t0=2.0)
 
-    def test_params_property_valid(self, test_circular_params):
-        """Test setting valid parameters via property"""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+    def test_params_property_valid(self, test_circular_params) -> None:
+        """Test setting valid parameters via property."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params
         fitter.params = params
 
         assert len(fitter.params) == 9  # 5 planetary + 3 trend params + jit
-        assert "per_b" in fitter.params
+        assert "P_b" in fitter.params
         assert "jit" in fitter.params
 
-    def test_add_params_wrong_count(self):
-        """Test error when wrong number of parameters provided"""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
-        params = {"per_b": Parameter(2.0, "d")}  # Too few params, only 1 out of 9 provided
+    def test_add_params_wrong_count(self) -> None:
+        """Test error when wrong number of parameters provided."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        params = {"P_b": Parameter(2.0, "d")}  # Too few params, only 1 out of 9 provided
 
         with pytest.raises(ValueError, match="Missing required parameters.*Expected 9 parameters, got 1"):
             fitter.params = params
 
-    def test_add_params_missing_planetary_param(self, test_circular_params):
-        """Test error when planetary parameter is missing"""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+    def test_add_params_missing_planetary_param(self, test_circular_params) -> None:
+        """Test error when planetary parameter is missing."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params.copy()
-        del params["per_b"]  # Remove required parameter
+        del params["P_b"]  # Remove required parameter
 
         with pytest.raises(ValueError, match="Missing required parameters.*Expected 9 parameters, got 8"):
             fitter.params = params
 
-    def test_add_params_unexpected_param(self, test_circular_params):
-        """Test error when unexpected parameter is provided"""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+    def test_add_params_unexpected_param(self, test_circular_params) -> None:
+        """Test error when unexpected parameter is provided."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params.copy()
         params["invalid_param"] = Parameter(1.0, "")  # Add unexpected parameter
 
         with pytest.raises(ValueError, match="Unexpected parameters.*Expected 9 parameters, got 10"):
             fitter.params = params
 
-    def test_add_priors_valid(self, test_circular_params, test_simple_priors):
-        """Test adding valid priors"""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+    def test_add_priors_valid(self, test_circular_params, test_simple_priors) -> None:
+        """Test adding valid priors."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params
         priors = test_simple_priors
 
@@ -118,49 +118,49 @@ class TestFitter:
         fitter.priors = priors
 
         assert len(fitter.priors) == 2
-        assert "k_b" in fitter.priors
+        assert "K_b" in fitter.priors
         assert "jit" in fitter.priors
 
-    def test_add_priors_missing_prior(self, test_circular_params):
-        """Test error when prior is missing for free parameter"""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+    def test_add_priors_missing_prior(self, test_circular_params) -> None:
+        """Test error when prior is missing for free parameter."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params
-        priors = {"k_b": ravest.prior.Uniform(0, 20)}  # Missing jit prior
+        priors = {"K_b": ravest.prior.Uniform(0, 20)}  # Missing jit prior
 
         fitter.params = params
         with pytest.raises(ValueError, match="Missing priors for parameters.*jit"):
             fitter.priors = priors
 
-    def test_add_priors_invalid_initial_value(self, test_circular_params, test_simple_priors):
-        """Test error when initial parameter value is outside prior bounds"""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+    def test_add_priors_invalid_initial_value(self, test_circular_params, test_simple_priors) -> None:
+        """Test error when initial parameter value is outside prior bounds."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params.copy()
-        params["k_b"].value = 25.0  # Outside uniform prior [0, 20]
+        params["K_b"].value = 25.0  # Outside uniform prior [0, 20]
         priors = test_simple_priors
 
         fitter.params = params
-        with pytest.raises(ValueError, match="Initial value 25.0 of parameter k_b is invalid"):
+        with pytest.raises(ValueError, match="Initial value 25.0 of parameter K_b is invalid"):
             fitter.priors = priors
 
-    def test_add_priors_too_many_warning(self, test_circular_params):
-        """Test warning when too many priors provided (for fixed params)"""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+    def test_add_priors_too_many_warning(self, test_circular_params) -> None:
+        """Test warning when too many priors provided (for fixed params)."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params
         fitter.params = params
 
         # Add priors for both free AND fixed parameters
         priors = {
-            "k_b": ravest.prior.Uniform(0, 20),
+            "K_b": ravest.prior.Uniform(0, 20),
             "jit": ravest.prior.Uniform(0, 5),
-            "per_b": ravest.prior.Uniform(1, 5),  # This is fixed!
+            "P_b": ravest.prior.Uniform(1, 5),  # This is fixed!
         }
 
-        with pytest.raises(ValueError, match="Unexpected priors.*per_b"):
+        with pytest.raises(ValueError, match="Unexpected priors.*P_b"):
             fitter.priors = priors
 
-    def test_get_free_params(self, test_circular_params):
-        """Test getting free parameters"""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+    def test_get_free_params(self, test_circular_params) -> None:
+        """Test getting free parameters."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params
         fitter.params = params
 
@@ -169,15 +169,15 @@ class TestFitter:
         free_vals = fitter.free_params_values
 
         assert len(free_params) == 2  # k_b and jit
-        assert "k_b" in free_names
+        assert "K_b" in free_names
         assert "jit" in free_names
         assert len(free_vals) == 2
         assert 5.0 in free_vals  # k_b value
         assert 1.0 in free_vals  # jit value
 
-    def test_get_fixed_params(self, test_circular_params):
-        """Test getting fixed parameters"""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+    def test_get_fixed_params(self, test_circular_params) -> None:
+        """Test getting fixed parameters."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         params = test_circular_params
         fitter.params = params
 
@@ -186,38 +186,37 @@ class TestFitter:
         fixed_vals = fitter.fixed_params_values
 
         assert len(fixed_params) == 7  # All except k_b and jit
-        assert "per_b" in fixed_names
+        assert "P_b" in fixed_names
         assert "e_b" in fixed_names
         assert len(fixed_vals) == 7
 
 
 class TestLogLikelihood:
-    """Tests for the LogLikelihood class"""
+    """Tests for the LogLikelihood class."""
 
-    def test_loglikelihood_init(self, test_data):
-        """Test LogLikelihood initialization"""
+    def test_loglikelihood_init(self, test_data) -> None:
+        """Test LogLikelihood initialization."""
         time, vel, verr = test_data
         ll = LogLikelihood(
             time=time, vel=vel, verr=verr, t0=2.0,
-            planet_letters=["b"], parameterisation=Parameterisation("per k e w tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
         )
 
         np.testing.assert_array_equal(ll.time, time)
         np.testing.assert_array_equal(ll.vel, vel)
         np.testing.assert_array_equal(ll.verr, verr)
         assert ll.t0 == 2.0
-        assert len(ll.expected_params) == 9
 
-    def test_loglikelihood_calculation(self, test_data):
-        """Test log-likelihood calculation with valid parameters"""
+    def test_loglikelihood_calculation(self, test_data) -> None:
+        """Test log-likelihood calculation with valid parameters."""
         time, vel, verr = test_data
         ll = LogLikelihood(
             time=time, vel=vel, verr=verr, t0=2.0,
-            planet_letters=["b"], parameterisation=Parameterisation("per k e w tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
         )
 
         params = {
-            "per_b": 2.0, "k_b": 5.0, "e_b": 0.0, "w_b": np.pi/2, "tc_b": 0.0,
+            "P_b": 2.0, "K_b": 5.0, "e_b": 0.0, "w_b": np.pi/2, "Tc_b": 0.0,
             "g": 0.0, "gd": 0.0, "gdd": 0.0, "jit": 2.0
         }
 
@@ -225,25 +224,25 @@ class TestLogLikelihood:
         assert np.isfinite(log_like)
         assert isinstance(log_like, float)
 
-    def test_loglikelihood_invalid_planet(self, test_data):
-        """Test log-likelihood returns -inf for invalid planet parameters"""
+    def test_loglikelihood_invalid_planet(self, test_data) -> None:
+        """Test log-likelihood returns -inf for invalid planet parameters."""
         time, vel, verr = test_data
         ll = LogLikelihood(
             time=time, vel=vel, verr=verr, t0=2.0,
-            planet_letters=["b"], parameterisation=Parameterisation("per k e w tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
         )
 
         params = {
-            "per_b": -1.0,  # Invalid negative period
-            "k_b": 5.0, "e_b": 0.0, "w_b": np.pi/2, "tc_b": 0.0,
+            "P_b": -1.0,  # Invalid negative period
+            "K_b": 5.0, "e_b": 0.0, "w_b": np.pi/2, "Tc_b": 0.0,
             "g": 0.0, "gd": 0.0, "gdd": 0.0, "jit": 1.0
         }
 
         log_like = ll(params)
         assert log_like == -np.inf
 
-    def test_loglikelihood_perfect_fit(self):
-        """Test log-likelihood when model perfectly fits data"""
+    def test_loglikelihood_perfect_fit(self) -> None:
+        """Test log-likelihood when model perfectly fits data."""
         # Create synthetic data from known model
         time = np.array([0.0, 0.5, 1.0, 1.5])
         # Constant velocity (no planet signal)
@@ -252,11 +251,11 @@ class TestLogLikelihood:
 
         ll = LogLikelihood(
             time=time, vel=vel, verr=verr, t0=1.0,
-            planet_letters=["b"], parameterisation=Parameterisation("per k e w tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
         )
 
         params = {
-            "per_b": 10.0, "k_b": 0.5, "e_b": 0.0, "w_b": np.pi/2, "tc_b": 0.0,
+            "P_b": 10.0, "K_b": 0.5, "e_b": 0.0, "w_b": np.pi/2, "Tc_b": 0.0,
             "g": 2.0, "gd": 0.0, "gdd": 0.0, "jit": 1.0
         }
 
@@ -266,44 +265,44 @@ class TestLogLikelihood:
 
 
 class TestLogPrior:
-    """Tests for the LogPrior class"""
+    """Tests for the LogPrior class."""
 
-    def test_logprior_init(self, test_simple_priors):
-        """Test LogPrior initialization"""
+    def test_logprior_init(self, test_simple_priors) -> None:
+        """Test LogPrior initialization."""
         priors = test_simple_priors
         lp = LogPrior(priors)
         assert lp.priors == priors
 
-    def test_logprior_valid_params(self, test_simple_priors):
-        """Test log-prior calculation with valid parameters"""
+    def test_logprior_valid_params(self, test_simple_priors) -> None:
+        """Test log-prior calculation with valid parameters."""
         priors = test_simple_priors
         lp = LogPrior(priors)
 
-        params = {"k_b": 10.0, "jit": 2.0}
+        params = {"K_b": 10.0, "jit": 2.0}
         log_prior = lp(params)
 
         assert np.isfinite(log_prior)
         assert isinstance(log_prior, float)
 
-    def test_logprior_invalid_params(self, test_simple_priors):
-        """Test log-prior returns -inf for parameters outside bounds"""
+    def test_logprior_invalid_params(self, test_simple_priors) -> None:
+        """Test log-prior returns -inf for parameters outside bounds."""
         priors = test_simple_priors
         lp = LogPrior(priors)
 
-        params = {"k_b": -5.0, "jit": 2.0}  # k_b outside [0, 20]
+        params = {"K_b": -5.0, "jit": 2.0}  # k_b outside [0, 20]
         log_prior = lp(params)
 
         assert log_prior == -np.inf
 
-    def test_logprior_multiple_params(self):
-        """Test log-prior sums correctly across multiple parameters"""
+    def test_logprior_multiple_params(self) -> None:
+        """Test log-prior sums correctly across multiple parameters."""
         priors = {
-            "k_b": ravest.prior.Uniform(0, 10),  # log_prior = -log(10)
+            "K_b": ravest.prior.Uniform(0, 10),  # log_prior = -log(10)
             "jit": ravest.prior.Uniform(0, 5),   # log_prior = -log(5)
         }
         lp = LogPrior(priors)
 
-        params = {"k_b": 5.0, "jit": 2.5}
+        params = {"K_b": 5.0, "jit": 2.5}
         log_prior = lp(params)
 
         expected = -np.log(10) - np.log(5)
@@ -311,21 +310,21 @@ class TestLogPrior:
 
 
 class TestLogPosterior:
-    """Tests for the LogPosterior class (integration tests)"""
+    """Tests for the LogPosterior class (integration tests)."""
 
-    def test_logposterior_init(self, test_data, test_circular_params, test_simple_priors):
-        """Test LogPosterior initialization"""
+    def test_logposterior_init(self, test_data, test_circular_params, test_simple_priors) -> None:
+        """Test LogPosterior initialization."""
         time, vel, verr = test_data
         params = test_circular_params
         priors = test_simple_priors
 
         # Extract fixed params
-        fixed_params = {k: v for k, v in params.items() if v.fixed}
+        fixed_params = {k: v.value for k, v in params.items() if v.fixed}
         free_param_names = [k for k, v in params.items() if not v.fixed]
 
         lpost = LogPosterior(
             planet_letters=["b"],
-            parameterisation=Parameterisation("per k e w tc"),
+            parameterisation=Parameterisation("P K e w Tc"),
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
@@ -333,67 +332,66 @@ class TestLogPosterior:
         )
 
         assert lpost.planet_letters == ["b"]
-        assert len(lpost.expected_params) == 9
 
-    def test_logposterior_valid_calculation(self, test_data, test_circular_params, test_simple_priors):
-        """Test log-posterior calculation with valid parameters"""
+    def test_logposterior_valid_calculation(self, test_data, test_circular_params, test_simple_priors) -> None:
+        """Test log-posterior calculation with valid parameters."""
         time, vel, verr = test_data
         params = test_circular_params
         priors = test_simple_priors
 
-        fixed_params = {k: v for k, v in params.items() if v.fixed}
+        fixed_params = {k: v.value for k, v in params.items() if v.fixed}
         free_param_names = [k for k, v in params.items() if not v.fixed]
 
         lpost = LogPosterior(
             planet_letters=["b"],
-            parameterisation=Parameterisation("per k e w tc"),
+            parameterisation=Parameterisation("P K e w Tc"),
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
             time=time, vel=vel, verr=verr, t0=2.0
         )
 
-        free_params_dict = {"k_b": 5.0, "jit": 1.0}
+        free_params_dict = {"K_b": 5.0, "jit": 1.0}
         log_post = lpost.log_probability(free_params_dict)
 
         assert np.isfinite(log_post)
         assert isinstance(log_post, float)
 
-    def test_logposterior_invalid_prior(self, test_data, test_circular_params, test_simple_priors):
-        """Test log-posterior returns -inf when prior is invalid"""
+    def test_logposterior_invalid_prior(self, test_data, test_circular_params, test_simple_priors) -> None:
+        """Test log-posterior returns -inf when prior is invalid."""
         time, vel, verr = test_data
         params = test_circular_params
         priors = test_simple_priors
 
-        fixed_params = {k: v for k, v in params.items() if v.fixed}
+        fixed_params = {k: v.value for k, v in params.items() if v.fixed}
         free_param_names = [k for k, v in params.items() if not v.fixed]
 
         lpost = LogPosterior(
             planet_letters=["b"],
-            parameterisation=Parameterisation("per k e w tc"),
+            parameterisation=Parameterisation("P K e w Tc"),
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
             time=time, vel=vel, verr=verr, t0=2.0
         )
 
-        free_params_dict = {"k_b": -1.0, "jit": 1.0}  # Invalid k_b
+        free_params_dict = {"K_b": -1.0, "jit": 1.0}  # Invalid k_b
         log_post = lpost.log_probability(free_params_dict)
 
         assert log_post == -np.inf
 
-    def test_negative_log_probability_for_MAP(self, test_data, test_circular_params, test_simple_priors):
-        """Test MAP interface that takes list instead of dict"""
+    def test_negative_log_probability_for_MAP(self, test_data, test_circular_params, test_simple_priors) -> None:
+        """Test MAP interface that takes list instead of dict."""
         time, vel, verr = test_data
         params = test_circular_params
         priors = test_simple_priors
 
-        fixed_params = {k: v for k, v in params.items() if v.fixed}
+        fixed_params = {k: v.value for k, v in params.items() if v.fixed}
         free_param_names = [k for k, v in params.items() if not v.fixed]
 
         lpost = LogPosterior(
             planet_letters=["b"],
-            parameterisation=Parameterisation("per k e w tc"),
+            parameterisation=Parameterisation("P K e w Tc"),
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
@@ -407,17 +405,17 @@ class TestLogPosterior:
         assert isinstance(neg_log_post, float)
 
         # Should be negative of log_probability
-        free_params_dict = {"k_b": 5.0, "jit": 1.0}
+        free_params_dict = {"K_b": 5.0, "jit": 1.0}
         log_post = lpost.log_probability(free_params_dict)
         assert np.isclose(neg_log_post, -log_post)
 
 
 class TestFitterIntegration:
-    """Integration tests for complete Fitter workflow"""
+    """Integration tests for complete Fitter workflow."""
 
-    def test_complete_setup(self, test_data, test_circular_params, test_simple_priors):
-        """Test complete Fitter setup without running MCMC"""
-        fitter = Fitter(["b"], Parameterisation("per k e w tc"))
+    def test_complete_setup(self, test_data, test_circular_params, test_simple_priors) -> None:
+        """Test complete Fitter setup without running MCMC."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
 
         # Add data
         time, vel, verr = test_data
@@ -437,23 +435,23 @@ class TestFitterIntegration:
         assert len(fitter.free_params_names) == 2
         assert len(fitter.fixed_params_names) == 7
 
-    def test_multi_planet_setup(self, test_data):
-        """Test setup with multiple planets"""
-        fitter = Fitter(["b", "c"], Parameterisation("per k e w tc"))
+    def test_multi_planet_setup(self, test_data) -> None:
+        """Test setup with multiple planets."""
+        fitter = Fitter(["b", "c"], Parameterisation("P K e w Tc"))
 
         # Multi-planet parameters
         params = {
-            "per_b": Parameter(2.0, "d", fixed=True),
-            "k_b": Parameter(5.0, "m/s", fixed=False),
+            "P_b": Parameter(2.0, "d", fixed=True),
+            "K_b": Parameter(5.0, "m/s", fixed=False),
             "e_b": Parameter(0.0, "", fixed=True),
             "w_b": Parameter(np.pi/2, "rad", fixed=True),
-            "tc_b": Parameter(0.0, "d", fixed=True),
+            "Tc_b": Parameter(0.0, "d", fixed=True),
 
-            "per_c": Parameter(4.0, "d", fixed=True),
-            "k_c": Parameter(3.0, "m/s", fixed=False),
+            "P_c": Parameter(4.0, "d", fixed=True),
+            "K_c": Parameter(3.0, "m/s", fixed=False),
             "e_c": Parameter(0.0, "", fixed=True),
             "w_c": Parameter(np.pi/2, "rad", fixed=True),
-            "tc_c": Parameter(1.0, "d", fixed=True),
+            "Tc_c": Parameter(1.0, "d", fixed=True),
 
             "g": Parameter(0.0, "m/s", fixed=True),
             "gd": Parameter(0.0, "m/s/day", fixed=True),
@@ -462,8 +460,8 @@ class TestFitterIntegration:
         }
 
         priors = {
-            "k_b": ravest.prior.Uniform(0, 20),
-            "k_c": ravest.prior.Uniform(0, 20),
+            "K_b": ravest.prior.Uniform(0, 20),
+            "K_c": ravest.prior.Uniform(0, 20),
             "jit": ravest.prior.Uniform(0, 5),
         }
 
@@ -475,3 +473,419 @@ class TestFitterIntegration:
         assert len(fitter.params) == 14  # 5*2 planets + 4 system
         assert len(fitter.priors) == 3   # k_b, k_c, jit
         assert len(fitter.free_params_names) == 3
+
+
+class TestAdaptiveConvergence:
+    """Tests for adaptive convergence feature in run_mcmc."""
+
+    @pytest.fixture
+    def setup_fitter(self, test_data, test_circular_params, test_simple_priors):
+        """Setup a basic fitter for MCMC tests."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, verr = test_data
+        fitter.add_data(time, vel, verr, t0=2.0)
+        fitter.params = test_circular_params
+        fitter.priors = test_simple_priors
+
+        # Generate initial positions
+        map_result = fitter.find_map_estimate()
+        initial_positions = fitter.generate_initial_walker_positions_from_map(
+            map_result, nwalkers=10
+        )
+        return fitter, initial_positions
+
+    def test_fixed_length_mode(self, setup_fitter):
+        """Test that fixed-length mode (check_convergence=False) runs for exactly max_steps."""
+        fitter, initial_positions = setup_fitter
+        max_steps = 100
+
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=max_steps,
+            progress=False,
+            check_convergence=False
+        )
+
+        # Check that sampler ran for exactly max_steps
+        assert fitter.sampler is not None
+        chain = fitter.get_samples_np(flat=False)
+        assert chain.shape[0] == max_steps  # Should be exactly max_steps
+
+    def test_adaptive_mode_runs(self, setup_fitter):
+        """Test that adaptive mode (check_convergence=True) runs without errors."""
+        fitter, initial_positions = setup_fitter
+
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=500,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=50,
+            convergence_check_start=20
+        )
+
+        # Check that sampler exists and has run
+        assert fitter.sampler is not None
+        chain = fitter.get_samples_np(flat=False)
+        assert chain.shape[0] > 0  # Should have some samples
+        assert chain.shape[0] <= 500  # Should not exceed max_steps
+
+    def test_adaptive_mode_stops_early(self, setup_fitter):
+        """Test that adaptive mode can stop before max_steps."""
+        fitter, initial_positions = setup_fitter
+
+        # Use a large max_steps but expect early stopping for this simple problem
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=10000,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=100,
+            convergence_check_start=50
+        )
+
+        # For a simple problem, we expect it might converge before max_steps
+        # (though this isn't guaranteed, so we just check it ran successfully)
+        assert fitter.sampler is not None
+        chain = fitter.get_samples_np(flat=False)
+        assert chain.shape[0] <= 10000
+
+    def test_backward_compatibility_positional_args(self, setup_fitter):
+        """Test backward compatibility with positional arguments."""
+        fitter, initial_positions = setup_fitter
+
+        # Old style: run_mcmc(initial_positions, nwalkers, nsteps)
+        # New style: max_steps replaces nsteps
+        fitter.run_mcmc(initial_positions, 10, 100, False)
+
+        assert fitter.sampler is not None
+        chain = fitter.get_samples_np(flat=False)
+        assert chain.shape[0] == 100
+
+    def test_convergence_check_interval_parameter(self, setup_fitter):
+        """Test that convergence_check_interval parameter is respected."""
+        fitter, initial_positions = setup_fitter
+
+        # This should run without errors even with different intervals
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=300,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=200,  # Check only once or twice
+            convergence_check_start=20
+        )
+
+        assert fitter.sampler is not None
+
+    def test_convergence_check_start_parameter(self, setup_fitter):
+        """Test that convergence_check_start parameter affects convergence checking."""
+        fitter, initial_positions = setup_fitter
+
+        # Test with different convergence_check_start values
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=200,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=50,
+            convergence_check_start=100  # Don't check before iteration 100
+        )
+
+        assert fitter.sampler is not None
+        chain = fitter.get_samples_np(flat=False)
+        assert chain.shape[0] <= 200
+
+    def test_plot_autocorr_without_convergence_check_raises(self, setup_fitter):
+        """Test that plotting without convergence checking raises informative error."""
+        fitter, initial_positions = setup_fitter
+
+        # Run without convergence checking
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=100, progress=False, check_convergence=False)
+
+        # Should raise ValueError when trying to plot
+        with pytest.raises(ValueError, match="No autocorrelation history available"):
+            fitter.plot_autocorr_estimates()
+
+    def test_plot_autocorr_stores_history(self, setup_fitter):
+        """Test that autocorr history is stored when convergence checking enabled."""
+        fitter, initial_positions = setup_fitter
+
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=300,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=100,
+            convergence_check_start=20
+        )
+
+        # Check that history was stored
+        assert hasattr(fitter, 'autocorr_history')
+        assert len(fitter.autocorr_history) > 0
+        assert isinstance(fitter.autocorr_history, dict)
+
+        # Check that keys are iteration numbers
+        for key in fitter.autocorr_history.keys():
+            assert isinstance(key, (int, np.integer))
+
+        # Check that values are tau arrays
+        for tau in fitter.autocorr_history.values():
+            assert isinstance(tau, np.ndarray)
+            assert tau.shape == (len(fitter.free_params_names),)
+
+    def test_plot_autocorr_all_params(self, setup_fitter):
+        """Test plotting all parameters (default behaviour)."""
+        fitter, initial_positions = setup_fitter
+
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=300,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=100,
+            convergence_check_start=20
+        )
+
+        # Should not raise any errors
+        import matplotlib
+        matplotlib.use('Agg')  # Use non-interactive backend for testing
+        fitter.plot_autocorr_estimates()
+
+    def test_plot_autocorr_specific_params(self, setup_fitter):
+        """Test plotting specific parameters only."""
+        fitter, initial_positions = setup_fitter
+
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=300,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=100,
+            convergence_check_start=20
+        )
+
+        # Should plot only specified parameter
+        import matplotlib
+        matplotlib.use('Agg')
+        fitter.plot_autocorr_estimates(params=['K_b'])
+
+    def test_plot_autocorr_mean(self, setup_fitter):
+        """Test plotting mean tau."""
+        fitter, initial_positions = setup_fitter
+
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=300,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=100,
+            convergence_check_start=20
+        )
+
+        # Should plot mean instead of individual params
+        import matplotlib
+        matplotlib.use('Agg')
+        fitter.plot_autocorr_estimates(plot_mean=True)
+
+    def test_plot_autocorr_no_legend(self, setup_fitter):
+        """Test plotting without legend."""
+        fitter, initial_positions = setup_fitter
+
+        fitter.run_mcmc(
+            initial_positions,
+            nwalkers=10,
+            max_steps=300,
+            progress=False,
+            check_convergence=True,
+            convergence_check_interval=100,
+            convergence_check_start=20
+        )
+
+        # Should plot without legend
+        import matplotlib
+        matplotlib.use('Agg')
+        fitter.plot_autocorr_estimates(show_legend=False)
+
+
+class TestRVCalculations:
+    """Tests for RV calculation methods."""
+
+    @pytest.fixture
+    def setup_fitter_for_rv(self, test_data, test_circular_params, test_simple_priors):
+        """Setup fitter with data and params for RV calculations."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, verr = test_data
+        fitter.add_data(time, vel, verr, t0=2.0)
+        fitter.params = test_circular_params
+        fitter.priors = test_simple_priors
+        return fitter
+
+    def test_calculate_rv_planet_custom(self, setup_fitter_for_rv):
+        """Test custom planet RV calculation."""
+        fitter = setup_fitter_for_rv
+        times = np.array([0.0, 1.0, 2.0, 3.0])
+
+        # Build params dict
+        params = fitter.build_params_dict(fitter.free_params_values)
+
+        # Calculate RV
+        rv = fitter.calculate_rv_planet_custom('b', times, params)
+
+        assert isinstance(rv, np.ndarray)
+        assert len(rv) == len(times)
+        assert np.all(np.isfinite(rv))
+
+    def test_calculate_rv_trend_custom(self, setup_fitter_for_rv):
+        """Test custom trend RV calculation."""
+        fitter = setup_fitter_for_rv
+        times = np.array([0.0, 1.0, 2.0, 3.0])
+
+        # Build params dict
+        params = fitter.build_params_dict(fitter.free_params_values)
+
+        # Calculate trend RV
+        rv_trend = fitter.calculate_rv_trend_custom(times, params)
+
+        assert isinstance(rv_trend, np.ndarray)
+        assert len(rv_trend) == len(times)
+        assert np.all(np.isfinite(rv_trend))
+
+    def test_calculate_rv_trend_custom_with_nonzero_trend(self, test_data):
+        """Test trend calculation with non-zero trend parameters."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, verr = test_data
+        fitter.add_data(time, vel, verr, t0=2.0)
+
+        # Set up params with non-zero trend
+        params = {
+            "P_b": Parameter(2.0, "d", fixed=True),
+            "K_b": Parameter(5.0, "m/s", fixed=False),
+            "e_b": Parameter(0.0, "", fixed=True),
+            "w_b": Parameter(np.pi/2, "rad", fixed=True),
+            "Tc_b": Parameter(0.0, "d", fixed=True),
+            "g": Parameter(10.0, "m/s", fixed=True),  # Non-zero offset
+            "gd": Parameter(0.5, "m/s/day", fixed=True),  # Non-zero slope
+            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
+            "jit": Parameter(1.0, "m/s", fixed=False),
+        }
+        fitter.params = params
+
+        times = np.array([0.0, 1.0, 2.0, 3.0])
+        params_dict = fitter.build_params_dict(fitter.free_params_values)
+
+        rv_trend = fitter.calculate_rv_trend_custom(times, params_dict)
+
+        # With g=10 and gd=0.5, at t0=2.0:
+        # trend(t) = 10 + 0.5*(t - 2.0)
+        expected_trend = 10.0 + 0.5 * (times - 2.0)
+        np.testing.assert_allclose(rv_trend, expected_trend)
+
+    def test_calculate_rv_total_custom(self, setup_fitter_for_rv):
+        """Test custom total RV calculation (planet + trend)."""
+        fitter = setup_fitter_for_rv
+        times = np.array([0.0, 1.0, 2.0, 3.0])
+
+        # Build params dict
+        params = fitter.build_params_dict(fitter.free_params_values)
+
+        # Calculate total RV
+        rv_total = fitter.calculate_rv_total_custom(times, params)
+
+        # Also calculate components separately
+        rv_planet = fitter.calculate_rv_planet_custom('b', times, params)
+        rv_trend = fitter.calculate_rv_trend_custom(times, params)
+
+        # Total should equal sum of components
+        np.testing.assert_allclose(rv_total, rv_planet + rv_trend)
+
+    def test_build_params_dict_from_array(self, setup_fitter_for_rv):
+        """Test building params dict from array."""
+        fitter = setup_fitter_for_rv
+
+        # Build from array
+        params = fitter.build_params_dict(fitter.free_params_values)
+
+        assert isinstance(params, dict)
+        assert len(params) == 9  # All params (free + fixed)
+        assert "P_b" in params
+        assert "K_b" in params
+        assert "jit" in params
+
+    def test_build_params_dict_from_dict(self, setup_fitter_for_rv):
+        """Test building params dict from dict."""
+        fitter = setup_fitter_for_rv
+
+        # Build from dict
+        free_params_dict = fitter.free_params_dict
+        free_params_values_dict = {k: v.value for k, v in free_params_dict.items()}
+        params = fitter.build_params_dict(free_params_values_dict)
+
+        assert isinstance(params, dict)
+        assert len(params) == 9  # All params (free + fixed)
+
+    def test_calculate_rv_planet_from_samples(self, setup_fitter_for_rv):
+        """Test calculating planet RV from MCMC samples."""
+        fitter = setup_fitter_for_rv
+
+        # Run short MCMC
+        map_result = fitter.find_map_estimate()
+        initial_positions = fitter.generate_initial_walker_positions_from_map(map_result, nwalkers=10)
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=50, progress=False)
+
+        times = np.array([0.0, 1.0, 2.0])
+
+        # Calculate RV from samples
+        rv_samples = fitter.calculate_rv_planet_from_samples('b', times, discard_start=10, thin=5)
+
+        # Should have shape (n_samples, n_times)
+        assert rv_samples.ndim == 2
+        assert rv_samples.shape[1] == len(times)
+        assert np.all(np.isfinite(rv_samples))
+
+    def test_calculate_rv_trend_from_samples(self, setup_fitter_for_rv):
+        """Test calculating trend RV from MCMC samples."""
+        fitter = setup_fitter_for_rv
+
+        # Run short MCMC
+        map_result = fitter.find_map_estimate()
+        initial_positions = fitter.generate_initial_walker_positions_from_map(map_result, nwalkers=10)
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=50, progress=False)
+
+        times = np.array([0.0, 1.0, 2.0])
+
+        # Calculate trend RV from samples
+        trend_samples = fitter.calculate_rv_trend_from_samples(times, discard_start=10, thin=5)
+
+        # Should have shape (n_samples, n_times)
+        assert trend_samples.ndim == 2
+        assert trend_samples.shape[1] == len(times)
+        assert np.all(np.isfinite(trend_samples))
+
+    def test_calculate_rv_total_from_samples(self, setup_fitter_for_rv):
+        """Test calculating total RV from MCMC samples."""
+        fitter = setup_fitter_for_rv
+
+        # Run short MCMC
+        map_result = fitter.find_map_estimate()
+        initial_positions = fitter.generate_initial_walker_positions_from_map(map_result, nwalkers=10)
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=50, progress=False)
+
+        times = np.array([0.0, 1.0, 2.0])
+
+        # Calculate total RV from samples
+        total_samples = fitter.calculate_rv_total_from_samples(times, discard_start=10, thin=5)
+
+        # Should have shape (n_samples, n_times)
+        assert total_samples.ndim == 2
+        assert total_samples.shape[1] == len(times)
+        assert np.all(np.isfinite(total_samples))

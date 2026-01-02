@@ -3,8 +3,8 @@
 ## v0.2.5 (2025-08-29)
 - Fitter params and priors handling refactored, `add_params` and `add_priors` methods removed, getters (for validation) now act on attributes directly
 - Added Beta distribution prior (and already refactored it too)
-- Replaced BoundedGaussian prior with TruncatedGaussian prior (that now integrates correctly)
-- Added HalfGaussian prior
+- Replaced BoundedNormal prior with TruncatedNormal prior (that now integrates correctly)
+- Added HalfNormal prior
 - EccentricityUniform prior (renamed EccentricityPrior) now half-open interval rather than closed (inclusive) bounds
 - Uniform prior raises exception if bounds are not finite
 - Add prior parameterisation flexibility - you can sample in a transformed parameterisation (e.g. in secosw sesinw) but have priors on the default e and w instead
@@ -37,7 +37,7 @@
 - Add checks when using non-default parameterisation that you have passed the correct parameters
 - Add checks that initial parameters are within the prior functions
 - Add EccentricityPrior as useful helper fn for the user
-- Add BoundedGaussian prior
+- Add BoundedNormal prior
 - Add mpsini calculation
 - Add fns to get samples and posterior params from Fitter - much clearer UX than before
 - Fix various typos and minor bugs in plotting functions
