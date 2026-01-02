@@ -4533,7 +4533,7 @@ class GPFitter:
     def calculate_chi2(self, params_hyperparams_dict: Dict[str, float]) -> float:
         """Calculate chi-squared for given parameter and hyperparameter values.
 
-        For GP models, this calculates chi² = rᵀ K⁻¹ r, where K is the full
+        For GP models, this calculates chi^2 = r^T K^-1 r, where K is the full
         covariance matrix including GP kernel and observational uncertainties.
         This properly accounts for correlated noise structure.
 
@@ -4547,7 +4547,7 @@ class GPFitter:
         Returns
         -------
         float
-            Chi-squared value: rᵀ K⁻¹ r
+            Chi-squared value: r^T K^-1 r
         """
         # Create GPLogLikelihood instance to reuse mean model calculation
         gp_ll = GPLogLikelihood(
@@ -5340,17 +5340,25 @@ class GPFitter:
         # Combine with fixed parameters and fixed hyperparameters
         params_hyperparams = samples_dict | self.fixed_params_values_dict | self.fixed_hyperparams_values_dict
 
+        # Report number of effective samples
+        n_samples = len(samples_dict[list(samples_dict.keys())[0]])
+        print(f"Processing {n_samples} effective samples (after discard_start={discard_start}, discard_end={discard_end}, thin={thin})")
+
         # Calculate all planets + trend RVs for both obs and smooth times
         rv_all_planets_trend_matrix_obs = np.zeros((len(samples_dict[list(samples_dict.keys())[0]]), len(self.time)))
         rv_all_planets_trend_matrix_smooth = np.zeros((len(samples_dict[list(samples_dict.keys())[0]]), len(tsmooth)))
 
         # Add all planets
         for planet_letter in self.planet_letters:
+            print(f"Calculating planet {planet_letter} RV at {len(self.time)} observed times...")
             rv_all_planets_trend_matrix_obs += self.calculate_rv_planet_from_samples(planet_letter, self.time, discard_start, discard_end, thin)
+            print(f"Calculating planet {planet_letter} RV at {len(tsmooth)} smooth times...")
             rv_all_planets_trend_matrix_smooth += self.calculate_rv_planet_from_samples(planet_letter, tsmooth, discard_start, discard_end, thin)
 
         # Add trend
+        print(f"Calculating trend RV at {len(self.time)} observed times...")
         rv_all_planets_trend_matrix_obs += self.calculate_rv_trend_from_samples(self.time, discard_start, discard_end, thin)
+        print(f"Calculating trend RV at {len(tsmooth)} smooth times...")
         rv_all_planets_trend_matrix_smooth += self.calculate_rv_trend_from_samples(tsmooth, discard_start, discard_end, thin)
 
         # Calculate GP mean at obs times and smooth times (conditioned on residuals from planets + trend)
@@ -5503,6 +5511,10 @@ class GPFitter:
         # Combine with fixed parameters and fixed hyperparameters
         params_hyperparams = samples_dict | self.fixed_params_values_dict | self.fixed_hyperparams_values_dict
 
+        # Report number of effective samples
+        n_samples = len(samples_dict[list(samples_dict.keys())[0]])
+        print(f"Processing {n_samples} effective samples (after discard_start={discard_start}, discard_end={discard_end}, thin={thin})")
+
         # Create smooth time array for plotting the model
         _tmin, _tmax = self.time.min(), self.time.max()
         _trange = _tmax - _tmin
@@ -5551,16 +5563,20 @@ class GPFitter:
            # subtract planet (only) RV obs, from the matrix data - (other planets + trend + GP mean)
 
         # 1) Calculate this planet's RVs at obs times and at smooth times
+        print(f"Calculating planet {planet_letter} RV at {len(self.time)} observed times...")
         rv_this_planet_matrix_obs = self.calculate_rv_planet_from_samples(planet_letter, self.time, discard_start, discard_end, thin)
+        print(f"Calculating planet {planet_letter} RV at {len(tsmooth)} smooth times...")
         rv_this_planet_matrix_smooth = self.calculate_rv_planet_from_samples(planet_letter, tsmooth, discard_start, discard_end, thin)
 
         # 2) Calculate all the other planets' RVs at obs times
         rv_other_planets_matrix_obs = np.zeros((rv_this_planet_matrix_obs.shape[0], len(self.time)))
         for other_letter in self.planet_letters:
             if other_letter != planet_letter:
+                print(f"Calculating planet {other_letter} RV at {len(self.time)} observed times...")
                 rv_other_planets_matrix_obs += self.calculate_rv_planet_from_samples(other_letter, self.time, discard_start, discard_end, thin)
 
         # 3) Calculate trend at obs times
+        print(f"Calculating trend RV at {len(self.time)} observed times...")
         rv_trend_matrix_obs = self.calculate_rv_trend_from_samples(self.time, discard_start, discard_end, thin)
 
         # 4) Calculate GP mean at obs times (conditioned on residuals, i.e. subtract combination of planets + trend)
