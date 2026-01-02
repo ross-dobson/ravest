@@ -715,3 +715,177 @@ class TestAdaptiveConvergence:
         import matplotlib
         matplotlib.use('Agg')
         fitter.plot_autocorr_estimates(show_legend=False)
+
+
+class TestRVCalculations:
+    """Tests for RV calculation methods."""
+
+    @pytest.fixture
+    def setup_fitter_for_rv(self, test_data, test_circular_params, test_simple_priors):
+        """Setup fitter with data and params for RV calculations."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, verr = test_data
+        fitter.add_data(time, vel, verr, t0=2.0)
+        fitter.params = test_circular_params
+        fitter.priors = test_simple_priors
+        return fitter
+
+    def test_calculate_rv_planet_custom(self, setup_fitter_for_rv):
+        """Test custom planet RV calculation."""
+        fitter = setup_fitter_for_rv
+        times = np.array([0.0, 1.0, 2.0, 3.0])
+
+        # Build params dict
+        params = fitter.build_params_dict(fitter.free_params_values)
+
+        # Calculate RV
+        rv = fitter.calculate_rv_planet_custom('b', times, params)
+
+        assert isinstance(rv, np.ndarray)
+        assert len(rv) == len(times)
+        assert np.all(np.isfinite(rv))
+
+    def test_calculate_rv_trend_custom(self, setup_fitter_for_rv):
+        """Test custom trend RV calculation."""
+        fitter = setup_fitter_for_rv
+        times = np.array([0.0, 1.0, 2.0, 3.0])
+
+        # Build params dict
+        params = fitter.build_params_dict(fitter.free_params_values)
+
+        # Calculate trend RV
+        rv_trend = fitter.calculate_rv_trend_custom(times, params)
+
+        assert isinstance(rv_trend, np.ndarray)
+        assert len(rv_trend) == len(times)
+        assert np.all(np.isfinite(rv_trend))
+
+    def test_calculate_rv_trend_custom_with_nonzero_trend(self, test_data):
+        """Test trend calculation with non-zero trend parameters."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, verr = test_data
+        fitter.add_data(time, vel, verr, t0=2.0)
+
+        # Set up params with non-zero trend
+        params = {
+            "P_b": Parameter(2.0, "d", fixed=True),
+            "K_b": Parameter(5.0, "m/s", fixed=False),
+            "e_b": Parameter(0.0, "", fixed=True),
+            "w_b": Parameter(np.pi/2, "rad", fixed=True),
+            "Tc_b": Parameter(0.0, "d", fixed=True),
+            "g": Parameter(10.0, "m/s", fixed=True),  # Non-zero offset
+            "gd": Parameter(0.5, "m/s/day", fixed=True),  # Non-zero slope
+            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
+            "jit": Parameter(1.0, "m/s", fixed=False),
+        }
+        fitter.params = params
+
+        times = np.array([0.0, 1.0, 2.0, 3.0])
+        params_dict = fitter.build_params_dict(fitter.free_params_values)
+
+        rv_trend = fitter.calculate_rv_trend_custom(times, params_dict)
+
+        # With g=10 and gd=0.5, at t0=2.0:
+        # trend(t) = 10 + 0.5*(t - 2.0)
+        expected_trend = 10.0 + 0.5 * (times - 2.0)
+        np.testing.assert_allclose(rv_trend, expected_trend)
+
+    def test_calculate_rv_total_custom(self, setup_fitter_for_rv):
+        """Test custom total RV calculation (planet + trend)."""
+        fitter = setup_fitter_for_rv
+        times = np.array([0.0, 1.0, 2.0, 3.0])
+
+        # Build params dict
+        params = fitter.build_params_dict(fitter.free_params_values)
+
+        # Calculate total RV
+        rv_total = fitter.calculate_rv_total_custom(times, params)
+
+        # Also calculate components separately
+        rv_planet = fitter.calculate_rv_planet_custom('b', times, params)
+        rv_trend = fitter.calculate_rv_trend_custom(times, params)
+
+        # Total should equal sum of components
+        np.testing.assert_allclose(rv_total, rv_planet + rv_trend)
+
+    def test_build_params_dict_from_array(self, setup_fitter_for_rv):
+        """Test building params dict from array."""
+        fitter = setup_fitter_for_rv
+
+        # Build from array
+        params = fitter.build_params_dict(fitter.free_params_values)
+
+        assert isinstance(params, dict)
+        assert len(params) == 9  # All params (free + fixed)
+        assert "P_b" in params
+        assert "K_b" in params
+        assert "jit" in params
+
+    def test_build_params_dict_from_dict(self, setup_fitter_for_rv):
+        """Test building params dict from dict."""
+        fitter = setup_fitter_for_rv
+
+        # Build from dict
+        free_params_dict = fitter.free_params_dict
+        free_params_values_dict = {k: v.value for k, v in free_params_dict.items()}
+        params = fitter.build_params_dict(free_params_values_dict)
+
+        assert isinstance(params, dict)
+        assert len(params) == 9  # All params (free + fixed)
+
+    def test_calculate_rv_planet_from_samples(self, setup_fitter_for_rv):
+        """Test calculating planet RV from MCMC samples."""
+        fitter = setup_fitter_for_rv
+
+        # Run short MCMC
+        map_result = fitter.find_map_estimate()
+        initial_positions = fitter.generate_initial_walker_positions_from_map(map_result, nwalkers=10)
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=50, progress=False)
+
+        times = np.array([0.0, 1.0, 2.0])
+
+        # Calculate RV from samples
+        rv_samples = fitter.calculate_rv_planet_from_samples('b', times, discard_start=10, thin=5)
+
+        # Should have shape (n_samples, n_times)
+        assert rv_samples.ndim == 2
+        assert rv_samples.shape[1] == len(times)
+        assert np.all(np.isfinite(rv_samples))
+
+    def test_calculate_rv_trend_from_samples(self, setup_fitter_for_rv):
+        """Test calculating trend RV from MCMC samples."""
+        fitter = setup_fitter_for_rv
+
+        # Run short MCMC
+        map_result = fitter.find_map_estimate()
+        initial_positions = fitter.generate_initial_walker_positions_from_map(map_result, nwalkers=10)
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=50, progress=False)
+
+        times = np.array([0.0, 1.0, 2.0])
+
+        # Calculate trend RV from samples
+        trend_samples = fitter.calculate_rv_trend_from_samples(times, discard_start=10, thin=5)
+
+        # Should have shape (n_samples, n_times)
+        assert trend_samples.ndim == 2
+        assert trend_samples.shape[1] == len(times)
+        assert np.all(np.isfinite(trend_samples))
+
+    def test_calculate_rv_total_from_samples(self, setup_fitter_for_rv):
+        """Test calculating total RV from MCMC samples."""
+        fitter = setup_fitter_for_rv
+
+        # Run short MCMC
+        map_result = fitter.find_map_estimate()
+        initial_positions = fitter.generate_initial_walker_positions_from_map(map_result, nwalkers=10)
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=50, progress=False)
+
+        times = np.array([0.0, 1.0, 2.0])
+
+        # Calculate total RV from samples
+        total_samples = fitter.calculate_rv_total_from_samples(times, discard_start=10, thin=5)
+
+        # Should have shape (n_samples, n_times)
+        assert total_samples.ndim == 2
+        assert total_samples.shape[1] == len(times)
+        assert np.all(np.isfinite(total_samples))
