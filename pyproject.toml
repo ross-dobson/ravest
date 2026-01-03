@@ -1,6 +1,6 @@
 [project]
 name = "ravest"
-version = "0.2.5"
+version = "0.3.0"
 description = "Radial Velocity fitting, simulation and model comparison"
 authors = [
     {name = "Ross Dobson",email = "56548895+ross-dobson@users.noreply.github.com"}
