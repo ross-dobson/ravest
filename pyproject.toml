@@ -39,15 +39,15 @@ repository = "https://www.github.com/ross-dobson/ravest"
 [tool.poetry]
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^8.4.1"
-pytest-cov = "^6.2.1"
-sphinx-autoapi = "^3.6.0"
+pytest = "^9.0.2"
+pytest-cov = "^7.0.0"
+sphinx-autoapi = "^3.6.1"
 sphinx-rtd-theme = "^3.0.2"
-myst-nb = "^1.2.0"
+myst-nb = "^1.3.0"
 sphinx = "^8.2.3"
-ipykernel = "^6.29.5"
-nbstripout = "^0.8.1"
-pre-commit = "^4.2.0"
+ipykernel = "^7.1.0"
+nbstripout = "^0.8.2"
+pre-commit = "^4.5.1"
 
 [tool.ruff]
 line-length = 88
