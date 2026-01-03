@@ -4996,13 +4996,13 @@ typing = ["mypy (>=1.6,<2.0)", "traitlets (>=5.11.1)"]
 
 [[package]]
 name = "tfp-nightly"
-version = "0.26.0.dev20260102"
+version = "0.26.0.dev20260103"
 description = "Probabilistic modeling and statistical inference in TensorFlow"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "tfp_nightly-0.26.0.dev20260102-py2.py3-none-any.whl", hash = "sha256:295727cd70bc9e6450e3a24c5b786c1f4524b071ffb7847b1196368e3b6d556c"},
+    {file = "tfp_nightly-0.26.0.dev20260103-py2.py3-none-any.whl", hash = "sha256:4f5ffb22b77eec9137706ef339292117e7da11bedf1d9b222d2a1990bde3b938"},
 ]
 
 [package.dependencies]
