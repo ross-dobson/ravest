@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.3.0 (2026-01-03)
+- Added full Gaussian Process (GP) functionality to handle stellar activity in RV fitting
+- New GP classes: GPKernel, GPLogLikelihood, GPLogPosterior, and GPFitter for GP-based MCMC fitting
+- New GP kernel: quasiperiodic
+- New priors: Rayleigh and VanEylen19Mixture (for eccentricity)
+- Multiple MCMC initialisation methods: random within priors, point estimates, MAP ball
+- Autocorrelation convergence checking for MCMC
+- Custom RV calculation methods for arbitrary parameter values
+- AIC/BIC/chi-squared model comparison metrics
+- Improved plotting: posterior RV and phase plots with median/MAP parameters, truth value overplotting
+- Comprehensive parameter validation that converts to default parameterisation
+- Better type hints throughout codebase
+- Faster parameter validation, also now supporting arrays
+- Progress bars on computationally heavy plotting
+- Custom plot titles and axis labels on most plots
+- Chain plots dynamically scale based on dimensionality
+- New tutorial notebook showing GP usage with K2-229 HARPS data
+- Updated README reflecting GP now available in the package
+- Tests for all new GP classes and RV calculation methods
+- Additional parameter and prior validation tests
+- Multiprocessing re-enabled for MCMC
+- Enhanced ruff configuration with pydocstyle and flake8-annotations
+- Updated nbstripout config and sphinx config to preserve outputs on computationally heavy notebooks
+- Suppressed non-interactive backend warnings in pytest
+- Updated dependencies: main changes are numpy to >=2, JAX to >=0.8.2, harmonic>=1.3.1
+- Updated dev dependencies
+
 ## v0.2.5 (2025-08-29)
 - Fitter params and priors handling refactored, `add_params` and `add_priors` methods removed, getters (for validation) now act on attributes directly
 - Added Beta distribution prior (and already refactored it too)
