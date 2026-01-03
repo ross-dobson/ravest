@@ -34,6 +34,20 @@ For an example of how to use a Gaussian Process to mitigate stellar variability,
 
 Interested in contributing? Check out the contributing guidelines. Please note that this project is released with a Code of Conduct. By contributing to this project, you agree to abide by its terms.
 
+## Acknowledgements
+
+Ravest makes use of the following open-source packages:
+- [NumPy](https://numpy.org/) for numerical computing
+- [SciPy](https://scipy.org/) for scientific computing algorithms
+- [Matplotlib](https://matplotlib.org/) for plotting and visualisation
+- [Astropy](http://www.astropy.org/) for astronomical calculations and utilities
+- [pandas](https://pandas.pydata.org/) for data manipulation
+- [tqdm](https://tqdm.github.io/) for progress bars
+- [emcee](https://emcee.readthedocs.io/) for MCMC sampling
+- [corner](https://corner.readthedocs.io/) for visualising posterior distributions
+- [tinygp](https://tinygp.readthedocs.io/) for Gaussian Process modelling, which requires [JAX](https://jax.readthedocs.io/)
+- [harmonic](https://astro-informatics.github.io/harmonic/) for Bayesian evidence estimation
+
 ## License
 
 `ravest` was created by Ross Dobson. It is licensed under the terms of the MIT license.
