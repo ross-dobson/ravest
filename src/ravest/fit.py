@@ -8,7 +8,7 @@ import logging
 import multiprocessing as mp
 import os
 import warnings
-from typing import Callable, Dict
+from typing import Callable, Dict, Optional
 
 # Many builds of NumPy are linked against OpenBLAS or MKL, which can use multiple threads
 # This can cause problems with multiprocessing (that we use to speed up emcee)
@@ -65,7 +65,14 @@ class Fitter:
         self._params: Dict[str, Parameter] = {}
         self._priors: Dict[str, Callable[[float], float]] = {}
 
-    def add_data(self, time: np.ndarray, vel: np.ndarray, verr: np.ndarray, t0: float) -> None:
+    def add_data(
+        self,
+        time: np.ndarray,
+        vel: np.ndarray,
+        velerr: np.ndarray,
+        instrument: np.ndarray,
+        t0: float,
+    ) -> None:
         """Add the data to the Fitter object.
 
         Parameters
@@ -74,18 +81,24 @@ class Fitter:
             Time of each observation [days]
         vel : array-like
             Radial velocity at each time [m/s]
-        verr : array-like
+        velerr : array-like
             Uncertainty on the radial velocity at each time [m/s]
+        instrument : array-like
+            Instrument name for each observation (e.g., "HARPS", "HIRES")
         t0 : float
             Reference time for the trend [days].
             Recommended to set this as mean or median of input `time` array.
         """
-        if len(time) != len(vel) or len(time) != len(verr):
-            raise ValueError("Time, velocity, and uncertainty arrays must be the same length.")
+        if not (len(time) == len(vel) == len(velerr) == len(instrument)):
+            raise ValueError(
+                "Time, velocity, uncertainty, and instrument arrays must be the same length."
+            )
 
         self.time = np.ascontiguousarray(time)
         self.vel = np.ascontiguousarray(vel)
-        self.verr = np.ascontiguousarray(verr)
+        self.velerr = np.ascontiguousarray(velerr)
+        self.instrument = np.asarray(instrument)
+        self.unique_instruments = np.unique(self.instrument)
         self.t0 = t0
 
     @property
@@ -162,6 +175,13 @@ class Fitter:
 
     def _validate_complete_params(self, params: Dict[str, Parameter]) -> None:
         """Validate that params dict has required parameters, astrophysically valid values."""
+        # Require add_data() to have been called first (need unique_instruments)
+        if not hasattr(self, "unique_instruments"):
+            raise RuntimeError(
+                "add_data() must be called before setting params "
+                "(need instrument list for per-instrument parameters)"
+            )
+
         # Build complete set of expected parameters
         expected_params = set()
 
@@ -170,11 +190,13 @@ class Fitter:
             for par_name in self.parameterisation.pars:
                 expected_params.add(f"{par_name}_{planet_letter}")
 
-        # Add trend parameters
-        expected_params.update(["g", "gd", "gdd"])
+        # Add trend parameters (system-wide, no gamma offset here)
+        expected_params.update(["gd", "gdd"])
 
-        # Add jitter parameter
-        expected_params.add("jit")
+        # Add per-instrument gamma offset and jitter parameters
+        for inst in self.unique_instruments:
+            expected_params.add(f"g_{inst}")
+            expected_params.add(f"jit_{inst}")
 
         # Convert to sets for easy comparison
         provided_params = set(params.keys())
@@ -221,15 +243,22 @@ class Fitter:
             self.parameterisation.validate_planetary_params(planet_params)
 
         # Validate trend parameters are finite real numbers (already checked above, but kept for clarity)
-        for trend_param in ["g", "gd", "gdd"]:
+        for trend_param in ["gd", "gdd"]:
             trend_value = params_values[trend_param]
             if not np.isfinite(trend_value):
                 raise ValueError(f"Invalid trend parameter {trend_param}: {trend_value} is not a finite real number")
 
-        # Validate jitter parameter
-        jit_value = params_values["jit"]
-        if jit_value < 0:
-            raise ValueError(f"Invalid jitter: {jit_value} < 0")
+        # Validate per-instrument parameters
+        for inst in self.unique_instruments:
+            # Gamma offset must be finite
+            g_key = f"g_{inst}"
+            if not np.isfinite(params_values[g_key]):
+                raise ValueError(f"Invalid gamma offset {g_key}: {params_values[g_key]} is not finite")
+
+            # Jitter must be >= 0
+            jit_key = f"jit_{inst}"
+            if params_values[jit_key] < 0:
+                raise ValueError(f"Invalid jitter {jit_key}: {params_values[jit_key]} < 0")
 
     def _validate_parameter_coupling(self, params: Dict[str, Parameter]) -> None:
         """Validate parameter coupling constraints (e.g., secosw/sesinw must both be free or both fixed)."""
@@ -323,17 +352,39 @@ class Fitter:
         # Update the priors with the new values
         self._priors.update(new_priors)
 
-    def _get_default_parameterisation_equivalent_free_param_name(self, free_param: str) -> str:
+    def _get_default_parameterisation_equivalent_free_param_name(self, free_param: str) -> Optional[list[str]]:
         """Get the names of the default parameterisation equivalent parameter(s), for a single free parameter from the current parameterisation.
 
         Note this can be more than one: e.g. if you have secosw, this affects both e & w in the default parameterisation
-        Whereas Tc just maps to Tp alone
+        Whereas Tc just maps to Tp alone.
+
+        Returns
+        -------
+        list[str] | None
+            - list[str]: equivalent parameter(s) in the default parameterisation
+            - None: no mapping needed / no alternative priors to look for
+
+        Raises
+        ------
+        ValueError
+            If `free_param` is not a recognised planet, instrument, or trend parameter.
         """
-        # Extract planet letter if this is a planetary parameter
-        if '_' in free_param:
-            base_param, planet_letter = free_param.rsplit('_', 1)
-            if planet_letter in self.planet_letters:
-                # This is a planetary parameter
+        # No underscore (expected to be a system trend parameter)
+        if '_' not in free_param:
+            if free_param in ['gd', 'gdd']:
+                # These are the same in all parameterisations
+                return None
+            else:
+                raise ValueError(f"Unknown free parameter: {free_param}")
+
+        # Contains underscore: Planetary or instrument parameters (with underscore before either planet letter or instrument name)
+        # e.g. P_b, or Tc_c, or jit_HARPS
+        else:
+            base_param, suffix = free_param.split('_', 1)  # split only on first underscore (some instrument names may have underscores too)
+
+            # Planetary parameters: suffix is a planet letter
+            if suffix in self.planet_letters:
+                planet_letter = suffix
 
                 if base_param in ['secosw', 'sesinw']:
                     # Both secosw and sesinw map to e,w equivalents
@@ -355,16 +406,28 @@ class Fitter:
 
                 elif base_param in ['P', 'K', 'e', 'w', 'Tp']:
                     # These are default parameterisation parameters anyway
-                    # So there are no alternative priors to look for (therefore the prior is missing)
                     return None
+
+                else:
+                    # Suffix is a valid planet letter, but base parameter is unrecognised, so raise an error
+                    raise ValueError(f"Free parameter {free_param} has known planet letter {planet_letter} but unrecognised base parameter {base_param}.")
+
+            # Instrument parameters: suffix is an instrument name
+            elif suffix in self.unique_instruments:
+
+                # The only instrument parameters are g and jit
+                if base_param in ['g', 'jit']:
+                    # Per-instrument parameter (e.g., g_HARPS, jit_HIRES)
+                    # These are the same in all parameterisations
+                    return None
+
+                else:
+                    raise ValueError(f"Free parameter {free_param} has known instrument name {suffix} but unrecognised base parameter {base_param} (expected 'g' or 'jit' only)")
+
+            # Unknown: Suffix is present, but not a planet letter or instrument, so raise an error
             else:
-                raise Exception(f"Parameter {free_param} has invalid planet letter {planet_letter}")
-        else:
-            # Non-planetary parameter (g, gd, gdd, jit)
-            if free_param in ['g', 'gd', 'gdd', 'jit']:
-                # These are the same in all parameterisations
-                # So there are no alternative priors to look for (therefore the prior is missing)
-                return None
+                raise ValueError(f"Free parameter {free_param} has unrecognised suffix {suffix}, expected one of planet letters {self.planet_letters} or instrument names {self.unique_instruments}.")
+
 
     def _check_params_values_against_priors(self, validated_priors: dict[str, Callable[[float], float]], current_free_param_names: list[str]) -> None:
         """Check parameter values against priors (including if Prior is for the Default parameterisation equivalent parameter)."""
@@ -477,7 +540,9 @@ class Fitter:
             self.free_params_names,
             self.time,
             self.vel,
-            self.verr,
+            self.velerr,
+            self.instrument,
+            self.unique_instruments,
             self.t0,
         )
 
@@ -599,7 +664,9 @@ class Fitter:
                         self.free_params_names,
                         self.time,
                         self.vel,
-                        self.verr,
+                        self.velerr,
+                        self.instrument,
+                        self.unique_instruments,
                         self.t0,
                     )
                     # Check the log-prior probability is finite (i.e. proposed initial values are within prior bounds)
@@ -713,7 +780,9 @@ class Fitter:
                 self.free_params_names,
                 self.time,
                 self.vel,
-                self.verr,
+                self.velerr,
+                self.instrument,
+                self.unique_instruments,
                 self.t0,
             )
             params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
@@ -878,7 +947,9 @@ class Fitter:
             self.free_params_names,
             self.time,
             self.vel,
-            self.verr,
+            self.velerr,
+            self.instrument,
+            self.unique_instruments,
             self.t0,
         )
 
@@ -1207,7 +1278,9 @@ class Fitter:
         log_likelihood = LogLikelihood(
             time=self.time,
             vel=self.vel,
-            verr=self.verr,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
             t0=self.t0,
             planet_letters=self.planet_letters,
             parameterisation=self.parameterisation,
@@ -1299,7 +1372,8 @@ class Fitter:
         """
         # Create LogLikelihood instance to reuse RV model calculation
         ll = LogLikelihood(
-            self.time, self.vel, self.verr, self.t0,
+            self.time, self.vel, self.velerr,
+            self.instrument, self.unique_instruments, self.t0,
             self.planet_letters, self.parameterisation
         )
 
@@ -1309,8 +1383,13 @@ class Fitter:
         # Work backwards to get chi2
         # ll = -0.5 * (chi2 + penalty_term)
         # chi2 = -2 * ll - penalty_term
-        verr_jitter_squared = self.verr**2 + params_dict["jit"]**2
-        penalty_term = np.sum(np.log(2 * np.pi * verr_jitter_squared))
+        # Calculate per-instrument jitter for each observation
+        velerr_jitter_squared = np.zeros_like(self.velerr)
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit = params_dict[f"jit_{inst}"]
+            velerr_jitter_squared[mask] = self.velerr[mask]**2 + jit**2
+        penalty_term = np.sum(np.log(2 * np.pi * velerr_jitter_squared))
         chi2 = -2 * log_like - penalty_term
 
         return chi2
@@ -1697,28 +1776,45 @@ class Fitter:
             rv_all_planets_smooth += planet.radial_velocity(tsmooth)
             rv_all_planets_obs += planet.radial_velocity(self.time)
 
-        # Add trend contribution
-        trend_params = {key: params[key] for key in ["g", "gd", "gdd"]}
+        # Add trend contribution (no gamma offset - that's per-instrument)
+        trend_params = {"gd": params["gd"], "gdd": params["gdd"]}
         trend = ravest.model.Trend(params=trend_params, t0=self.t0)
         rv_total_smooth = rv_all_planets_smooth + trend.radial_velocity(tsmooth)
         rv_total_obs = rv_all_planets_obs + trend.radial_velocity(self.time)
 
-        # Get jitter value for error bars
-        jit_value = params["jit"]
-        verr_with_jit = np.sqrt(self.verr**2 + jit_value**2)
+        # Subtract per-instrument gamma offsets from data (so we compare gamma-corrected data to physical model)
+        vel_corrected = self.vel.copy()
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            vel_corrected[mask] -= params[f"g_{inst}"]
 
-        # Calculate residuals
-        residuals = self.vel - rv_total_obs
+        # Calculate per-instrument jitter for error bars
+        velerr_with_jit = np.zeros_like(self.velerr)
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit = params[f"jit_{inst}"]
+            velerr_with_jit[mask] = np.sqrt(self.velerr[mask]**2 + jit**2)
+
+        # Calculate residuals (gamma-corrected data minus model)
+        residuals = vel_corrected - rv_total_obs
 
         # Create figure with subplots
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 5),
                                       gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
 
-        # Main RV plot
-        ax1.errorbar(self.time, self.vel, yerr=self.verr, marker=".", color="tab:blue",
-                    ecolor="tab:blue", linestyle="None", markersize=8, zorder=4, label="Data")
-        ax1.errorbar(self.time, self.vel, yerr=verr_with_jit, marker="None",
-                    ecolor="tab:blue", linestyle="None", alpha=0.5, zorder=3, label="Jitter")
+        # Main RV plot - plot data by instrument with different colours
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        inst_colors = {inst: colors[i % len(colors)] for i, inst in enumerate(self.unique_instruments)}
+
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=self.velerr[mask],
+                        marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        linestyle="None", markersize=8, zorder=4, label=inst)
+            # Jitter extension (faded, no label)
+            ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=velerr_with_jit[mask],
+                        marker="None", ecolor=inst_colors[inst], linestyle="None",
+                        alpha=0.5, zorder=3)
 
         ax1.plot(tsmooth, rv_total_smooth, label="Model", color="black", zorder=2)
         ax1.set_xlim(tsmooth[0], tsmooth[-1])
@@ -1736,15 +1832,19 @@ class Fitter:
         ax1.tick_params(axis='y', which='minor', direction='in', length=3)
 
         # Residuals plot
-        ax2.errorbar(self.time, residuals, yerr=self.verr, marker=".", color="tab:blue",
-                    ecolor="tab:blue", linestyle="None", markersize=8, zorder=4)
-        ax2.errorbar(self.time, residuals, yerr=verr_with_jit, marker="None",
-                    ecolor="tab:blue", linestyle="None", alpha=0.5, zorder=3)
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            ax2.errorbar(self.time[mask], residuals[mask], yerr=self.velerr[mask],
+                        marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        linestyle="None", markersize=8, zorder=4)
+            ax2.errorbar(self.time[mask], residuals[mask], yerr=velerr_with_jit[mask],
+                        marker="None", ecolor=inst_colors[inst], linestyle="None",
+                        alpha=0.5, zorder=3)
         ax2.axhline(0, color="k", linestyle="--", zorder=2)
         ax2.set_xlim(tsmooth[0], tsmooth[-1])
 
         # Set symmetric y-limits for residuals
-        max_abs_residual = np.max(np.abs(residuals + verr_with_jit))
+        max_abs_residual = np.max(np.abs(residuals + velerr_with_jit))
         ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
 
         if xlabel:
@@ -1797,9 +1897,12 @@ class Fitter:
         _trange = _tmax - _tmin
         tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
 
-        # Get jitter value for error bars
-        jit_value = params["jit"]
-        verr_with_jit = np.sqrt(self.verr**2 + jit_value**2)
+        # Calculate per-instrument jitter for error bars
+        velerr_with_jit = np.zeros_like(self.velerr)
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit = params[f"jit_{inst}"]
+            velerr_with_jit[mask] = np.sqrt(self.velerr[mask]**2 + jit**2)
 
         # Get period and time of conjunction for this planet
         P = params[f"P_{planet_letter}"]
@@ -1829,7 +1932,7 @@ class Fitter:
         planet_rv_data = planet.radial_velocity(self.time)
         planet_rv_sorted = planet_rv_tsmooth[smooth_inds]
 
-        # Calculate all other contributions (other planets + trend) at data times
+        # Calculate all other contributions (other planets + trend + gamma) at data times
         other_rv = np.zeros(len(self.time))
         for other_letter in self.planet_letters:
             if other_letter != planet_letter:
@@ -1837,18 +1940,24 @@ class Fitter:
                 other_planet = ravest.model.Planet(other_letter, self.parameterisation, other_params)
                 other_rv += other_planet.radial_velocity(self.time)
 
-        # Add trend
-        trend_params = {key: params[key] for key in ["g", "gd", "gdd"]}
+        # Add trend (no gamma offset - that's per-instrument)
+        trend_params = {"gd": params["gd"], "gdd": params["gdd"]}
         trend = ravest.model.Trend(params=trend_params, t0=self.t0)
         other_rv += trend.radial_velocity(self.time)
+
+        # Add per-instrument gamma offsets
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            other_rv[mask] += params[f"g_{inst}"]
 
         # Calculate data with other components subtracted
         data_minus_others = self.vel - other_rv
 
         # Sort the data according to phase folding
         data_minus_others_sorted = data_minus_others[inds]
-        verr_sorted = self.verr[inds]
-        verr_with_jit_sorted = verr_with_jit[inds]
+        verr_sorted = self.velerr[inds]
+        velerr_with_jit_sorted = velerr_with_jit[inds]
+        instrument_sorted = self.instrument[inds]
 
         # Calculate residuals (data - model for this planet)
         residuals = data_minus_others - planet_rv_data
@@ -1858,11 +1967,19 @@ class Fitter:
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 5),
                                       gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
 
-        # Main phase plot
-        ax1.errorbar(t_fold_sorted, data_minus_others_sorted, yerr=verr_sorted, marker=".",
-                    linestyle="None", color="tab:blue", markersize=8, zorder=4, label="Data")
-        ax1.errorbar(t_fold_sorted, data_minus_others_sorted, yerr=verr_with_jit_sorted, marker="None",
-                    linestyle="None", color="tab:blue", alpha=0.5, zorder=3, label="Jitter")
+        # Set up per-instrument colours
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        inst_colors = {inst: colors[i % len(colors)] for i, inst in enumerate(self.unique_instruments)}
+
+        # Main phase plot - plot each instrument separately
+        for inst in self.unique_instruments:
+            mask = (instrument_sorted == inst)
+            ax1.errorbar(t_fold_sorted[mask], data_minus_others_sorted[mask], yerr=verr_sorted[mask],
+                        marker=".", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        markersize=8, zorder=4, label=inst)
+            # Jitter extension (faded, no label)
+            ax1.errorbar(t_fold_sorted[mask], data_minus_others_sorted[mask], yerr=velerr_with_jit_sorted[mask],
+                        marker="None", linestyle="None", ecolor=inst_colors[inst], alpha=0.5, zorder=3)
 
         # Plot phase-folded model for this planet
         ax1.plot(tsmooth_fold_sorted, planet_rv_sorted, label="Model", color="black", zorder=2)
@@ -1887,17 +2004,20 @@ class Fitter:
         ax1.annotate(s, xy=(0, 1), xycoords="axes fraction",
                     xytext=(+0.5, -0.5), textcoords="offset fontsize", va="top")
 
-        # Residuals plot (phase-folded)
-        ax2.errorbar(t_fold_sorted, residuals_sorted, yerr=verr_sorted, marker=".",
-                    linestyle="None", color="tab:blue", markersize=8, zorder=4)
-        ax2.errorbar(t_fold_sorted, residuals_sorted, yerr=verr_with_jit_sorted, marker="None",
-                    linestyle="None", color="tab:blue", alpha=0.5, zorder=3)
+        # Residuals plot (phase-folded) - plot each instrument separately
+        for inst in self.unique_instruments:
+            mask = (instrument_sorted == inst)
+            ax2.errorbar(t_fold_sorted[mask], residuals_sorted[mask], yerr=verr_sorted[mask],
+                        marker=".", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        markersize=8, zorder=4)
+            ax2.errorbar(t_fold_sorted[mask], residuals_sorted[mask], yerr=velerr_with_jit_sorted[mask],
+                        marker="None", linestyle="None", ecolor=inst_colors[inst], alpha=0.5, zorder=3)
         ax2.axhline(0, color="k", linestyle="--", zorder=2)
         ax2.set_xlim(-0.5, 0.5)
         ax2.xaxis.set_major_locator(MultipleLocator(0.25))  # Set x-ticks every 0.25
 
         # Set symmetric y-limits for residuals
-        max_abs_residual = np.max(np.abs(residuals_sorted + verr_with_jit_sorted))
+        max_abs_residual = np.max(np.abs(residuals_sorted + velerr_with_jit_sorted))
         ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
 
         if xlabel:
@@ -1955,7 +2075,7 @@ class Fitter:
         _trange = _tmax - _tmin
         tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
 
-        # Calculate posterior RV predictions
+        # Calculate posterior RV predictions (planets + trend, no gamma)
         rv_all_planets_trend_matrix_smooth = self.calculate_rv_total_from_samples(times=tsmooth, discard_start=discard_start, discard_end=discard_end, thin=thin)
         rv_all_planets_trend_matrix_obs = self.calculate_rv_total_from_samples(times=self.time, discard_start=discard_start, discard_end=discard_end, thin=thin)
 
@@ -1963,23 +2083,50 @@ class Fitter:
         rv_percentiles_smooth = np.percentile(rv_all_planets_trend_matrix_smooth, [15.85, 50, 84.15], axis=0)
         rv_percentiles_obs = np.percentile(rv_all_planets_trend_matrix_obs, [15.85, 50, 84.15], axis=0)
 
-        # Calculate residuals using median model at data times
-        residuals = self.vel - rv_percentiles_obs[1]
-
-        # Get jitter samples for error bars
+        # Get samples dict for per-instrument gamma and jitter
         samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
-        if 'jit' in samples_dict:
-            jit_median = np.median(samples_dict['jit'])
-        else:
-            jit_median = self.fixed_params_values_dict['jit']
-        verr_with_jit = np.sqrt(self.verr**2 + jit_median**2)
+
+        # Subtract per-instrument gamma offsets from data (compare gamma-corrected data to physical model)
+        vel_corrected = self.vel.copy()
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            g_key = f"g_{inst}"
+            if g_key in samples_dict:
+                g_median = np.median(samples_dict[g_key])
+            else:
+                g_median = self.fixed_params_values_dict[g_key]
+            vel_corrected[mask] -= g_median
+
+        # Calculate residuals using median model at data times
+        residuals = vel_corrected - rv_percentiles_obs[1]
+
+        # Calculate per-instrument jitter for error bars
+        velerr_with_jit = np.zeros_like(self.velerr)
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit_key = f"jit_{inst}"
+            if jit_key in samples_dict:
+                jit_median = np.median(samples_dict[jit_key])
+            else:
+                jit_median = self.fixed_params_values_dict[jit_key]
+            velerr_with_jit[mask] = np.sqrt(self.velerr[mask]**2 + jit_median**2)
 
         # Create figure with subplots
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 5), gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
 
-        # Main RV plot
-        ax1.errorbar(self.time, self.vel, yerr=self.verr, marker=".", color="tab:blue", ecolor="tab:blue", linestyle="None", markersize=8, zorder=4, label="Data")
-        ax1.errorbar(self.time, self.vel, yerr=verr_with_jit, marker="None", ecolor="tab:blue", linestyle="None", alpha=0.5, zorder=3, label="Jitter")
+        # Main RV plot - plot data by instrument with different colours
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        inst_colors = {inst: colors[i % len(colors)] for i, inst in enumerate(self.unique_instruments)}
+
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=self.velerr[mask],
+                        marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        linestyle="None", markersize=8, zorder=4, label=inst)
+            # Jitter extension (faded, no label)
+            ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=velerr_with_jit[mask],
+                        marker="None", ecolor=inst_colors[inst], linestyle="None",
+                        alpha=0.5, zorder=3)
 
         # Plot median model and uncertainty
         ax1.plot(tsmooth, rv_percentiles_smooth[1], label="Model", color="black", zorder=2)
@@ -2001,13 +2148,19 @@ class Fitter:
         ax1.tick_params(axis='y', which='minor', direction='in', length=3)
 
         # Residuals plot
-        ax2.errorbar(self.time, residuals, yerr=self.verr, marker=".", color="tab:blue", ecolor="tab:blue", linestyle="None", markersize=8, zorder=4)
-        ax2.errorbar(self.time, residuals, yerr=verr_with_jit, marker="None", ecolor="tab:blue", linestyle="None", alpha=0.5, zorder=3)
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            ax2.errorbar(self.time[mask], residuals[mask], yerr=self.velerr[mask],
+                        marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        linestyle="None", markersize=8, zorder=4)
+            ax2.errorbar(self.time[mask], residuals[mask], yerr=velerr_with_jit[mask],
+                        marker="None", ecolor=inst_colors[inst], linestyle="None",
+                        alpha=0.5, zorder=3)
         ax2.axhline(0, color="k", linestyle="--", zorder=2)
         ax2.set_xlim(tsmooth[0], tsmooth[-1])
 
         # Set symmetric y-limits for residuals plot, so 0 is in centre
-        max_abs_residual = np.max(np.abs(residuals + verr_with_jit))
+        max_abs_residual = np.max(np.abs(residuals + velerr_with_jit))
         ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
 
         if xlabel:
@@ -2064,7 +2217,7 @@ class Fitter:
         # Get period (handle both free and fixed cases)
         samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
 
-        # Combine with fixed parameters and fixed hyperparameters
+        # Combine with fixed parameters
         params = samples_dict | self.fixed_params_values_dict
 
         # Create smooth time array (same approach as _plot_rv)
@@ -2072,9 +2225,16 @@ class Fitter:
         _trange = _tmax - _tmin
         tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
 
-        # Get jitter value for error bars
-        jit_med = np.median(params["jit"])
-        verr_with_jit = np.sqrt(self.verr**2 + jit_med**2)
+        # Calculate per-instrument jitter for error bars
+        velerr_with_jit = np.zeros_like(self.velerr)
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit_key = f"jit_{inst}"
+            if jit_key in samples_dict:
+                jit_med = np.median(samples_dict[jit_key])
+            else:
+                jit_med = self.fixed_params_values_dict[jit_key]
+            velerr_with_jit[mask] = np.sqrt(self.velerr[mask]**2 + jit_med**2)
 
         # Get period value
         _P = params[f'P_{planet_letter}']
@@ -2112,6 +2272,16 @@ class Fitter:
         # Combine all non-target contributions (other planets + trend)
         rv_others_total_data = rv_trend_data + rv_other_planets_data
 
+        # Add per-instrument gamma offsets (using median values)
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            g_key = f"g_{inst}"
+            if g_key in samples_dict:
+                g_median = np.median(samples_dict[g_key])
+            else:
+                g_median = self.fixed_params_values_dict[g_key]
+            rv_others_total_data[:, mask] += g_median
+
         # Calculate percentiles across these matrices of RVs
         rv_planet_data_percs = np.percentile(rv_planet_data, [15.85, 50, 84.15], axis=0)
         rv_planet_smooth_percs = np.percentile(rv_planet_smooth, [15.85, 50, 84.15], axis=0)
@@ -2128,11 +2298,20 @@ class Fitter:
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 5), sharex=True,
                                       gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
 
+        # Set up per-instrument colours
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        inst_colors = {inst: colors[i % len(colors)] for i, inst in enumerate(self.unique_instruments)}
+        instrument_sorted = self.instrument[inds]
+
         # Main phase plot - plot data with other contributions removed, sorted by phase
-        ax1.errorbar(t_fold, data_minus_others[inds], yerr=self.verr[inds], marker=".",
-                    linestyle="None", color="tab:blue", markersize=8, zorder=4, label="Data")
-        ax1.errorbar(t_fold, data_minus_others[inds], yerr=verr_with_jit[inds], marker="None",
-                    linestyle="None", color="tab:blue", alpha=0.5, zorder=3, label="Jitter")
+        for inst in self.unique_instruments:
+            mask = (instrument_sorted == inst)
+            ax1.errorbar(t_fold[mask], data_minus_others[inds][mask], yerr=self.velerr[inds][mask],
+                        marker=".", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        markersize=8, zorder=4, label=inst)
+            # Jitter extension (faded, no label)
+            ax1.errorbar(t_fold[mask], data_minus_others[inds][mask], yerr=velerr_with_jit[inds][mask],
+                        marker="None", linestyle="None", ecolor=inst_colors[inst], alpha=0.5, zorder=3)
 
         # Plot planet model with uncertainty, sorted by phase
         ax1.plot(tsmooth_fold_sorted, rv_planet_smooth_percs[1][smooth_inds],
@@ -2158,17 +2337,20 @@ class Fitter:
         ax1.yaxis.set_minor_locator(AutoMinorLocator())
         ax1.tick_params(axis='y', which='minor', direction='in', length=3)
 
-        # Residuals plot (phase-folded)
-        ax2.errorbar(t_fold, residuals[inds], yerr=self.verr[inds], marker=".",
-                    linestyle="None", color="tab:blue", markersize=8, zorder=4)
-        ax2.errorbar(t_fold, residuals[inds], yerr=verr_with_jit[inds], marker="None",
-                    linestyle="None", color="tab:blue", alpha=0.5, zorder=3)
+        # Residuals plot (phase-folded) - plot each instrument separately
+        for inst in self.unique_instruments:
+            mask = (instrument_sorted == inst)
+            ax2.errorbar(t_fold[mask], residuals[inds][mask], yerr=self.velerr[inds][mask],
+                        marker=".", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        markersize=8, zorder=4)
+            ax2.errorbar(t_fold[mask], residuals[inds][mask], yerr=velerr_with_jit[inds][mask],
+                        marker="None", linestyle="None", ecolor=inst_colors[inst], alpha=0.5, zorder=3)
         ax2.axhline(0, color="k", linestyle="--", zorder=2)
         ax2.set_xlim(-0.5, 0.5)
         ax2.xaxis.set_major_locator(MultipleLocator(0.25))  # Set x-ticks every 0.25
 
         # Set symmetric y-limits for residuals
-        max_abs_residual = np.max(np.abs(residuals[inds] + verr_with_jit[inds]))
+        max_abs_residual = np.max(np.abs(residuals[inds] + velerr_with_jit[inds]))
         ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
 
         if xlabel:
@@ -2371,8 +2553,8 @@ class Fitter:
         >>> params = fitter.build_params_dict(map_result.x)
         >>> trend_rv = fitter.calculate_rv_trend_custom(times, params)
         """
-        # Calculate trend RV
-        trend = ravest.model.Trend(params={"g": params["g"], "gd": params["gd"], "gdd": params["gdd"]}, t0=self.t0)
+        # Calculate trend RV (no gamma offset - that's per-instrument)
+        trend = ravest.model.Trend(params={"gd": params["gd"], "gdd": params["gdd"]}, t0=self.t0)
         return trend.radial_velocity(times)
 
     def calculate_rv_total_custom(self, times: np.ndarray, params: dict[str, float]) -> np.ndarray:
@@ -2517,7 +2699,8 @@ class Fitter:
         >>> # Plot with custom values (must include all required parameters)
         >>> fitter.plot_custom_rv({"P_b": 4.25, "K_b": 55.0, "e_b": 0.1,
         ...                        "w_b": 1.57, "Tc_b": 2456325.5,
-        ...                        "g": -10.2, "gd": 0.0, "gdd": 0.0, "jit": 2.0})
+        ...                        "g_HARPS": -10.2, "jit_HARPS": 2.0,
+        ...                        "gd": 0.0, "gdd": 0.0})
         """
         # Validate that all required parameters are present
         expected_params = set(self.free_params_names + list(self.fixed_params_names))
@@ -2563,7 +2746,8 @@ class Fitter:
         >>> # Plot phase curve with custom values
         >>> fitter.plot_custom_phase("b", {"P_b": 4.25, "K_b": 55.0, "e_b": 0.1,
         ...                               "w_b": 1.57, "Tc_b": 2456325.5,
-        ...                               "g": -10.2, "gd": 0.0, "gdd": 0.0, "jit": 2.0})
+        ...                               "g_HARPS": -10.2, "jit_HARPS": 2.0,
+        ...                               "gd": 0.0, "gdd": 0.0})
         """
         # Validate that all required parameters are present
         expected_params = set(self.free_params_names + list(self.fixed_params_names))
@@ -2679,7 +2863,9 @@ class LogPosterior:
         free_params_names: list[str],
         time: np.ndarray,
         vel: np.ndarray,
-        verr: np.ndarray,
+        velerr: np.ndarray,
+        instrument: np.ndarray,
+        unique_instruments: np.ndarray,
         t0: float,
     ) -> None:
         """Initialize the LogPosterior object.
@@ -2700,8 +2886,12 @@ class LogPosterior:
             Time of each observation [days].
         vel : np.ndarray
             Radial velocity at each time [m/s].
-        verr : np.ndarray
+        velerr : np.ndarray
             Uncertainty on the radial velocity at each time [m/s].
+        instrument : np.ndarray
+            Instrument name for each observation.
+        unique_instruments : np.ndarray
+            Unique instrument names in the data.
         t0 : float
             Reference time for the trend [days].
         """
@@ -2712,17 +2902,22 @@ class LogPosterior:
         self.free_params_names = free_params_names
         self.time = time
         self.vel = vel
-        self.verr = verr
+        self.velerr = velerr
+        self.instrument = instrument
+        self.unique_instruments = unique_instruments
         self.t0 = t0
 
         # Create log-likelihood and log-prior objects for later
-        self.log_likelihood = LogLikelihood(time=self.time,
-                                            vel=self.vel,
-                                            verr=self.verr,
-                                            t0=self.t0,
-                                            planet_letters=self.planet_letters,
-                                            parameterisation=self.parameterisation,
-                                            )
+        self.log_likelihood = LogLikelihood(
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+        )
         self.log_prior = LogPrior(self.priors)
 
     def _convert_params_for_prior_evaluation(self, free_params_dict: dict[str, float]) -> Dict[str, float]:
@@ -2792,8 +2987,9 @@ class LogPosterior:
         # get checked/raise Exceptions when they are used to calculate an RV.
         # Jitter doesn't directly contribute to calculated RV, so needs to be checked manually.
         _all_params_for_ll = self.fixed_params | free_params_dict
-        if _all_params_for_ll["jit"] < 0:
-            return -np.inf
+        for inst in self.unique_instruments:
+            if _all_params_for_ll[f"jit_{inst}"] < 0:
+                return -np.inf
 
         # Evaluate priors on the free parameters. If any parameters are outside priors
         # (i.e. priors are infinite), then fail fast by returning -inf early (before expensive likelihood calc).
@@ -2858,7 +3054,9 @@ class LogLikelihood:
         self,
         time: np.ndarray,
         vel: np.ndarray,
-        verr: np.ndarray,
+        velerr: np.ndarray,
+        instrument: np.ndarray,
+        unique_instruments: np.ndarray,
         t0: float,
         planet_letters: list[str],
         parameterisation: Parameterisation,
@@ -2871,8 +3069,12 @@ class LogLikelihood:
             Time of each observation [days].
         vel : np.ndarray
             Radial velocity at each time [m/s].
-        verr : np.ndarray
+        velerr : np.ndarray
             Uncertainty on the radial velocity at each time [m/s].
+        instrument : np.ndarray
+            Instrument name for each observation.
+        unique_instruments : np.ndarray
+            Unique instrument names in the data.
         t0 : float
             Reference time for the trend [days].
         planet_letters : list[str]
@@ -2882,11 +3084,19 @@ class LogLikelihood:
         """
         self.time = time
         self.vel = vel
-        self.verr = verr
+        self.velerr = velerr
+        self.instrument = instrument
+        self.unique_instruments = unique_instruments
         self.t0 = t0
 
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
+
+        # Precompute instrument masks to avoid repeated string comparisons
+        # These are constant for the lifetime of this object
+        self.instrument_masks = {
+            inst: (self.instrument == inst) for inst in self.unique_instruments
+        }
 
     def __call__(self, params: Dict[str, float]) -> float:
         """Calculate log likelihood for given parameters.
@@ -2920,19 +3130,28 @@ class LogLikelihood:
             # add this planet's RV contribution to the total
             rv_total += _this_planet_rv
 
-        # Step 2: Calculate and add the RV from the system Trend
-        _trend_keys = ["g", "gd", "gdd"]
-        _trend_params = {key: params[key] for key in _trend_keys}
+        # Step 2: Calculate and add the RV from the system Trend (no gamma offset)
+        _trend_params = {"gd": params["gd"], "gdd": params["gdd"]}
         _this_trend = ravest.model.Trend(params=_trend_params, t0=self.t0)
         _rv_trend = _this_trend.radial_velocity(self.time)
         rv_total += _rv_trend
 
-        # Step 3: Calculate log-likelihood including jitter term
-        verr_jitter_squared = self.verr**2 + params["jit"]**2
-        penalty_term = np.log(2 * np.pi * verr_jitter_squared)
-        residuals = rv_total - self.vel
-        chi2 = residuals**2 / verr_jitter_squared
-        ll = -0.5 * np.sum(chi2 + penalty_term)
+        # Step 3: Add per-instrument gamma offsets (using precomputed masks)
+        for inst in self.unique_instruments:
+            mask = self.instrument_masks[inst]
+            rv_total[mask] += params[f"g_{inst}"]
+
+        # Step 4: Calculate log-likelihood with per-instrument jitter (using precomputed masks)
+        ll = 0.0
+        for inst in self.unique_instruments:
+            mask = self.instrument_masks[inst]
+            jit = params[f"jit_{inst}"]
+            velerr_jit_sq = self.velerr[mask]**2 + jit**2
+            penalty_term = np.log(2 * np.pi * velerr_jit_sq)
+            residuals = rv_total[mask] - self.vel[mask]
+            chi2 = residuals**2 / velerr_jit_sq
+            ll += -0.5 * np.sum(chi2 + penalty_term)
+
         return ll
 
 
@@ -3001,7 +3220,14 @@ class GPFitter:
         self._hyperparams: Dict[str, Parameter] = {}
         self._hyperpriors: Dict[str, Callable[[float], float]] = {}
 
-    def add_data(self, time: np.ndarray, vel: np.ndarray, verr: np.ndarray, t0: float) -> None:
+    def add_data(
+        self,
+        time: np.ndarray,
+        vel: np.ndarray,
+        velerr: np.ndarray,
+        instrument: np.ndarray,
+        t0: float,
+    ) -> None:
         """Add the data to the GPFitter object.
 
         Parameters
@@ -3010,18 +3236,24 @@ class GPFitter:
             Time of each observation [days]
         vel : array-like
             Radial velocity at each time [m/s]
-        verr : array-like
+        velerr : array-like
             Uncertainty on the radial velocity at each time [m/s]
+        instrument : array-like
+            Instrument name for each observation (e.g., "HARPS", "HIRES")
         t0 : float
             Reference time for the trend [days].
             Recommended to set this as mean or median of input `time` array.
         """
-        if len(time) != len(vel) or len(time) != len(verr):
-            raise ValueError("Time, velocity, and uncertainty arrays must be the same length.")
+        if not (len(time) == len(vel) == len(velerr) == len(instrument)):
+            raise ValueError(
+                "Time, velocity, uncertainty, and instrument arrays must be the same length."
+            )
 
         self.time = np.ascontiguousarray(time)
         self.vel = np.ascontiguousarray(vel)
-        self.verr = np.ascontiguousarray(verr)
+        self.velerr = np.ascontiguousarray(velerr)
+        self.instrument = np.asarray(instrument)
+        self.unique_instruments = np.unique(self.instrument)
         self.t0 = t0
 
     @property
@@ -3137,11 +3369,13 @@ class GPFitter:
             for par_name in self.parameterisation.pars:
                 expected_params.add(f"{par_name}_{planet_letter}")
 
-        # Add trend parameters
-        expected_params.update(["g", "gd", "gdd"])
+        # Add trend parameters (no gamma - that's per-instrument)
+        expected_params.update(["gd", "gdd"])
 
-        # Add jitter parameter (still needed for white noise component)
-        expected_params.add("jit")
+        # Add per-instrument gamma offset and jitter parameters
+        for inst in self.unique_instruments:
+            expected_params.add(f"g_{inst}")
+            expected_params.add(f"jit_{inst}")
 
         # Validate same as Fitter
         provided_params = set(params.keys())
@@ -3188,15 +3422,22 @@ class GPFitter:
             self.parameterisation.validate_planetary_params(planet_params)
 
         # Validate trend parameters are finite real numbers (already checked above, but kept for clarity)
-        for trend_param in ["g", "gd", "gdd"]:
+        for trend_param in ["gd", "gdd"]:
             trend_value = params_values[trend_param]
             if not np.isfinite(trend_value):
                 raise ValueError(f"Invalid trend parameter {trend_param}: {trend_value} is not a finite real number")
 
-        # Validate jitter parameter
-        jit_value = params_values["jit"]
-        if jit_value < 0:
-            raise ValueError(f"Invalid jitter: {jit_value} < 0")
+        # Validate per-instrument parameters
+        for inst in self.unique_instruments:
+            # Gamma offset must be finite
+            g_key = f"g_{inst}"
+            if not np.isfinite(params_values[g_key]):
+                raise ValueError(f"Invalid gamma offset {g_key}: {params_values[g_key]} is not finite")
+
+            # Jitter must be >= 0
+            jit_key = f"jit_{inst}"
+            if params_values[jit_key] < 0:
+                raise ValueError(f"Invalid jitter {jit_key}: {params_values[jit_key]} < 0")
 
     def _validate_parameter_coupling(self, params: Dict[str, Parameter]) -> None:
         """Validate parameter coupling constraints (e.g., secosw/sesinw must both be free or both fixed)."""
@@ -3290,17 +3531,40 @@ class GPFitter:
         # Update the priors with the new values
         self._priors.update(new_priors)
 
-    def _get_default_parameterisation_equivalent_free_param_name(self, free_param: str) -> str:
+
+    def _get_default_parameterisation_equivalent_free_param_name(self, free_param: str) -> Optional[list[str]]:
         """Get the names of the default parameterisation equivalent parameter(s), for a single free parameter from the current parameterisation.
 
-        Note this can be more than one: e.g. if you have secosw, this affects
-        both e & w in the default parameterisation, whereas tc just maps to tp alone
+        Note this can be more than one: e.g. if you have secosw, this affects both e & w in the default parameterisation
+        Whereas Tc just maps to Tp alone.
+
+        Returns
+        -------
+        list[str] | None
+            - list[str]: equivalent parameter(s) in the default parameterisation
+            - None: no mapping needed / no alternative priors to look for
+
+        Raises
+        ------
+        ValueError
+            If `free_param` is not a recognised planet, instrument, or trend parameter.
         """
-        # Extract planet letter if this is a planetary parameter
-        if '_' in free_param:
-            base_param, planet_letter = free_param.rsplit('_', 1)
-            if planet_letter in self.planet_letters:
-                # This is a planetary parameter
+        # No underscore (expected to be a system trend parameter)
+        if '_' not in free_param:
+            if free_param in ['gd', 'gdd']:
+                # These are the same in all parameterisations
+                return None
+            else:
+                raise ValueError(f"Unknown free parameter: {free_param}")
+
+        # Contains underscore: Planetary or instrument parameters (with underscore before either planet letter or instrument name)
+        # e.g. P_b, or Tc_c, or jit_HARPS
+        else:
+            base_param, suffix = free_param.split('_', 1)  # split only on first underscore (some instrument names may have underscores too)
+
+            # Planetary parameters: suffix is a planet letter
+            if suffix in self.planet_letters:
+                planet_letter = suffix
 
                 if base_param in ['secosw', 'sesinw']:
                     # Both secosw and sesinw map to e,w equivalents
@@ -3322,16 +3586,29 @@ class GPFitter:
 
                 elif base_param in ['P', 'K', 'e', 'w', 'Tp']:
                     # These are default parameterisation parameters anyway
-                    # So there are no alternative priors to look for (therefore the prior is missing)
                     return None
+
+                else:
+                    # Suffix is a valid planet letter, but base parameter is unrecognised, so raise an error
+                    raise ValueError(f"Free parameter {free_param} has known planet letter {planet_letter} but unrecognised base parameter {base_param}.")
+
+            # Instrument parameters: suffix is an instrument name
+            elif suffix in self.unique_instruments:
+
+                # The only instrument parameters are g and jit
+                if base_param in ['g', 'jit']:
+                    # Per-instrument parameter (e.g., g_HARPS, jit_HIRES)
+                    # These are the same in all parameterisations
+                    return None
+
+                else:
+                    raise ValueError(f"Free parameter {free_param} has known instrument name {suffix} but unrecognised base parameter {base_param} (expected 'g' or 'jit' only)")
+
+            # Unknown: Suffix is present, but not a planet letter or instrument, so raise an error
             else:
-                raise Exception(f"Parameter {free_param} has invalid planet letter {planet_letter}")
-        else:
-            # Non-planetary parameter (g, gd, gdd, jit)
-            if free_param in ['g', 'gd', 'gdd', 'jit']:
-                # These are the same in all parameterisations
-                # So there are no alternative priors to look for (therefore the prior is missing)
-                return None
+                raise ValueError(f"Free parameter {free_param} has unrecognised suffix {suffix}, expected one of planet letters {self.planet_letters} or instrument names {self.unique_instruments}.")
+
+
 
     def _check_params_values_against_priors(self, validated_priors: dict[str, Callable[[float], float]], current_free_param_names: list[str]) -> None:
         """Check parameter values against priors (including if Prior is for the Default parameterisation equivalent parameter)."""
@@ -3526,8 +3803,10 @@ class GPFitter:
             self.free_hyperparams_names,
             self.time,
             self.vel,
-            self.verr,
+            self.velerr,
             self.t0,
+            self.instrument,
+            self.unique_instruments,
         )
 
         # Combine free params and free hyperparams for initial guess
@@ -3697,8 +3976,10 @@ class GPFitter:
                         self.free_hyperparams_names,
                         self.time,
                         self.vel,
-                        self.verr,
+                        self.velerr,
                         self.t0,
+                        self.instrument,
+                        self.unique_instruments,
                     )
                     # Check the log-prior probability is finite (i.e. proposed initial values are within prior bounds)
                     params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
@@ -3846,8 +4127,10 @@ class GPFitter:
                 self.free_hyperparams_names,
                 self.time,
                 self.vel,
-                self.verr,
+                self.velerr,
                 self.t0,
+                self.instrument,
+                self.unique_instruments,
             )
             params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
             log_prior = lp.log_prior(params_for_prior)
@@ -4047,8 +4330,10 @@ class GPFitter:
             self.free_hyperparams_names,
             self.time,
             self.vel,
-            self.verr,
+            self.velerr,
             self.t0,
+            self.instrument,
+            self.unique_instruments,
         )
 
         # Enforce minimum number of walkers (though users ideally should have many more than this)
@@ -4401,8 +4686,10 @@ class GPFitter:
         gp_log_likelihood = GPLogLikelihood(
             time=self.time,
             vel=self.vel,
-            verr=self.verr,
+            velerr=self.velerr,
             t0=self.t0,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
             planet_letters=self.planet_letters,
             parameterisation=self.parameterisation,
             gp_kernel=self.gp_kernel,
@@ -4551,9 +4838,15 @@ class GPFitter:
         """
         # Create GPLogLikelihood instance to reuse mean model calculation
         gp_ll = GPLogLikelihood(
-            self.time, self.vel, self.verr, self.t0,
-            self.planet_letters, self.parameterisation,
-            self.gp_kernel
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            t0=self.t0,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            gp_kernel=self.gp_kernel
         )
 
         # Extract parameter and hyperparameter dicts
@@ -4573,11 +4866,16 @@ class GPFitter:
         kernel = self.gp_kernel.build_kernel(hyperparams)
 
         # Add jitter to observational uncertainties
-        jit_value = params["jit"]
-        jit2_verr2 = gp_ll.jax_verr**2 + jit_value**2
+        # jit_value = params["jit"]
+        # jit2_verr2 = gp_ll.jax_verr**2 + jit_value**2
+        velerr_jitter_squared = np.zeros_like(self.velerr)
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit = params_hyperparams_dict[f"jit_{inst}"]
+            velerr_jitter_squared[mask] = self.velerr[mask]**2 + jit**2
 
         # Calculate chi^2 = r^T K^(-1) r using full covariance matrix
-        return float(self._compute_gp_chi2(kernel, gp_ll.jax_time, jit2_verr2, residuals))
+        return float(self._compute_gp_chi2(kernel, gp_ll.jax_time, velerr_jitter_squared, residuals))
 
     def calculate_aic(self, params_hyperparams_dict: Dict[str, float]) -> float:
         """Calculate Akaike Information Criterion (AIC) for given parameters and hyperparameters.
@@ -4966,7 +5264,7 @@ class GPFitter:
         _trange = _tmax - _tmin
         tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
 
-        # Calculate mean model (planets + trend) at smooth time points
+        # Calculate mean model (planets + trend) at smooth time points (no gamma - that's per-instrument)
         rv_mean_smooth = np.zeros(len(tsmooth))
 
         # Add each Planet's RV at smooth times
@@ -4979,8 +5277,8 @@ class GPFitter:
             planet = ravest.model.Planet(letter, self.parameterisation, planet_params)
             rv_mean_smooth += planet.radial_velocity(tsmooth)
 
-        # Add the system Trend at smooth times
-        trend_params = {key: params_hyperparams[key] for key in ["g", "gd", "gdd"]}
+        # Add the system Trend at smooth times (gd, gdd only - no gamma)
+        trend_params = {"gd": params_hyperparams["gd"], "gdd": params_hyperparams["gdd"]}
         trend = ravest.model.Trend(params=trend_params, t0=self.t0)
         rv_trend_smooth = trend.radial_velocity(tsmooth)
         rv_mean_smooth += rv_trend_smooth
@@ -4988,7 +5286,7 @@ class GPFitter:
 
         # Step 2: RV at observed times only, for GP conditioning
 
-        # Calculate mean model (planets + trend) at observed times
+        # Calculate mean model (planets + trend) at observed times (no gamma)
         rv_mean_obs = np.zeros(len(self.time))
 
         # Add each Planet's RV at observed times
@@ -5004,17 +5302,26 @@ class GPFitter:
         # Add the system Trend at observed times
         rv_mean_obs += trend.radial_velocity(self.time)
 
+        # Subtract per-instrument gamma offsets from data (so residuals are gamma-corrected)
+        vel_corrected = self.vel.copy()
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            vel_corrected[mask] -= params_hyperparams[f"g_{inst}"]
+
 
         # Step 3: Set up GP for prediction
         hyperparams = {hp: params_hyperparams[hp] for hp in self.gp_kernel.expected_hyperparams}
         kernel = self.gp_kernel.build_kernel(hyperparams)
 
-        # Add jitter to observational uncertainties
-        jit_value = params_hyperparams["jit"]
-        jit2_verr2 = self.verr**2 + jit_value**2
+        # Calculate per-instrument jitter for GP diagonal
+        jit2_verr2 = np.zeros(len(self.time))
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit = params_hyperparams[f"jit_{inst}"]
+            jit2_verr2[mask] = self.velerr[mask]**2 + jit**2
 
-        # Create GP conditioned on residuals from observed data
-        residuals_obs = self.vel - rv_mean_obs  # recall we book-keep our own mean model and just subtract it off the observed RV
+        # Create GP conditioned on gamma-corrected residuals
+        residuals_obs = vel_corrected - rv_mean_obs
         gp_obs = GaussianProcess(kernel=kernel, X=jnp.array(self.time), diag=jnp.array(jit2_verr2))
 
         # Condition GP on observed residuals and predict at smooth time points
@@ -5028,30 +5335,38 @@ class GPFitter:
 
         # Step 4: generate the plot
 
-        # Convert to numpy for plotting
-        # rv_gp_pred = np.array(rv_gp_mean_obs)
-        # rv_gp_std = np.sqrt(np.array(rv_gp_var))
-
         # Total model is mean + GP prediction
         rv_total_smooth = rv_mean_smooth + rv_gp_mean_smooth
 
-        # Get jitter value for error bars
-        verr_with_jit = np.sqrt(self.verr**2 + jit_value**2)
+        # Calculate per-instrument jitter for error bars
+        velerr_with_jit = np.zeros_like(self.velerr)
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit = params_hyperparams[f"jit_{inst}"]
+            velerr_with_jit[mask] = np.sqrt(self.velerr[mask]**2 + jit**2)
 
-        # calculate residuals for residuals subplot
-        # O-C: observed data - (Planet + Trend + GP)
-        residuals = self.vel - (rv_mean_obs + rv_gp_mean_obs)
+        # Calculate residuals for residuals subplot (gamma-corrected data - model - GP)
+        residuals = vel_corrected - (rv_mean_obs + rv_gp_mean_obs)
 
 
         # Create figure with subplots
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 5),
                                       gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
 
-        # Plot observed data with error bars
-        ax1.errorbar(self.time, self.vel, yerr=self.verr, marker=".", color="tab:blue",
-                    ecolor="tab:blue", linestyle="None", markersize=8, zorder=4, label="Data")
-        ax1.errorbar(self.time, self.vel, yerr=verr_with_jit, marker="None",
-                    ecolor="tab:blue", linestyle="None", alpha=0.5, zorder=3, label="Jitter")
+        # Set up per-instrument colours
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        inst_colors = {inst: colors[i % len(colors)] for i, inst in enumerate(self.unique_instruments)}
+
+        # Plot observed data with error bars (gamma-corrected, coloured by instrument)
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=self.velerr[mask],
+                        marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        linestyle="None", markersize=8, zorder=4, label=inst)
+            # Jitter extension (faded, no label)
+            ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=velerr_with_jit[mask],
+                        marker="None", ecolor=inst_colors[inst], linestyle="None",
+                        alpha=0.5, zorder=3)
 
         # Plot mean model component
         ax1.plot(tsmooth, rv_mean_smooth, label="Mean Model (Planets + Trend)", color="red", zorder=2)
@@ -5081,11 +5396,15 @@ class GPFitter:
         ax1.yaxis.set_minor_locator(AutoMinorLocator())
         ax1.tick_params(axis='y', which='minor', direction='in', length=3)
 
-        # Residuals subplot
-        ax2.errorbar(self.time, residuals, yerr=self.verr, marker=".", color="tab:blue",
-                    ecolor="tab:blue", linestyle="None", markersize=8, zorder=4)
-        ax2.errorbar(self.time, residuals, yerr=verr_with_jit, marker="None",
-                    ecolor="tab:blue", linestyle="None", alpha=0.5, zorder=3)
+        # Residuals subplot (coloured by instrument)
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            ax2.errorbar(self.time[mask], residuals[mask], yerr=self.velerr[mask],
+                        marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        linestyle="None", markersize=8, zorder=4)
+            ax2.errorbar(self.time[mask], residuals[mask], yerr=velerr_with_jit[mask],
+                        marker="None", ecolor=inst_colors[inst], linestyle="None",
+                        alpha=0.5, zorder=3)
 
         # # Add the GP uncertainty around the residual line
         # ax2.fill_between(self.time, np.zeros(len(self.time)) - rv_gp_std_obs, np.zeros(len(self.time)) + rv_gp_std_obs,
@@ -5093,7 +5412,7 @@ class GPFitter:
         ax2.axhline(0, color="black", linestyle="--", zorder=1)
 
         # Set symmetric y-limits for residuals
-        max_abs_residual = np.max(np.abs(residuals + verr_with_jit))
+        max_abs_residual = np.max(np.abs(residuals + velerr_with_jit))
         ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
 
         if xlabel:
@@ -5151,9 +5470,12 @@ class GPFitter:
         _trange = _tmax - _tmin
         tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
 
-        # Get jitter value for error bars
-        jit_value = params_hyperparams["jit"]
-        verr_with_jit = np.sqrt(self.verr**2 + jit_value**2)
+        # Calculate per-instrument jitter for error bars
+        velerr_with_jit = np.zeros_like(self.velerr)
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit = params_hyperparams[f"jit_{inst}"]
+            velerr_with_jit[mask] = np.sqrt(self.velerr[mask]**2 + jit**2)
 
         # Get period and time of conjunction for this planet
         P = params_hyperparams[f"P_{planet_letter}"]
@@ -5189,6 +5511,12 @@ class GPFitter:
         planet_rv_smooth = planet.radial_velocity(tsmooth)
         planet_rv_smooth_sorted = planet_rv_smooth[smooth_inds]
 
+        # Subtract per-instrument gamma offsets from data
+        vel_corrected = self.vel.copy()
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            vel_corrected[mask] -= params_hyperparams[f"g_{inst}"]
+
         # Now we need to calculate all the other RV, that needs to be subtracted from the observed data
         # All others planets + system Trend + GP mean
         other_rv_obs = np.zeros(len(self.time))
@@ -5200,8 +5528,8 @@ class GPFitter:
                 other_planet = ravest.model.Planet(other_letter, self.parameterisation, other_params)
                 other_rv_obs += other_planet.radial_velocity(self.time)
 
-        # Calculate trend
-        trend_params = {key: params_hyperparams[key] for key in ["g", "gd", "gdd"]}
+        # Calculate trend (gd, gdd only - no gamma)
+        trend_params = {"gd": params_hyperparams["gd"], "gdd": params_hyperparams["gdd"]}
         trend = ravest.model.Trend(params=trend_params, t0=self.t0)
         other_rv_obs += trend.radial_velocity(self.time)
 
@@ -5212,32 +5540,45 @@ class GPFitter:
         hyperparams = {hp: params_hyperparams[hp] for hp in self.gp_kernel.expected_hyperparams}
         kernel = self.gp_kernel.build_kernel(hyperparams)
 
-        # Add jitter to observational uncertainties
-        jit2_verr2 = self.verr**2 + jit_value**2
+        # Calculate per-instrument jitter for GP diagonal
+        jit2_verr2 = np.zeros(len(self.time))
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit = params_hyperparams[f"jit_{inst}"]
+            jit2_verr2[mask] = self.velerr[mask]**2 + jit**2
 
-        # Create GP conditioned on residuals from observed data - mean (planets + trend)
-        residuals_obs = self.vel - rv_mean_obs
+        # Create GP conditioned on gamma-corrected residuals
+        residuals_obs = vel_corrected - rv_mean_obs
         gp_obs = GaussianProcess(kernel=kernel, X=jnp.array(self.time), diag=jnp.array(jit2_verr2))
         _, gp_cond = gp_obs.condition(y=jnp.array(residuals_obs), X_test=jnp.array(self.time))
         gp_mean_obs = np.array(gp_cond.mean)
 
-        # Calculate data points for the plot: observed data - (other planets + Trend + GP mean)
-        data_minus_others_obs = self.vel - (other_rv_obs + gp_mean_obs)
+        # Calculate data points for the plot: gamma-corrected data - (other planets + Trend + GP mean)
+        data_minus_others_obs = vel_corrected - (other_rv_obs + gp_mean_obs)
 
         # Sort the data according to phase folding
         data_minus_others_obs_sorted = data_minus_others_obs[inds]
-        verr_sorted = self.verr[inds]
-        verr_with_jit_sorted = verr_with_jit[inds]
+        verr_sorted = self.velerr[inds]
+        velerr_with_jit_sorted = velerr_with_jit[inds]
+        instrument_sorted = self.instrument[inds]
 
         # Create figure with subplots (main plot + residuals)
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 5),
                                       gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
 
-        # Main phase plot
-        ax1.errorbar(t_fold_sorted, data_minus_others_obs_sorted, yerr=verr_sorted, marker=".",
-                    linestyle="None", color="tab:blue", markersize=8, zorder=4, label="Data")
-        ax1.errorbar(t_fold_sorted, data_minus_others_obs_sorted, yerr=verr_with_jit_sorted, marker="None",
-                    linestyle="None", color="tab:blue", alpha=0.5, zorder=3, label="Jitter")
+        # Set up per-instrument colours
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        inst_colors = {inst: colors[i % len(colors)] for i, inst in enumerate(self.unique_instruments)}
+
+        # Main phase plot (coloured by instrument)
+        for inst in self.unique_instruments:
+            mask = (instrument_sorted == inst)
+            ax1.errorbar(t_fold_sorted[mask], data_minus_others_obs_sorted[mask], yerr=verr_sorted[mask],
+                        marker=".", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        markersize=8, zorder=4, label=inst)
+            # Jitter extension (faded, no label)
+            ax1.errorbar(t_fold_sorted[mask], data_minus_others_obs_sorted[mask], yerr=velerr_with_jit_sorted[mask],
+                        marker="None", linestyle="None", ecolor=inst_colors[inst], alpha=0.5, zorder=3)
 
         # Plot phase-folded model for this planet
         ax1.plot(tsmooth_fold_sorted, planet_rv_smooth_sorted, label="Planet Model", color="black", zorder=2)
@@ -5262,19 +5603,22 @@ class GPFitter:
         ax1.annotate(s, xy=(0, 1), xycoords="axes fraction",
                     xytext=(+0.5, -0.5), textcoords="offset fontsize", va="top")
 
-        # Residuals plot (phase-folded)
+        # Residuals plot (phase-folded, coloured by instrument)
         residuals = data_minus_others_obs - planet_rv_obs
         residuals_sorted = residuals[inds]
-        ax2.errorbar(t_fold_sorted, residuals_sorted, yerr=verr_sorted, marker=".",
-                    linestyle="None", color="tab:blue", markersize=8, zorder=4)
-        ax2.errorbar(t_fold_sorted, residuals_sorted, yerr=verr_with_jit_sorted, marker="None",
-                    linestyle="None", color="tab:blue", alpha=0.5, zorder=3)
+        for inst in self.unique_instruments:
+            mask = (instrument_sorted == inst)
+            ax2.errorbar(t_fold_sorted[mask], residuals_sorted[mask], yerr=verr_sorted[mask],
+                        marker=".", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        markersize=8, zorder=4)
+            ax2.errorbar(t_fold_sorted[mask], residuals_sorted[mask], yerr=velerr_with_jit_sorted[mask],
+                        marker="None", linestyle="None", ecolor=inst_colors[inst], alpha=0.5, zorder=3)
         ax2.axhline(0, color="k", linestyle="--", zorder=2)
         ax2.set_xlim(-0.5, 0.5)
         ax2.xaxis.set_major_locator(MultipleLocator(0.25))  # Set x-ticks every 0.25
 
         # # Set symmetric y-limits for residuals
-        # max_abs_residual = np.max(np.abs(residuals + verr_with_jit))
+        # max_abs_residual = np.max(np.abs(residuals + velerr_with_jit))
         # ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
 
         if xlabel:
@@ -5361,8 +5705,18 @@ class GPFitter:
         print(f"Calculating trend RV at {len(tsmooth)} smooth times...")
         rv_all_planets_trend_matrix_smooth += self.calculate_rv_trend_from_samples(tsmooth, discard_start, discard_end, thin)
 
-        # Calculate GP mean at obs times and smooth times (conditioned on residuals from planets + trend)
-        residuals_matrix_obs = self.vel - rv_all_planets_trend_matrix_obs
+        # Subtract per-instrument gamma offsets from data (using median gamma values)
+        vel_corrected = self.vel.copy()
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            g_key = f"g_{inst}"
+            if isinstance(params_hyperparams[g_key], np.ndarray):
+                vel_corrected[mask] -= np.median(params_hyperparams[g_key])
+            else:
+                vel_corrected[mask] -= params_hyperparams[g_key]
+
+        # Calculate GP mean at obs times and smooth times (conditioned on gamma-corrected residuals)
+        residuals_matrix_obs = vel_corrected - rv_all_planets_trend_matrix_obs
         gp_mean_matrix_obs = np.zeros_like(residuals_matrix_obs)
         gp_mean_matrix_smooth = np.zeros((residuals_matrix_obs.shape[0], len(tsmooth)))
 
@@ -5378,14 +5732,16 @@ class GPFitter:
             # Build GP kernel for this sample
             kernel = self.gp_kernel.build_kernel(sample_hyperparams)
 
-            # Get jitter value for this sample
-            if isinstance(params_hyperparams["jit"], np.ndarray):
-                jit_value = params_hyperparams["jit"][i]
-            else:
-                jit_value = params_hyperparams["jit"]
-
-            # Add jitter to observational uncertainties
-            jit2_verr2 = self.verr**2 + jit_value**2
+            # Get per-instrument jitter values for this sample
+            jit2_verr2 = np.zeros(len(self.time))
+            for inst in self.unique_instruments:
+                mask = (self.instrument == inst)
+                jit_key = f"jit_{inst}"
+                if isinstance(params_hyperparams[jit_key], np.ndarray):
+                    jit_value = params_hyperparams[jit_key][i]
+                else:
+                    jit_value = params_hyperparams[jit_key]
+                jit2_verr2[mask] = self.velerr[mask]**2 + jit_value**2
 
             # Create GP once for this sample
             gp_obs = GaussianProcess(kernel=kernel, X=jnp.array(self.time), diag=jnp.array(jit2_verr2))
@@ -5406,19 +5762,37 @@ class GPFitter:
         rv_percentiles_smooth = np.percentile(rv_full_matrix_smooth, [15.85, 50, 84.15], axis=0)
         rv_percentiles_obs = np.percentile(rv_full_matrix_obs, [15.85, 50, 84.15], axis=0)
 
-        # Calculate residuals using median model at data times
-        residuals = self.vel - rv_percentiles_obs[1]
+        # Calculate residuals using median model at data times (gamma-corrected data)
+        residuals = vel_corrected - rv_percentiles_obs[1]
 
-        # Get jitter for error bars (use median from samples)
-        jit_median = np.median(params_hyperparams["jit"])
-        verr_with_jit = np.sqrt(self.verr**2 + jit_median**2)
+        # Get per-instrument jitter for error bars (use median from samples)
+        velerr_with_jit = np.zeros_like(self.velerr)
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit_key = f"jit_{inst}"
+            if isinstance(params_hyperparams[jit_key], np.ndarray):
+                jit_median = np.median(params_hyperparams[jit_key])
+            else:
+                jit_median = params_hyperparams[jit_key]
+            velerr_with_jit[mask] = np.sqrt(self.velerr[mask]**2 + jit_median**2)
 
         # Create figure with subplots (same layout as Fitter)
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 5), gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
 
-        # Main RV plot
-        ax1.errorbar(self.time, self.vel, yerr=self.verr, marker=".", color="tab:blue", ecolor="tab:blue", linestyle="None", markersize=8, zorder=4, label="Data")
-        ax1.errorbar(self.time, self.vel, yerr=verr_with_jit, marker="None", ecolor="tab:blue", linestyle="None", alpha=0.5, zorder=3, label="Jitter")
+        # Set up per-instrument colours
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        inst_colors = {inst: colors[i % len(colors)] for i, inst in enumerate(self.unique_instruments)}
+
+        # Main RV plot (gamma-corrected data, coloured by instrument)
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=self.velerr[mask],
+                        marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        linestyle="None", markersize=8, zorder=4, label=inst)
+            # Jitter extension (faded, no label)
+            ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=velerr_with_jit[mask],
+                        marker="None", ecolor=inst_colors[inst], linestyle="None",
+                        alpha=0.5, zorder=3)
 
         # Plot median model and uncertainty
         ax1.plot(tsmooth, rv_percentiles_smooth[1], label="Model (Mean + GP)", color="black", zorder=2)
@@ -5439,14 +5813,20 @@ class GPFitter:
         ax1.yaxis.set_minor_locator(AutoMinorLocator())
         ax1.tick_params(axis='y', which='minor', direction='in', length=3)
 
-        # Residuals plot
-        ax2.errorbar(self.time, residuals, yerr=self.verr, marker=".", color="tab:blue", ecolor="tab:blue", linestyle="None", markersize=8, zorder=4)
-        ax2.errorbar(self.time, residuals, yerr=verr_with_jit, marker="None", ecolor="tab:blue", linestyle="None", alpha=0.5, zorder=3)
+        # Residuals plot (coloured by instrument)
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            ax2.errorbar(self.time[mask], residuals[mask], yerr=self.velerr[mask],
+                        marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        linestyle="None", markersize=8, zorder=4)
+            ax2.errorbar(self.time[mask], residuals[mask], yerr=velerr_with_jit[mask],
+                        marker="None", ecolor=inst_colors[inst], linestyle="None",
+                        alpha=0.5, zorder=3)
         ax2.axhline(0, color="k", linestyle="--", zorder=2)
         ax2.set_xlim(tsmooth[0], tsmooth[-1])
 
         # Set symmetric y-limits for residuals plot
-        max_abs_residual = np.max(np.abs(residuals + verr_with_jit))
+        max_abs_residual = np.max(np.abs(residuals + velerr_with_jit))
         ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
 
         if xlabel:
@@ -5520,9 +5900,26 @@ class GPFitter:
         _trange = _tmax - _tmin
         tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, n_smooth)
 
-        # Get jitter value for error bars
-        jit_med = np.median(params_hyperparams["jit"])
-        verr_with_jit = np.sqrt(self.verr**2 + jit_med**2)
+        # Get per-instrument jitter for error bars (use median from samples)
+        velerr_with_jit = np.zeros_like(self.velerr)
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit_key = f"jit_{inst}"
+            if isinstance(params_hyperparams[jit_key], np.ndarray):
+                jit_median = np.median(params_hyperparams[jit_key])
+            else:
+                jit_median = params_hyperparams[jit_key]
+            velerr_with_jit[mask] = np.sqrt(self.velerr[mask]**2 + jit_median**2)
+
+        # Subtract per-instrument gamma offsets from data (using median gamma values)
+        vel_corrected = self.vel.copy()
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            g_key = f"g_{inst}"
+            if isinstance(params_hyperparams[g_key], np.ndarray):
+                vel_corrected[mask] -= np.median(params_hyperparams[g_key])
+            else:
+                vel_corrected[mask] -= params_hyperparams[g_key]
 
         # Get period value
         _P = params_hyperparams[f'P_{planet_letter}']
@@ -5583,7 +5980,8 @@ class GPFitter:
         # First, we need to combine all the planets + trend
         rv_all_planets_trend_matrix_obs = rv_this_planet_matrix_obs + rv_other_planets_matrix_obs + rv_trend_matrix_obs
         # Second, we make a matrix of all of the residuals (based on the planetary+trends RVs from each sample)
-        residuals_matrix_obs = self.vel - rv_all_planets_trend_matrix_obs
+        # Using gamma-corrected data
+        residuals_matrix_obs = vel_corrected - rv_all_planets_trend_matrix_obs
         # Third, we can now go over the samples, set up the GP with the hyperparameters
         # for each sample, give the residuals from each planetary+trend parameter sample,
         # and calculate the GP mean. Getting another matrix n_samples by n_obs
@@ -5602,13 +6000,16 @@ class GPFitter:
                     sample_hyperparams[hp] = params_hyperparams[hp]
             # Build GP kernel for this sample
             kernel = self.gp_kernel.build_kernel(sample_hyperparams)
-            # Get jitter value for this sample
-            if isinstance(params_hyperparams["jit"], np.ndarray):
-                jit_value = params_hyperparams["jit"][i]  # free: take i-th sample of jitter
-            else:
-                jit_value = params_hyperparams["jit"]  # fixed: use scalar value of jitter
-            # Add jitter to observational uncertainties
-            jit2_verr2 = self.verr**2 + jit_value**2
+            # Get per-instrument jitter values for this sample
+            jit2_verr2 = np.zeros(len(self.time))
+            for inst in self.unique_instruments:
+                mask = (self.instrument == inst)
+                jit_key = f"jit_{inst}"
+                if isinstance(params_hyperparams[jit_key], np.ndarray):
+                    jit_value = params_hyperparams[jit_key][i]
+                else:
+                    jit_value = params_hyperparams[jit_key]
+                jit2_verr2[mask] = self.velerr[mask]**2 + jit_value**2
             # Create GP conditioned on residuals for this sample
             gp_obs = GaussianProcess(kernel=kernel, X=jnp.array(self.time), diag=jnp.array(jit2_verr2))
             _, gp_cond = gp_obs.condition(y=jnp.array(residuals_matrix_obs[i]), X_test=jnp.array(self.time))
@@ -5620,19 +6021,29 @@ class GPFitter:
         # 6) Take the median of this matrix, this gives us n_obs RV measurements
         rv_all_other_median_obs = np.median(rv_all_other_matrix_obs, axis=0)
 
-        # 7) subtract this from the observed data
-        data_minus_others = self.vel - rv_all_other_median_obs  # single array
+        # 7) subtract this from the gamma-corrected data
+        data_minus_others = vel_corrected - rv_all_other_median_obs  # single array
 
         # 8) Plot: that's our datapoints for this plot.
         # First: phase-fold data_minus_others using the indices we made earlier
         data_minus_others_folded = data_minus_others[inds]
-        # Now we can plot the data
-        ax1.errorbar(t_fold_sorted, data_minus_others_folded, yerr=self.verr[inds], marker=".",
-                    linestyle="None", color="tab:blue", markersize=8, zorder=4, label="Data")
+        instrument_sorted = self.instrument[inds]
+        verr_sorted = self.velerr[inds]
+        velerr_with_jit_sorted = velerr_with_jit[inds]
 
-        # 9) overplot the errorbars with jitter
-        ax1.errorbar(t_fold_sorted, data_minus_others_folded, yerr=verr_with_jit[inds], marker="None",
-                    linestyle="None", color="tab:blue", alpha=0.5, zorder=3, label="Jitter")
+        # Set up per-instrument colours
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        inst_colors = {inst: colors[i % len(colors)] for i, inst in enumerate(self.unique_instruments)}
+
+        # Now we can plot the data (coloured by instrument)
+        for inst in self.unique_instruments:
+            mask = (instrument_sorted == inst)
+            ax1.errorbar(t_fold_sorted[mask], data_minus_others_folded[mask], yerr=verr_sorted[mask],
+                        marker=".", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        markersize=8, zorder=4, label=inst)
+            # 9) overplot the errorbars with jitter (faded, no label)
+            ax1.errorbar(t_fold_sorted[mask], data_minus_others_folded[mask], yerr=velerr_with_jit_sorted[mask],
+                        marker="None", linestyle="None", ecolor=inst_colors[inst], alpha=0.5, zorder=3)
 
 
         # 10)  Planet RV model curve:
@@ -5647,10 +6058,16 @@ class GPFitter:
 
         # 11) Residuals panel
         residuals = data_minus_others - np.median(rv_this_planet_matrix_obs, axis=0)
+        residuals_sorted = residuals[inds]
 
         ax2.axhline(0, color="k", linestyle="--", zorder=2)
-        ax2.errorbar(t_fold_sorted, residuals[inds], yerr=self.verr[inds], marker=".", linestyle="None", color="tab:blue", markersize=8, zorder=4, label="Data")
-        ax2.errorbar(t_fold_sorted, residuals[inds], yerr=verr_with_jit[inds], marker="None", linestyle="None", color="tab:blue", alpha=0.5, zorder=3, label="Jitter")
+        for inst in self.unique_instruments:
+            mask = (instrument_sorted == inst)
+            ax2.errorbar(t_fold_sorted[mask], residuals_sorted[mask], yerr=verr_sorted[mask],
+                        marker=".", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        markersize=8, zorder=4)
+            ax2.errorbar(t_fold_sorted[mask], residuals_sorted[mask], yerr=velerr_with_jit_sorted[mask],
+                        marker="None", linestyle="None", ecolor=inst_colors[inst], alpha=0.5, zorder=3)
 
         ax1.set_xlim(-0.5, 0.5)
         ax1.xaxis.set_major_locator(MultipleLocator(0.25))  # Set x-ticks every 0.25
@@ -5670,7 +6087,7 @@ class GPFitter:
         ax2.set_xlim(-0.5, 0.5)
         ax2.xaxis.set_major_locator(MultipleLocator(0.25))  # Set x-ticks every 0.25
         # Set symmetric y-limits for residuals plot
-        max_abs_residual = np.max(np.abs(residuals[inds] + verr_with_jit[inds]))
+        max_abs_residual = np.max(np.abs(residuals_sorted + velerr_with_jit_sorted))
         ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
 
         if xlabel:
@@ -6187,8 +6604,8 @@ class GPFitter:
         >>> params = gpfitter.build_params_dict(map_result.x)
         >>> trend_rv = gpfitter.calculate_rv_trend_custom(times, params)
         """
-        # Calculate trend RV
-        trend = ravest.model.Trend(params={"g": params["g"], "gd": params["gd"], "gdd": params["gdd"]}, t0=self.t0)
+        # Calculate trend RV (no gamma offset - that's per-instrument)
+        trend = ravest.model.Trend(params={"gd": params["gd"], "gdd": params["gdd"]}, t0=self.t0)
         return trend.radial_velocity(times)
 
     def calculate_rv_gp_custom(self, times: np.ndarray, params: dict[str, float]) -> np.ndarray:
@@ -6226,9 +6643,13 @@ class GPFitter:
         # Separate params and hyperparams
         hyperparam_values = {name: params[name] for name in self.gp_kernel.expected_hyperparams}
 
-        # Build GP kernel
+        # Build GP kernel with per-instrument jitter
         kernel = self.gp_kernel.build_kernel(hyperparam_values)
-        jit2_verr2 = params["jit"]**2 + self.verr**2
+        jit2_verr2 = np.zeros(len(self.time))
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            jit = params[f"jit_{inst}"]
+            jit2_verr2[mask] = self.velerr[mask]**2 + jit**2
         gp = GaussianProcess(kernel=kernel, X=jnp.array(self.time), diag=jnp.array(jit2_verr2))
 
         # Calculate mean RV (Trend + Planets) at data times
@@ -6236,8 +6657,14 @@ class GPFitter:
         for planet_letter in self.planet_letters:
             mean_rv_at_data += self.calculate_rv_planet_custom(planet_letter, self.time, params)
 
-        # Calculate residuals for conditioning
-        residuals = self.vel - mean_rv_at_data
+        # Subtract per-instrument gamma from data before calculating residuals
+        vel_corrected = self.vel.copy()
+        for inst in self.unique_instruments:
+            mask = (self.instrument == inst)
+            vel_corrected[mask] -= params[f"g_{inst}"]
+
+        # Calculate residuals for conditioning (gamma-corrected)
+        residuals = vel_corrected - mean_rv_at_data
 
         # Condition GP on residuals and predict at requested times
         _, gp_cond = gp.condition(y=jnp.array(residuals), X_test=jnp.array(times))
@@ -6302,8 +6729,10 @@ class GPLogPosterior:
         free_hyperparams_names: list[str],
         time: np.ndarray,
         vel: np.ndarray,
-        verr: np.ndarray,
+        velerr: np.ndarray,
         t0: float,
+        instrument: np.ndarray,
+        unique_instruments: list[str],
     ) -> None:
         """Initialize the GPLogPosterior object.
 
@@ -6331,10 +6760,14 @@ class GPLogPosterior:
             Time of each observation [days].
         vel : np.ndarray
             Radial velocity at each time [m/s].
-        verr : np.ndarray
+        velerr : np.ndarray
             Uncertainty on the radial velocity at each time [m/s].
         t0 : float
             Reference time for the trend [days].
+        instrument : np.ndarray
+            Instrument label for each observation.
+        unique_instruments : list[str]
+            List of unique instrument names.
         """
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
@@ -6347,15 +6780,19 @@ class GPLogPosterior:
         self.free_hyperparams_names = free_hyperparams_names
         self.time = time
         self.vel = vel
-        self.verr = verr
+        self.velerr = velerr
         self.t0 = t0
+        self.instrument = instrument
+        self.unique_instruments = unique_instruments
 
         # Create GP log-likelihood and GP log-prior objects for later
         self.gp_log_likelihood = GPLogLikelihood(
             time=self.time,
             vel=self.vel,
-            verr=self.verr,
+            velerr=self.velerr,
             t0=self.t0,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
             planet_letters=self.planet_letters,
             parameterisation=self.parameterisation,
             gp_kernel=self.gp_kernel,
@@ -6435,8 +6872,9 @@ class GPLogPosterior:
         # get checked/raise Exceptions when they are used to calculate an RV.
         # Jitter doesn't directly contribute to calculated RV, so needs to be checked manually.
         _all_params_for_ll = self.fixed_params | free_params_dict
-        if _all_params_for_ll["jit"] < 0:
-            return -np.inf
+        for inst in self.unique_instruments:
+            if _all_params_for_ll[f"jit_{inst}"] < 0:
+                return -np.inf
 
         # Fast fail for invalid GP hyperparameters
         # This is a check for unphysical values, not for if they are within the hyperpriors or not
@@ -6523,16 +6961,20 @@ class GPLogLikelihood:
         self,
         time: np.ndarray,
         vel: np.ndarray,
-        verr: np.ndarray,
+        velerr: np.ndarray,
         t0: float,
+        instrument: np.ndarray,
+        unique_instruments: list[str],
         planet_letters: list[str],
         parameterisation: Parameterisation,
         gp_kernel: GPKernel,
     ) -> None:
         self.time = time
         self.vel = vel
-        self.verr = verr
+        self.velerr = velerr
         self.t0 = t0
+        self.instrument = instrument
+        self.unique_instruments = unique_instruments
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
         self.gp_kernel = gp_kernel
@@ -6540,12 +6982,23 @@ class GPLogLikelihood:
         # Convert data to JAX array for tinygp
         self.jax_time = jnp.array(self.time)
         self.jax_vel = jnp.array(self.vel)
-        self.jax_verr = jnp.array(self.verr)
+        self.jax_velerr = jnp.array(self.velerr)
+
+        # Precompute instrument masks to avoid repeated string comparisons
+        # These are constant for the lifetime of this object
+        self.instrument_masks = {
+            inst: (self.instrument == inst) for inst in self.unique_instruments
+        }
+        # Also precompute velerr squared per instrument (constant, used in jitter calc)
+        self.velerr_sq_by_inst = {
+            inst: self.jax_velerr[self.instrument_masks[inst]]**2
+            for inst in self.unique_instruments
+        }
 
     def _calculate_mean_model(self, params: Dict[str, float]) -> jnp.ndarray:
         """Calculate the Keplerian RV model (the mean function for the GP).
 
-        Takes planetary parameters and trend parameters.
+        Takes planetary parameters, trend parameters, and per-instrument gamma offsets.
 
         Parameters
         ----------
@@ -6577,12 +7030,16 @@ class GPLogLikelihood:
             # add this planet's RV contribution to the total
             rv_total += _this_planet_rv
 
-        # Step 2: Calculate and add the RV from the system Trend
-        _trend_keys = ["g", "gd", "gdd"]
-        _trend_params = {key: params[key] for key in _trend_keys}
+        # Step 2: Calculate and add the RV from the system Trend (no gamma - that's per-instrument)
+        _trend_params = {"gd": params["gd"], "gdd": params["gdd"]}
         _this_trend = ravest.model.Trend(params=_trend_params, t0=self.t0)
         _rv_trend = _this_trend.radial_velocity(self.time)
         rv_total += jnp.array(_rv_trend)
+
+        # Step 3: Add per-instrument gamma offsets (using precomputed masks)
+        for inst in self.unique_instruments:
+            mask = self.instrument_masks[inst]
+            rv_total = rv_total.at[mask].add(params[f"g_{inst}"])
 
         return rv_total
 
@@ -6618,7 +7075,7 @@ class GPLogLikelihood:
         float
             Log likelihood value
         """
-        # Calculate mean model (RV signal from planets + system trend)
+        # Calculate mean model (RV signal from planets + system trend + per-instrument gamma)
         mean_model = self._calculate_mean_model(params)
 
         # Check if mean model calculation failed
@@ -6629,16 +7086,21 @@ class GPLogLikelihood:
         # Build GP kernel with hyperparameters
         kernel = self.gp_kernel.build_kernel(hyperparams)
 
-        # Add jitter to observational uncertainties
-        jit_value = params["jit"]
-        jit2_verr2 = self.jax_verr**2 + jit_value**2
+        # Add per-instrument jitter to observational uncertainties (using precomputed masks)
         # N.B. we don't sqrt here - tinygp diag wants variance, not stddev
+        velerr_jit_squared = jnp.zeros(len(self.time))
+        for inst in self.unique_instruments:
+            mask = self.instrument_masks[inst]
+            jit_value = params[f"jit_{inst}"]
+            velerr_jit_squared = velerr_jit_squared.at[mask].set(
+                self.velerr_sq_by_inst[inst] + jit_value**2
+            )
 
         # Use JIT-compiled helper for the expensive GP computation
         return self._compute_gp_log_likelihood(
             kernel=kernel,
             time_array=self.jax_time,
             vel_array=self.jax_vel,
-            verr_squared_array=jit2_verr2,
+            verr_squared_array=velerr_jit_squared,
             mean_model=mean_model
         )

@@ -252,41 +252,93 @@ class Planet:
         return mpsini
 
 
-class Trend:
-    """Trend in the radial velocity of the star.
+class Instrument:
+    """Instrument-specific parameters for RV observations.
+
+    Represents the measurement characteristics of a specific instrument/telescope,
+    including its velocity offset (gamma) and additional noise (jitter).
 
     Parameters
     ----------
-    t0 : `float`
+    name : str
+        The name/identifier of the instrument (e.g., "HARPS").
+        Must match the labels used in the data's instrument column.
+    g : float
+        Gamma offset - the constant RV offset for this instrument [m/s].
+    jit : float
+        Jitter - additional noise added in quadrature to uncertainties [m/s].
+        Must be >= 0.
+
+    Examples
+    --------
+    >>> harps = Instrument("HARPS", g=5.0, jit=2.0)
+    >>> print(harps)
+    Instrument HARPS: γ=5.0 m/s, jitter=2.0 m/s
+
+    >>> hires = Instrument("HIRES", g=-3.6, jit=1.5)
+    >>> hires.g
+    -3.6
+    """
+
+    def __init__(self, name: str, g: float, jit: float) -> None:
+        if not isinstance(name, str) or len(name) == 0:
+            raise ValueError(f"Instrument name must be a non-empty string, got: {name!r}")
+        if jit < 0:
+            raise ValueError(f"Jitter must be >= 0, got: {jit}")
+
+        self.name = name
+        self.g = g
+        self.jit = jit
+
+    def __repr__(self) -> str:
+        return f"Instrument(name={self.name!r}, g={self.g}, jit={self.jit})"
+
+    def __str__(self) -> str:
+        return f"Instrument {self.name}: γ={self.g} m/s, jitter={self.jit} m/s"
+
+
+class Trend:
+    """System-wide trend in the radial velocity of the star.
+
+    Represents long-term velocity trends that apply across all instruments,
+    such as acceleration from a distant companion. The constant offset (gamma)
+    is now handled per-instrument via the Instrument class.
+
+    Parameters
+    ----------
+    t0 : float
         The reference zero-point time for the linear and quadratic trend.
         Recommended to be the mean of the input times.
-    params : `dict`
-        The parameters of the trend: the constant, linear, and quadratic
-        components. These must be named "g", "gd", and "gdd" respectively (which
-        stands for gamma, gamma-dot, gamma-dot-dot). These are in units of m/s,
-        m/s/day, and m/s/day^2 respectively.
+    params : dict
+        The parameters of the trend: linear and quadratic components.
+        These must be named "gd" and "gdd" respectively (gamma-dot,
+        gamma-dot-dot). These are in units of m/s/day and m/s/day^2 respectively.
 
     Returns
     -------
-    `float`
+    float
         The radial velocity of the star due to the trend (m/s).
 
     Notes
     -----
-    The radial velocity of the star due to the trend is calculated as the sum of
-    the constant, linear, and quadratic components. The constant component is
-    simply a constant offset of value gamma. The linear and quadratic components
-    are calculated as `gd*(t-t0)` and `gdd*((t-t0)**2)` respectively.
+    The radial velocity contribution from the trend is calculated as the sum of
+    the linear and quadratic components: `gd*(t-t0)` and `gdd*((t-t0)**2)`.
 
-    In general the trend is used to account for any unexpected effects. These
-    could be due to instrumental effects, or for example a very long-term
-    companion could show as a linear and/or quadratic trend in the data. If you
-    see a strong linear or quadratic trend in the data, it is worth
-    investigating.
+    The constant offset (gamma) is now instrument-specific and handled via the
+    Instrument class. Use `star.gamma_offsets(instrument)` to get per-instrument
+    offsets.
+
+    In general the trend is used to account for long-term effects such as
+    acceleration from a distant companion. If you see a strong linear or
+    quadratic trend in the data, it is worth investigating.
+
+    Examples
+    --------
+    >>> trend = Trend(t0=2458000.0, params={"gd": 0.001, "gdd": 0.0})
+    >>> rv_trend = trend.radial_velocity(times)
     """
 
     def __init__(self, t0: float, params: dict[str, float]) -> None:
-        self.gamma = params["g"]
         self.gammadot = params["gd"]
         self.gammadotdot = params["gdd"]
 
@@ -297,13 +349,10 @@ class Trend:
             raise ValueError(f"t0 must be a numeric value (recommend mean or median of observation times), but got {type(t0).__name__}: {t0}") from e
 
     def __str__(self) -> str:
-        return f"Trend: $\\gamma$={self.gamma}, $\\dot\\gamma$={self.gammadot}, $\\ddot\\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
+        return f"Trend: $\\dot\\gamma$={self.gammadot}, $\\ddot\\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
 
     def __repr__(self) -> str:
-        return f"Trend(params={{'g': {self.gamma}, 'gd': {self.gammadot}, 'gdd': {self.gammadotdot} }}, t0={self.t0:.2f})"
-
-    def _constant(self, t: np.ndarray) -> float:
-        return self.gamma
+        return f"Trend(params={{'gd': {self.gammadot}, 'gdd': {self.gammadotdot}}}, t0={self.t0:.2f})"
 
     def _linear(self, t: np.ndarray, t0: float) -> np.ndarray:
         if self.gammadot == 0:
@@ -326,10 +375,9 @@ class Trend:
         Returns
         -------
         array_like
-            RV trend values (constant + linear + quadratic terms)
+            RV trend values (linear + quadratic terms)
         """
         rv = 0
-        rv += self._constant(t)
         rv += self._linear(t, self.t0)
         rv += self._quadratic(t, self.t0)
         return rv
@@ -358,6 +406,7 @@ class Star:
         self.name = name
         self.mass = mass
         self.planets = {}
+        self.instruments = {}
         self.num_planets = 0
         if mass <= 0:
             raise ValueError(f"Stellar mass {self.mass} must be greater than zero")
@@ -400,6 +449,66 @@ class Star:
             A `ravest.model.Trend` object
         """
         self.trend = trend
+
+    def add_instrument(self, instrument: Instrument) -> None:
+        """Store `Instrument` object in `instruments` dict with key `instrument.name`.
+
+        Instruments cannot share names; if two instruments have the same name then
+        the second one will overwrite the first.
+
+        Parameters
+        ----------
+        instrument : `Instrument`
+            A `ravest.model.Instrument` object
+        """
+        import warnings
+        if instrument.name in self.instruments:
+            warnings.warn(f"Instrument {instrument.name} already exists and will be overwritten",
+                         UserWarning, stacklevel=2)
+        self.instruments[instrument.name] = instrument
+
+    def gamma_offsets(self, instrument: np.ndarray) -> np.ndarray:
+        """Return gamma offset for each observation based on instrument column.
+
+        Parameters
+        ----------
+        instrument : np.ndarray
+            Array of instrument names for each observation.
+
+        Returns
+        -------
+        np.ndarray
+            Array of gamma offsets (m/s) for each observation.
+
+        Raises
+        ------
+        ValueError
+            If an instrument in the data is not found in the Star's instruments.
+        """
+        result = np.zeros(len(instrument))
+        for name, inst in self.instruments.items():
+            mask = (instrument == name)
+            result[mask] = inst.g
+        return result
+
+    def jitter_values(self, instrument: np.ndarray) -> np.ndarray:
+        """Return jitter value for each observation based on instrument column.
+
+        Parameters
+        ----------
+        instrument : np.ndarray
+            Array of instrument names for each observation.
+
+        Returns
+        -------
+        np.ndarray
+            Array of jitter values (m/s) for each observation.
+        """
+        result = np.zeros(len(instrument))
+        for name, inst in self.instruments.items():
+            mask = (instrument == name)
+            result[mask] = inst.jit
+        return result
 
     def radial_velocity(self, t: np.ndarray) -> np.ndarray:
         """Calculate the radial velocity of the star at time ``t`` due to the planets and trend.
@@ -445,26 +554,44 @@ class Star:
         """
         return self.planets[planet_letter].mpsini(self.mass, unit)
 
-    def phase_plot(self, t: float, ydata: float, yerr: float) -> None:
+    def phase_plot(self, t: np.ndarray, ydata: np.ndarray, yerr: np.ndarray,
+                   instrument: np.ndarray) -> None:
         """Generate a phase plot for each planet.
 
         Given RV ``ydata`` at time ``t`` with errorbars ``yerr``, generates a phase
-        plot for each planet.
+        plot for each planet. Data is coloured by instrument and gamma offsets
+        are subtracted before plotting.
 
         Parameters
         ----------
-        t : `float`
+        t : np.ndarray
             The time of the observations ``ydata`` (day)
-        ydata : `float`
+        ydata : np.ndarray
             The observed radial velocity at time ``t`` (m/s)
-        yerr : `float`
+        yerr : np.ndarray
             The measurement error of the datapoint ``ydata`` (m/s)
+        instrument : np.ndarray
+            The instrument/telescope name for each observation.
         """
         # TODO use gridspec or subfigures to sort out figure spacing
-        len(t)
-        t = np.sort(t)
-        tlin = np.linspace(t[0], t[-1], 1000)
-        fig, axs = plt.subplots(2+self.num_planets,1, figsize=(10, (2*10/3)+(self.num_planets*10/3)), constrained_layout=True,)
+
+        # Subtract gamma offsets from data
+        gamma_offsets = self.gamma_offsets(instrument)
+        ydata_corrected = ydata - gamma_offsets
+
+        # Get unique instruments and assign colours
+        unique_instruments = np.unique(instrument)
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        inst_colors = {inst: colors[i % len(colors)]
+                       for i, inst in enumerate(unique_instruments)}
+
+        # Sort data by time for plotting
+        sort_inds = np.argsort(t)
+        t_sorted = t[sort_inds]
+        tlin = np.linspace(t_sorted[0], t_sorted[-1], 1000)
+        fig, axs = plt.subplots(2+self.num_planets, 1,
+                                figsize=(10, (2*10/3)+(self.num_planets*10/3)),
+                                constrained_layout=True)
 
         # Panel 1: Observed data with complete system model overlay
         axs[0].set_title("Stellar radial velocity")
@@ -472,17 +599,31 @@ class Star:
         axs[0].set_xlabel("Time [days]")
         axs[0].axhline(y=0, color="k", alpha=0.25, linestyle="--", zorder=1)
 
+        # Model curve (planets + trend, no gamma)
         modelled_rv_tlin = self.radial_velocity(tlin)
         modelled_rv_tdata = self.radial_velocity(t)
-        axs[0].plot(tlin, modelled_rv_tlin, color="tab:blue", zorder=2)
-        axs[0].errorbar(t, ydata, yerr=yerr, marker=".", color="k", mfc="white", ecolor="tab:gray", markersize=10, linestyle="None", zorder=3)
+        axs[0].plot(tlin, modelled_rv_tlin, color="k", zorder=2)
+
+        # Plot data points coloured by instrument
+        for inst in unique_instruments:
+            mask = (instrument == inst)
+            axs[0].errorbar(t[mask], ydata_corrected[mask], yerr=yerr[mask],
+                           marker="o", color=inst_colors[inst], mfc="white",
+                           ecolor=inst_colors[inst], markersize=8,
+                           linestyle="None", zorder=3, label=inst, alpha=0.8)
+        axs[0].legend()
 
         # Panel 2: Observed minus calculated (O-C) residuals
         axs[1].set_title("Observed-Calculated")
         axs[1].set_xlabel("Time [days]")
         axs[1].set_ylabel("Residual [m/s]")
-        axs[1].axhline(y=0, color="tab:blue", linestyle="-")
-        axs[1].errorbar(t, ydata-modelled_rv_tdata, yerr=yerr, marker=".", mfc="white", color="k", ecolor="tab:gray", markersize=10, linestyle="None")
+        axs[1].axhline(y=0, color="k", linestyle="-")
+        for inst in unique_instruments:
+            mask = (instrument == inst)
+            axs[1].errorbar(t[mask], ydata_corrected[mask] - modelled_rv_tdata[mask],
+                           yerr=yerr[mask], marker="o", mfc="white",
+                           color=inst_colors[inst], ecolor=inst_colors[inst],
+                           markersize=8, linestyle="None", alpha=0.8)
 
         # Panels 3+: Individual planet phase plots
         for n, letter in enumerate(self.planets):
@@ -491,7 +632,7 @@ class Star:
             axs[n].set_xlabel("Orbital phase")
             axs[n].set_ylabel("Radial velocity [m/s]")
             axs[n].set_xlim(-0.5, 0.5)
-            axs[n].xaxis.set_major_locator(MultipleLocator(0.25))  # Set x-ticks every 0.25
+            axs[n].xaxis.set_major_locator(MultipleLocator(0.25))
             axs[n].axhline(y=0, color="k", alpha=0.25, linestyle="--", zorder=1)
 
             this_planet = self.planets[letter]
@@ -503,19 +644,28 @@ class Star:
 
             yplot = this_planet.radial_velocity(tlin)
             tlin_fold_sorted, tlin_inds = fold_time_series(tlin, p, tc)
-            axs[n].plot(tlin_fold_sorted, yplot[tlin_inds], label=f"{n},{letter}, rvplot", color="tab:blue")
+            axs[n].plot(tlin_fold_sorted, yplot[tlin_inds], color="k")
 
-            # Calculate RV contributions from all other planets
+            # Calculate RV contributions from all other planets and trend
             # Subtract from observed data to isolate the current planet's signal
-            other_planets_modelled_rv_tdata = np.zeros(len(t))
+            other_rv = np.zeros(len(t))
             for _letter in self.planets:
-                if _letter == letter:
-                    continue  # don't do anything for this planet
-                else:
-                    other_planets_modelled_rv_tdata += self.planets[_letter].radial_velocity(t)
-            subtracted_data = ydata - other_planets_modelled_rv_tdata
-            tdata_fold_sorted, tdata_inds = fold_time_series(t, p, tc)
-            axs[n].errorbar(tdata_fold_sorted, subtracted_data[tdata_inds], yerr=yerr[tdata_inds], marker=".", mfc="white", color="k", ecolor="tab:gray", markersize=10, linestyle="None")
+                if _letter != letter:
+                    other_rv += self.planets[_letter].radial_velocity(t)
+            other_rv += self.trend.radial_velocity(t)
+            subtracted_data = ydata_corrected - other_rv
+
+            # Plot phase-folded data coloured by instrument
+            for inst in unique_instruments:
+                mask = (instrument == inst)
+                t_inst = t[mask]
+                y_inst = subtracted_data[mask]
+                yerr_inst = yerr[mask]
+                tdata_fold_sorted, tdata_inds = fold_time_series(t_inst, p, tc)
+                axs[n].errorbar(tdata_fold_sorted, y_inst[tdata_inds],
+                               yerr=yerr_inst[tdata_inds], marker="o", mfc="white",
+                               color=inst_colors[inst], ecolor=inst_colors[inst],
+                               markersize=8, linestyle="None", alpha=0.8)
 
 def calculate_mpsini(mass_star: float, period: float, semi_amplitude: float, eccentricity: float, unit: str = "kg") -> float:
     """Calculate the minimum mass of the planet.
