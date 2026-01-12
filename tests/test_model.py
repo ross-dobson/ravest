@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from ravest.model import Planet, Star, Trend
+from ravest.model import Instrument, Planet, Star, Trend
 from ravest.param import Parameterisation
 
 
@@ -42,7 +42,7 @@ def good_planet2():
 
 
 def good_trend():
-    return Trend(t0=1000, params={"g": 0, "gd": -0, "gdd": 0})
+    return Trend(t0=1000, params={"gd": 0, "gdd": 0})
 
 
 def good_star():
@@ -117,3 +117,144 @@ def test_rv_pkewtp_circular() -> None:
 # star.add_trend(good_trend())
 # star_rv = star.radial_velocity(data_tarr())
 # assert list(data_rv1()+data_rv2()) == pytest.approx(list(star_rv))
+
+
+# ============================================================================
+# Instrument class tests
+# ============================================================================
+
+
+def test_instrument_creation() -> None:
+    """Test valid Instrument creation."""
+    inst = Instrument("HARPS", g=5.0, jit=2.0)
+    assert inst.name == "HARPS"
+    assert inst.g == 5.0
+    assert inst.jit == 2.0
+
+
+def test_instrument_negative_jitter_raises() -> None:
+    """Test that negative jitter raises ValueError."""
+    with pytest.raises(ValueError, match="Jitter must be >= 0"):
+        Instrument("HARPS", g=5.0, jit=-1.0)
+
+
+def test_instrument_empty_name_raises() -> None:
+    """Test that empty instrument name raises ValueError."""
+    with pytest.raises(ValueError, match="non-empty string"):
+        Instrument("", g=5.0, jit=2.0)
+
+
+def test_instrument_repr_str() -> None:
+    """Test Instrument string representations."""
+    inst = Instrument("HARPS", g=5.0, jit=2.0)
+    assert "HARPS" in repr(inst)
+    assert "5.0" in repr(inst)
+    assert "HARPS" in str(inst)
+    assert "γ=5.0" in str(inst)
+
+
+def test_instrument_zero_jitter_allowed() -> None:
+    """Test that zero jitter is allowed."""
+    inst = Instrument("HARPS", g=0.0, jit=0.0)
+    assert inst.jit == 0.0
+
+
+# ============================================================================
+# Star instrument tests
+# ============================================================================
+
+
+def test_star_add_instrument() -> None:
+    """Test adding instruments to Star."""
+    star = good_star()
+    harps = Instrument("HARPS", g=5.0, jit=2.0)
+    hires = Instrument("HIRES", g=-3.0, jit=1.5)
+
+    star.add_instrument(harps)
+    star.add_instrument(hires)
+
+    assert "HARPS" in star.instruments
+    assert "HIRES" in star.instruments
+    assert star.instruments["HARPS"].g == 5.0
+    assert star.instruments["HIRES"].jit == 1.5
+
+
+def test_star_add_instrument_overwrite_warning() -> None:
+    """Test that overwriting an instrument triggers a warning."""
+    star = good_star()
+    harps1 = Instrument("HARPS", g=5.0, jit=2.0)
+    harps2 = Instrument("HARPS", g=10.0, jit=3.0)
+
+    star.add_instrument(harps1)
+
+    with pytest.warns(UserWarning, match="HARPS already exists"):
+        star.add_instrument(harps2)
+
+    # Check the new instrument replaced the old one
+    assert star.instruments["HARPS"].g == 10.0
+
+
+def test_star_gamma_offsets() -> None:
+    """Test gamma_offsets returns correct array based on instrument column."""
+    star = good_star()
+    star.add_instrument(Instrument("HARPS", g=5.0, jit=2.0))
+    star.add_instrument(Instrument("HIRES", g=-3.0, jit=1.5))
+
+    instrument = np.array(["HARPS", "HARPS", "HIRES", "HARPS", "HIRES"])
+    expected = np.array([5.0, 5.0, -3.0, 5.0, -3.0])
+
+    result = star.gamma_offsets(instrument)
+    np.testing.assert_array_equal(result, expected)
+
+
+def test_star_jitter_values() -> None:
+    """Test jitter_values returns correct array based on instrument column."""
+    star = good_star()
+    star.add_instrument(Instrument("HARPS", g=5.0, jit=2.0))
+    star.add_instrument(Instrument("HIRES", g=-3.0, jit=1.5))
+
+    instrument = np.array(["HIRES", "HARPS", "HIRES"])
+    expected = np.array([1.5, 2.0, 1.5])
+
+    result = star.jitter_values(instrument)
+    np.testing.assert_array_equal(result, expected)
+
+
+# ============================================================================
+# Trend class tests
+# ============================================================================
+
+
+def test_trend_creation() -> None:
+    """Test valid Trend creation with gd and gdd only."""
+    trend = Trend(t0=2458000.0, params={"gd": 0.001, "gdd": 0.0})
+    assert trend.gammadot == 0.001
+    assert trend.gammadotdot == 0.0
+    assert trend.t0 == 2458000.0
+
+
+def test_trend_radial_velocity_linear() -> None:
+    """Test Trend RV with linear term only."""
+    trend = Trend(t0=100.0, params={"gd": 0.5, "gdd": 0.0})
+    t = np.array([100.0, 101.0, 102.0, 99.0])
+    expected = np.array([0.0, 0.5, 1.0, -0.5])
+
+    result = trend.radial_velocity(t)
+    np.testing.assert_array_almost_equal(result, expected)
+
+
+def test_trend_radial_velocity_quadratic() -> None:
+    """Test Trend RV with quadratic term only."""
+    trend = Trend(t0=0.0, params={"gd": 0.0, "gdd": 1.0})
+    t = np.array([0.0, 1.0, 2.0, -1.0])
+    expected = np.array([0.0, 1.0, 4.0, 1.0])
+
+    result = trend.radial_velocity(t)
+    np.testing.assert_array_almost_equal(result, expected)
+
+
+def test_trend_repr_str() -> None:
+    """Test Trend string representations."""
+    trend = Trend(t0=1000.0, params={"gd": 0.5, "gdd": 0.1})
+    assert "gd" in repr(trend) or "0.5" in repr(trend)
+    assert "1000" in repr(trend)

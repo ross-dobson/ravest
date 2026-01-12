@@ -8,35 +8,76 @@ from ravest.param import Parameter, Parameterisation
 
 @pytest.fixture
 def test_data():
-    """Simple synthetic RV data for testing."""
+    """Simple synthetic RV data for testing (single instrument)."""
     time = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
     vel = np.array([5.0, -2.0, -5.0, 2.0, 3.0])
-    verr = np.array([1.0, 1.1, 0.9, 0.85, 1.5])
-    return time, vel, verr
+    velerr = np.array([1.0, 1.1, 0.9, 0.85, 1.5])
+    instrument = np.array(["HARPS", "HARPS", "HARPS", "HARPS", "HARPS"])
+    return time, vel, velerr, instrument
+
+
+@pytest.fixture
+def test_data_multi_instrument():
+    """Synthetic RV data with two instruments for testing."""
+    time = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
+    vel = np.array([5.0, -2.0, -5.0, 102.0, 103.0, 98.0])  # HIRES has +100 offset
+    velerr = np.array([1.0, 1.1, 0.9, 0.85, 1.5, 1.2])
+    instrument = np.array(["HARPS", "HARPS", "HARPS", "HIRES", "HIRES", "HIRES"])
+    return time, vel, velerr, instrument
 
 
 @pytest.fixture
 def test_circular_params():
-    """Simple circular orbit parameters for testing."""
+    """Simple circular orbit parameters for testing (single instrument: HARPS)."""
     return {
         "P_b": Parameter(2.0, "d", fixed=True),
         "K_b": Parameter(5.0, "m/s", fixed=False),
         "e_b": Parameter(0.0, "", fixed=True),
         "w_b": Parameter(np.pi/2, "rad", fixed=True),
         "Tc_b": Parameter(0.0, "d", fixed=True),
-        "g": Parameter(0.0, "m/s", fixed=True),
+        "g_HARPS": Parameter(0.0, "m/s", fixed=True),
         "gd": Parameter(0.0, "m/s/day", fixed=True),
         "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-        "jit": Parameter(1.0, "m/s", fixed=False),
+        "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
+    }
+
+
+@pytest.fixture
+def test_circular_params_multi_instrument():
+    """Circular orbit parameters for two instruments (HARPS and HIRES)."""
+    return {
+        "P_b": Parameter(2.0, "d", fixed=True),
+        "K_b": Parameter(5.0, "m/s", fixed=False),
+        "e_b": Parameter(0.0, "", fixed=True),
+        "w_b": Parameter(np.pi/2, "rad", fixed=True),
+        "Tc_b": Parameter(0.0, "d", fixed=True),
+        "g_HARPS": Parameter(0.0, "m/s", fixed=False),
+        "g_HIRES": Parameter(100.0, "m/s", fixed=False),
+        "gd": Parameter(0.0, "m/s/day", fixed=True),
+        "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
+        "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
+        "jit_HIRES": Parameter(2.0, "m/s", fixed=False),
     }
 
 
 @pytest.fixture
 def test_simple_priors():
-    """Simple priors for testing."""
+    """Simple priors for testing (single instrument: HARPS)."""
     return {
         "K_b": ravest.prior.Uniform(0, 20),
-        "jit": ravest.prior.Uniform(0, 5),
+        "jit_HARPS": ravest.prior.Uniform(0, 5),
+    }
+
+
+@pytest.fixture
+def test_simple_priors_multi_instrument():
+    """Priors for two instruments (HARPS and HIRES)."""
+    return {
+        "K_b": ravest.prior.Uniform(0, 20),
+        "g_HARPS": ravest.prior.Uniform(-10, 10),
+        "g_HIRES": ravest.prior.Uniform(90, 110),
+        "jit_HARPS": ravest.prior.Uniform(0, 5),
+        "jit_HIRES": ravest.prior.Uniform(0, 5),
     }
 
 
@@ -54,63 +95,91 @@ class TestFitter:
     def test_add_data_valid(self, test_data) -> None:
         """Test adding valid data."""
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
-        time, vel, verr = test_data
-        fitter.add_data(time, vel, verr, t0=2.0)
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
         np.testing.assert_array_equal(fitter.time, time)
         np.testing.assert_array_equal(fitter.vel, vel)
-        np.testing.assert_array_equal(fitter.verr, verr)
+        np.testing.assert_array_equal(fitter.velerr, velerr)
+        np.testing.assert_array_equal(fitter.instrument, instrument)
         assert fitter.t0 == 2.0
+        assert fitter.unique_instruments == ["HARPS"]
+
+    def test_add_data_multi_instrument(self, test_data_multi_instrument) -> None:
+        """Test adding data with multiple instruments."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data_multi_instrument
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        np.testing.assert_array_equal(fitter.instrument, instrument)
+        assert set(fitter.unique_instruments) == {"HARPS", "HIRES"}
 
     def test_add_data_mismatched_lengths(self) -> None:
         """Test error when data arrays have different lengths."""
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
         time = np.array([0.0, 1.0])
         vel = np.array([5.0, -2.0, -5.0])  # Different length
-        verr = np.array([1.0, 1.0])
+        velerr = np.array([1.0, 1.0])
+        instrument = np.array(["HARPS", "HARPS"])
 
-        with pytest.raises(ValueError, match="Time, velocity, and uncertainty arrays must be the same length"):
-            fitter.add_data(time, vel, verr, t0=2.0)
+        with pytest.raises(ValueError, match="arrays must be the same length"):
+            fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
-    def test_params_property_valid(self, test_circular_params) -> None:
+    def test_params_property_valid(self, test_data, test_circular_params) -> None:
         """Test setting valid parameters via property."""
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
         params = test_circular_params
         fitter.params = params
 
-        assert len(fitter.params) == 9  # 5 planetary + 3 trend params + jit
+        assert len(fitter.params) == 9  # 5 planetary + 2 trend params + g_HARPS + jit_HARPS
         assert "P_b" in fitter.params
-        assert "jit" in fitter.params
+        assert "jit_HARPS" in fitter.params
+        assert "g_HARPS" in fitter.params
 
-    def test_add_params_wrong_count(self) -> None:
+    def test_add_params_wrong_count(self, test_data) -> None:
         """Test error when wrong number of parameters provided."""
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
-        params = {"P_b": Parameter(2.0, "d")}  # Too few params, only 1 out of 9 provided
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        params = {"P_b": Parameter(2.0, "d")}  # Too few params
 
         with pytest.raises(ValueError, match="Missing required parameters.*Expected 9 parameters, got 1"):
             fitter.params = params
 
-    def test_add_params_missing_planetary_param(self, test_circular_params) -> None:
+    def test_add_params_missing_planetary_param(self, test_data, test_circular_params) -> None:
         """Test error when planetary parameter is missing."""
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
         params = test_circular_params.copy()
         del params["P_b"]  # Remove required parameter
 
         with pytest.raises(ValueError, match="Missing required parameters.*Expected 9 parameters, got 8"):
             fitter.params = params
 
-    def test_add_params_unexpected_param(self, test_circular_params) -> None:
+    def test_add_params_unexpected_param(self, test_data, test_circular_params) -> None:
         """Test error when unexpected parameter is provided."""
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
         params = test_circular_params.copy()
         params["invalid_param"] = Parameter(1.0, "")  # Add unexpected parameter
 
         with pytest.raises(ValueError, match="Unexpected parameters.*Expected 9 parameters, got 10"):
             fitter.params = params
 
-    def test_add_priors_valid(self, test_circular_params, test_simple_priors) -> None:
+    def test_add_priors_valid(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test adding valid priors."""
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
         params = test_circular_params
         priors = test_simple_priors
 
@@ -119,48 +188,60 @@ class TestFitter:
 
         assert len(fitter.priors) == 2
         assert "K_b" in fitter.priors
-        assert "jit" in fitter.priors
+        assert "jit_HARPS" in fitter.priors
 
-    def test_add_priors_missing_prior(self, test_circular_params) -> None:
+    def test_add_priors_missing_prior(self, test_data, test_circular_params) -> None:
         """Test error when prior is missing for free parameter."""
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
         params = test_circular_params
-        priors = {"K_b": ravest.prior.Uniform(0, 20)}  # Missing jit prior
+        priors = {"K_b": ravest.prior.Uniform(0, 20)}  # Missing jit_HARPS prior
 
         fitter.params = params
-        with pytest.raises(ValueError, match="Missing priors for parameters.*jit"):
+        with pytest.raises(ValueError, match="Missing priors for parameters.*jit_HARPS"):
             fitter.priors = priors
 
-    def test_add_priors_invalid_initial_value(self, test_circular_params, test_simple_priors) -> None:
+    def test_add_priors_invalid_initial_value(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test error when initial parameter value is outside prior bounds."""
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
         params = test_circular_params.copy()
-        params["K_b"].value = 25.0  # Outside uniform prior [0, 20]
+        params["K_b"] = Parameter(25.0, "m/s", fixed=False)  # Outside uniform prior [0, 20]
         priors = test_simple_priors
 
         fitter.params = params
         with pytest.raises(ValueError, match="Initial value 25.0 of parameter K_b is invalid"):
             fitter.priors = priors
 
-    def test_add_priors_too_many_warning(self, test_circular_params) -> None:
+    def test_add_priors_too_many_warning(self, test_data, test_circular_params) -> None:
         """Test warning when too many priors provided (for fixed params)."""
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
         params = test_circular_params
         fitter.params = params
 
         # Add priors for both free AND fixed parameters
         priors = {
             "K_b": ravest.prior.Uniform(0, 20),
-            "jit": ravest.prior.Uniform(0, 5),
+            "jit_HARPS": ravest.prior.Uniform(0, 5),
             "P_b": ravest.prior.Uniform(1, 5),  # This is fixed!
         }
 
         with pytest.raises(ValueError, match="Unexpected priors.*P_b"):
             fitter.priors = priors
 
-    def test_get_free_params(self, test_circular_params) -> None:
+    def test_get_free_params(self, test_data, test_circular_params) -> None:
         """Test getting free parameters."""
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
         params = test_circular_params
         fitter.params = params
 
@@ -168,16 +249,19 @@ class TestFitter:
         free_names = fitter.free_params_names
         free_vals = fitter.free_params_values
 
-        assert len(free_params) == 2  # k_b and jit
+        assert len(free_params) == 2  # K_b and jit_HARPS
         assert "K_b" in free_names
-        assert "jit" in free_names
+        assert "jit_HARPS" in free_names
         assert len(free_vals) == 2
-        assert 5.0 in free_vals  # k_b value
-        assert 1.0 in free_vals  # jit value
+        assert 5.0 in free_vals  # K_b value
+        assert 1.0 in free_vals  # jit_HARPS value
 
-    def test_get_fixed_params(self, test_circular_params) -> None:
+    def test_get_fixed_params(self, test_data, test_circular_params) -> None:
         """Test getting fixed parameters."""
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
         params = test_circular_params
         fitter.params = params
 
@@ -185,9 +269,10 @@ class TestFitter:
         fixed_names = fitter.fixed_params_names
         fixed_vals = fitter.fixed_params_values
 
-        assert len(fixed_params) == 7  # All except k_b and jit
+        assert len(fixed_params) == 7  # All except K_b and jit_HARPS
         assert "P_b" in fixed_names
         assert "e_b" in fixed_names
+        assert "g_HARPS" in fixed_names
         assert len(fixed_vals) == 7
 
 
@@ -196,28 +281,32 @@ class TestLogLikelihood:
 
     def test_loglikelihood_init(self, test_data) -> None:
         """Test LogLikelihood initialization."""
-        time, vel, verr = test_data
+        time, vel, velerr, instrument = test_data
+        unique_instruments = list(np.unique(instrument))
         ll = LogLikelihood(
-            time=time, vel=vel, verr=verr, t0=2.0,
+            time=time, vel=vel, velerr=velerr, t0=2.0,
+            instrument=instrument, unique_instruments=unique_instruments,
             planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
         )
 
         np.testing.assert_array_equal(ll.time, time)
         np.testing.assert_array_equal(ll.vel, vel)
-        np.testing.assert_array_equal(ll.verr, verr)
+        np.testing.assert_array_equal(ll.velerr, velerr)
         assert ll.t0 == 2.0
 
     def test_loglikelihood_calculation(self, test_data) -> None:
         """Test log-likelihood calculation with valid parameters."""
-        time, vel, verr = test_data
+        time, vel, velerr, instrument = test_data
+        unique_instruments = list(np.unique(instrument))
         ll = LogLikelihood(
-            time=time, vel=vel, verr=verr, t0=2.0,
+            time=time, vel=vel, velerr=velerr, t0=2.0,
+            instrument=instrument, unique_instruments=unique_instruments,
             planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
         )
 
         params = {
             "P_b": 2.0, "K_b": 5.0, "e_b": 0.0, "w_b": np.pi/2, "Tc_b": 0.0,
-            "g": 0.0, "gd": 0.0, "gdd": 0.0, "jit": 2.0
+            "g_HARPS": 0.0, "gd": 0.0, "gdd": 0.0, "jit_HARPS": 2.0
         }
 
         log_like = ll(params)
@@ -226,16 +315,18 @@ class TestLogLikelihood:
 
     def test_loglikelihood_invalid_planet(self, test_data) -> None:
         """Test log-likelihood returns -inf for invalid planet parameters."""
-        time, vel, verr = test_data
+        time, vel, velerr, instrument = test_data
+        unique_instruments = list(np.unique(instrument))
         ll = LogLikelihood(
-            time=time, vel=vel, verr=verr, t0=2.0,
+            time=time, vel=vel, velerr=velerr, t0=2.0,
+            instrument=instrument, unique_instruments=unique_instruments,
             planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
         )
 
         params = {
             "P_b": -1.0,  # Invalid negative period
             "K_b": 5.0, "e_b": 0.0, "w_b": np.pi/2, "Tc_b": 0.0,
-            "g": 0.0, "gd": 0.0, "gdd": 0.0, "jit": 1.0
+            "g_HARPS": 0.0, "gd": 0.0, "gdd": 0.0, "jit_HARPS": 1.0
         }
 
         log_like = ll(params)
@@ -247,21 +338,69 @@ class TestLogLikelihood:
         time = np.array([0.0, 0.5, 1.0, 1.5])
         # Constant velocity (no planet signal)
         vel = np.array([2.0, 2.0, 2.0, 2.0])
-        verr = np.array([1.0, 1.0, 1.0, 1.0])
+        velerr = np.array([1.0, 1.0, 1.0, 1.0])
+        instrument = np.array(["HARPS", "HARPS", "HARPS", "HARPS"])
+        unique_instruments = ["HARPS"]
 
         ll = LogLikelihood(
-            time=time, vel=vel, verr=verr, t0=1.0,
+            time=time, vel=vel, velerr=velerr, t0=1.0,
+            instrument=instrument, unique_instruments=unique_instruments,
             planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
         )
 
         params = {
             "P_b": 10.0, "K_b": 0.5, "e_b": 0.0, "w_b": np.pi/2, "Tc_b": 0.0,
-            "g": 2.0, "gd": 0.0, "gdd": 0.0, "jit": 1.0
+            "g_HARPS": 2.0, "gd": 0.0, "gdd": 0.0, "jit_HARPS": 1.0
         }
 
         log_like = ll(params)
         # Should be finite for valid parameters
         assert np.isfinite(log_like)
+
+    def test_loglikelihood_multi_instrument(self, test_data_multi_instrument) -> None:
+        """Test log-likelihood calculation with multiple instruments."""
+        time, vel, velerr, instrument = test_data_multi_instrument
+        unique_instruments = list(np.unique(instrument))
+        ll = LogLikelihood(
+            time=time, vel=vel, velerr=velerr, t0=2.0,
+            instrument=instrument, unique_instruments=unique_instruments,
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
+        )
+
+        params = {
+            "P_b": 2.0, "K_b": 5.0, "e_b": 0.0, "w_b": np.pi/2, "Tc_b": 0.0,
+            "g_HARPS": 0.0, "g_HIRES": 100.0, "gd": 0.0, "gdd": 0.0,
+            "jit_HARPS": 1.0, "jit_HIRES": 2.0
+        }
+
+        log_like = ll(params)
+        assert np.isfinite(log_like)
+        assert isinstance(log_like, float)
+
+    def test_loglikelihood_jitter_affects_result(self, test_data) -> None:
+        """Test that per-instrument jitter affects log-likelihood."""
+        time, vel, velerr, instrument = test_data
+        unique_instruments = list(np.unique(instrument))
+        ll = LogLikelihood(
+            time=time, vel=vel, velerr=velerr, t0=2.0,
+            instrument=instrument, unique_instruments=unique_instruments,
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
+        )
+
+        params_low_jit = {
+            "P_b": 2.0, "K_b": 5.0, "e_b": 0.0, "w_b": np.pi/2, "Tc_b": 0.0,
+            "g_HARPS": 0.0, "gd": 0.0, "gdd": 0.0, "jit_HARPS": 0.1
+        }
+        params_high_jit = {
+            "P_b": 2.0, "K_b": 5.0, "e_b": 0.0, "w_b": np.pi/2, "Tc_b": 0.0,
+            "g_HARPS": 0.0, "gd": 0.0, "gdd": 0.0, "jit_HARPS": 10.0
+        }
+
+        ll_low = ll(params_low_jit)
+        ll_high = ll(params_high_jit)
+
+        # Different jitter should give different log-likelihood
+        assert ll_low != ll_high
 
 
 class TestLogPrior:
@@ -278,7 +417,7 @@ class TestLogPrior:
         priors = test_simple_priors
         lp = LogPrior(priors)
 
-        params = {"K_b": 10.0, "jit": 2.0}
+        params = {"K_b": 10.0, "jit_HARPS": 2.0}
         log_prior = lp(params)
 
         assert np.isfinite(log_prior)
@@ -289,7 +428,7 @@ class TestLogPrior:
         priors = test_simple_priors
         lp = LogPrior(priors)
 
-        params = {"K_b": -5.0, "jit": 2.0}  # k_b outside [0, 20]
+        params = {"K_b": -5.0, "jit_HARPS": 2.0}  # K_b outside [0, 20]
         log_prior = lp(params)
 
         assert log_prior == -np.inf
@@ -298,11 +437,11 @@ class TestLogPrior:
         """Test log-prior sums correctly across multiple parameters."""
         priors = {
             "K_b": ravest.prior.Uniform(0, 10),  # log_prior = -log(10)
-            "jit": ravest.prior.Uniform(0, 5),   # log_prior = -log(5)
+            "jit_HARPS": ravest.prior.Uniform(0, 5),   # log_prior = -log(5)
         }
         lp = LogPrior(priors)
 
-        params = {"K_b": 5.0, "jit": 2.5}
+        params = {"K_b": 5.0, "jit_HARPS": 2.5}
         log_prior = lp(params)
 
         expected = -np.log(10) - np.log(5)
@@ -314,7 +453,8 @@ class TestLogPosterior:
 
     def test_logposterior_init(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test LogPosterior initialization."""
-        time, vel, verr = test_data
+        time, vel, velerr, instrument = test_data
+        unique_instruments = list(np.unique(instrument))
         params = test_circular_params
         priors = test_simple_priors
 
@@ -328,14 +468,16 @@ class TestLogPosterior:
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
-            time=time, vel=vel, verr=verr, t0=2.0
+            time=time, vel=vel, velerr=velerr, t0=2.0,
+            instrument=instrument, unique_instruments=unique_instruments
         )
 
         assert lpost.planet_letters == ["b"]
 
     def test_logposterior_valid_calculation(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test log-posterior calculation with valid parameters."""
-        time, vel, verr = test_data
+        time, vel, velerr, instrument = test_data
+        unique_instruments = list(np.unique(instrument))
         params = test_circular_params
         priors = test_simple_priors
 
@@ -348,10 +490,11 @@ class TestLogPosterior:
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
-            time=time, vel=vel, verr=verr, t0=2.0
+            time=time, vel=vel, velerr=velerr, t0=2.0,
+            instrument=instrument, unique_instruments=unique_instruments
         )
 
-        free_params_dict = {"K_b": 5.0, "jit": 1.0}
+        free_params_dict = {"K_b": 5.0, "jit_HARPS": 1.0}
         log_post = lpost.log_probability(free_params_dict)
 
         assert np.isfinite(log_post)
@@ -359,7 +502,8 @@ class TestLogPosterior:
 
     def test_logposterior_invalid_prior(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test log-posterior returns -inf when prior is invalid."""
-        time, vel, verr = test_data
+        time, vel, velerr, instrument = test_data
+        unique_instruments = list(np.unique(instrument))
         params = test_circular_params
         priors = test_simple_priors
 
@@ -372,17 +516,19 @@ class TestLogPosterior:
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
-            time=time, vel=vel, verr=verr, t0=2.0
+            time=time, vel=vel, velerr=velerr, t0=2.0,
+            instrument=instrument, unique_instruments=unique_instruments
         )
 
-        free_params_dict = {"K_b": -1.0, "jit": 1.0}  # Invalid k_b
+        free_params_dict = {"K_b": -1.0, "jit_HARPS": 1.0}  # Invalid K_b
         log_post = lpost.log_probability(free_params_dict)
 
         assert log_post == -np.inf
 
     def test_negative_log_probability_for_MAP(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test MAP interface that takes list instead of dict."""
-        time, vel, verr = test_data
+        time, vel, velerr, instrument = test_data
+        unique_instruments = list(np.unique(instrument))
         params = test_circular_params
         priors = test_simple_priors
 
@@ -395,17 +541,18 @@ class TestLogPosterior:
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
-            time=time, vel=vel, verr=verr, t0=2.0
+            time=time, vel=vel, velerr=velerr, t0=2.0,
+            instrument=instrument, unique_instruments=unique_instruments
         )
 
-        free_params_vals = [5.0, 1.0]  # k_b, jit
+        free_params_vals = [5.0, 1.0]  # K_b, jit_HARPS
         neg_log_post = lpost._negative_log_probability_for_MAP(free_params_vals)
 
         assert np.isfinite(neg_log_post)
         assert isinstance(neg_log_post, float)
 
         # Should be negative of log_probability
-        free_params_dict = {"K_b": 5.0, "jit": 1.0}
+        free_params_dict = {"K_b": 5.0, "jit_HARPS": 1.0}
         log_post = lpost.log_probability(free_params_dict)
         assert np.isclose(neg_log_post, -log_post)
 
@@ -418,8 +565,8 @@ class TestFitterIntegration:
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
 
         # Add data
-        time, vel, verr = test_data
-        fitter.add_data(time, vel, verr, t0=2.0)
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
         # Add parameters
         params = test_circular_params
@@ -439,7 +586,10 @@ class TestFitterIntegration:
         """Test setup with multiple planets."""
         fitter = Fitter(["b", "c"], Parameterisation("P K e w Tc"))
 
-        # Multi-planet parameters
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        # Multi-planet parameters (single instrument: HARPS)
         params = {
             "P_b": Parameter(2.0, "d", fixed=True),
             "K_b": Parameter(5.0, "m/s", fixed=False),
@@ -453,26 +603,41 @@ class TestFitterIntegration:
             "w_c": Parameter(np.pi/2, "rad", fixed=True),
             "Tc_c": Parameter(1.0, "d", fixed=True),
 
-            "g": Parameter(0.0, "m/s", fixed=True),
+            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
             "gd": Parameter(0.0, "m/s/day", fixed=True),
             "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit": Parameter(1.0, "m/s", fixed=False),
+            "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
         }
 
         priors = {
             "K_b": ravest.prior.Uniform(0, 20),
             "K_c": ravest.prior.Uniform(0, 20),
-            "jit": ravest.prior.Uniform(0, 5),
+            "jit_HARPS": ravest.prior.Uniform(0, 5),
         }
 
-        time, vel, verr = test_data
-        fitter.add_data(time, vel, verr, t0=2.0)
         fitter.params = params
         fitter.priors = priors
 
-        assert len(fitter.params) == 14  # 5*2 planets + 4 system
-        assert len(fitter.priors) == 3   # k_b, k_c, jit
+        assert len(fitter.params) == 14  # 5*2 planets + 4 system (g_HARPS, gd, gdd, jit_HARPS)
+        assert len(fitter.priors) == 3   # K_b, K_c, jit_HARPS
         assert len(fitter.free_params_names) == 3
+
+    def test_multi_instrument_setup(self, test_data_multi_instrument, test_circular_params_multi_instrument, test_simple_priors_multi_instrument) -> None:
+        """Test setup with multiple instruments."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+
+        time, vel, velerr, instrument = test_data_multi_instrument
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        fitter.params = test_circular_params_multi_instrument
+        fitter.priors = test_simple_priors_multi_instrument
+
+        # 5 planetary + 2 trend (gd, gdd) + 2 gamma (g_HARPS, g_HIRES) + 2 jitter (jit_HARPS, jit_HIRES)
+        assert len(fitter.params) == 11
+        assert "g_HARPS" in fitter.params
+        assert "g_HIRES" in fitter.params
+        assert "jit_HARPS" in fitter.params
+        assert "jit_HIRES" in fitter.params
 
 
 class TestAdaptiveConvergence:
@@ -482,8 +647,8 @@ class TestAdaptiveConvergence:
     def setup_fitter(self, test_data, test_circular_params, test_simple_priors):
         """Setup a basic fitter for MCMC tests."""
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
-        time, vel, verr = test_data
-        fitter.add_data(time, vel, verr, t0=2.0)
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
         fitter.params = test_circular_params
         fitter.priors = test_simple_priors
 
@@ -724,8 +889,8 @@ class TestRVCalculations:
     def setup_fitter_for_rv(self, test_data, test_circular_params, test_simple_priors):
         """Setup fitter with data and params for RV calculations."""
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
-        time, vel, verr = test_data
-        fitter.add_data(time, vel, verr, t0=2.0)
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
         fitter.params = test_circular_params
         fitter.priors = test_simple_priors
         return fitter
@@ -761,22 +926,26 @@ class TestRVCalculations:
         assert np.all(np.isfinite(rv_trend))
 
     def test_calculate_rv_trend_custom_with_nonzero_trend(self, test_data):
-        """Test trend calculation with non-zero trend parameters."""
-        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
-        time, vel, verr = test_data
-        fitter.add_data(time, vel, verr, t0=2.0)
+        """Test trend calculation with non-zero trend parameters.
 
-        # Set up params with non-zero trend
+        Note: In the new multi-instrument API, the trend only includes gd and gdd.
+        The gamma offset is per-instrument and handled separately.
+        """
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        # Set up params with non-zero trend (gd only - no global gamma)
         params = {
             "P_b": Parameter(2.0, "d", fixed=True),
             "K_b": Parameter(5.0, "m/s", fixed=False),
             "e_b": Parameter(0.0, "", fixed=True),
             "w_b": Parameter(np.pi/2, "rad", fixed=True),
             "Tc_b": Parameter(0.0, "d", fixed=True),
-            "g": Parameter(10.0, "m/s", fixed=True),  # Non-zero offset
+            "g_HARPS": Parameter(10.0, "m/s", fixed=True),  # Per-instrument gamma
             "gd": Parameter(0.5, "m/s/day", fixed=True),  # Non-zero slope
             "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit": Parameter(1.0, "m/s", fixed=False),
+            "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
         }
         fitter.params = params
 
@@ -785,9 +954,10 @@ class TestRVCalculations:
 
         rv_trend = fitter.calculate_rv_trend_custom(times, params_dict)
 
-        # With g=10 and gd=0.5, at t0=2.0:
-        # trend(t) = 10 + 0.5*(t - 2.0)
-        expected_trend = 10.0 + 0.5 * (times - 2.0)
+        # Trend only includes gd and gdd, NOT gamma offset
+        # trend(t) = gd*(t - t0) + gdd*(t - t0)^2
+        # With gd=0.5, gdd=0.0, t0=2.0:
+        expected_trend = 0.5 * (times - 2.0)
         np.testing.assert_allclose(rv_trend, expected_trend)
 
     def test_calculate_rv_total_custom(self, setup_fitter_for_rv):
@@ -819,7 +989,7 @@ class TestRVCalculations:
         assert len(params) == 9  # All params (free + fixed)
         assert "P_b" in params
         assert "K_b" in params
-        assert "jit" in params
+        assert "jit_HARPS" in params
 
     def test_build_params_dict_from_dict(self, setup_fitter_for_rv):
         """Test building params dict from dict."""

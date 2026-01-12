@@ -121,26 +121,27 @@ class TestGPKernel:
 
 @pytest.fixture
 def test_gp_data():
-    """Simple synthetic RV data with GP-like correlation for testing."""
+    """Simple synthetic RV data with GP-like correlation for testing (single instrument)."""
     time = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
     vel = np.array([5.0, -2.0, -5.0, 2.0, 3.0, -1.0])
-    verr = np.array([1.0, 1.1, 0.9, 0.85, 1.5, 1.0])
-    return time, vel, verr
+    velerr = np.array([1.0, 1.1, 0.9, 0.85, 1.5, 1.0])
+    instrument = np.array(["HARPS", "HARPS", "HARPS", "HARPS", "HARPS", "HARPS"])
+    return time, vel, velerr, instrument
 
 
 @pytest.fixture
 def test_gp_circular_params():
-    """Simple circular orbit parameters for GP testing."""
+    """Simple circular orbit parameters for GP testing (single instrument: HARPS)."""
     return {
         "P_b": Parameter(2.0, "d", fixed=True),
         "K_b": Parameter(5.0, "m/s", fixed=False),
         "e_b": Parameter(0.0, "", fixed=True),
         "w_b": Parameter(np.pi/2, "rad", fixed=True),
         "Tc_b": Parameter(0.0, "d", fixed=True),
-        "g": Parameter(0.0, "m/s", fixed=True),
+        "g_HARPS": Parameter(0.0, "m/s", fixed=True),
         "gd": Parameter(0.0, "m/s/day", fixed=True),
         "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-        "jit": Parameter(1.0, "m/s", fixed=False),
+        "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
     }
 
 
@@ -157,10 +158,10 @@ def test_gp_hyperparams():
 
 @pytest.fixture
 def test_gp_priors():
-    """Simple priors for GP testing."""
+    """Simple priors for GP testing (single instrument: HARPS)."""
     return {
         "K_b": ravest.prior.Uniform(0, 20),
-        "jit": ravest.prior.Uniform(0, 5),
+        "jit_HARPS": ravest.prior.Uniform(0, 5),
     }
 
 
@@ -180,33 +181,38 @@ class TestGPLogLikelihood:
 
     def test_gploglikelihood_init(self, test_gp_data) -> None:
         """Test GPLogLikelihood initialization."""
-        time, vel, verr = test_gp_data
+        time, vel, velerr, instrument = test_gp_data
+        unique_instruments = list(np.unique(instrument))
         gp_kernel = GPKernel("Quasiperiodic")
         ll = GPLogLikelihood(
-            time=time, vel=vel, verr=verr, t0=2.0,
+            time=time, vel=vel, velerr=velerr, t0=2.0,
+            instrument=instrument, unique_instruments=unique_instruments,
             planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
             gp_kernel=gp_kernel
         )
 
         np.testing.assert_array_equal(ll.time, time)
         np.testing.assert_array_equal(ll.vel, vel)
-        np.testing.assert_array_equal(ll.verr, verr)
+        np.testing.assert_array_equal(ll.velerr, velerr)
         assert ll.t0 == 2.0
         assert ll.gp_kernel == gp_kernel
+        assert ll.unique_instruments == ["HARPS"]
 
     def test_gploglikelihood_calculation(self, test_gp_data) -> None:
         """Test GP log-likelihood calculation with valid parameters."""
-        time, vel, verr = test_gp_data
+        time, vel, velerr, instrument = test_gp_data
+        unique_instruments = list(np.unique(instrument))
         gp_kernel = GPKernel("Quasiperiodic")
         ll = GPLogLikelihood(
-            time=time, vel=vel, verr=verr, t0=2.0,
+            time=time, vel=vel, velerr=velerr, t0=2.0,
+            instrument=instrument, unique_instruments=unique_instruments,
             planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
             gp_kernel=gp_kernel
         )
 
         params = {
             "P_b": 2.0, "K_b": 5.0, "e_b": 0.0, "w_b": np.pi/2, "Tc_b": 0.0,
-            "g": 0.0, "gd": 0.0, "gdd": 0.0, "jit": 2.0
+            "g_HARPS": 0.0, "gd": 0.0, "gdd": 0.0, "jit_HARPS": 2.0
         }
         hyperparams = {
             "gp_amp": 1.0,
@@ -222,10 +228,12 @@ class TestGPLogLikelihood:
 
     def test_gploglikelihood_invalid_planet(self, test_gp_data) -> None:
         """Test GP log-likelihood returns -inf for invalid planet parameters."""
-        time, vel, verr = test_gp_data
+        time, vel, velerr, instrument = test_gp_data
+        unique_instruments = list(np.unique(instrument))
         gp_kernel = GPKernel("Quasiperiodic")
         ll = GPLogLikelihood(
-            time=time, vel=vel, verr=verr, t0=2.0,
+            time=time, vel=vel, velerr=velerr, t0=2.0,
+            instrument=instrument, unique_instruments=unique_instruments,
             planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
             gp_kernel=gp_kernel
         )
@@ -233,7 +241,7 @@ class TestGPLogLikelihood:
         params = {
             "P_b": -1.0,  # Invalid negative period
             "K_b": 5.0, "e_b": 0.0, "w_b": np.pi/2, "Tc_b": 0.0,
-            "g": 0.0, "gd": 0.0, "gdd": 0.0, "jit": 1.0
+            "g_HARPS": 0.0, "gd": 0.0, "gdd": 0.0, "jit_HARPS": 1.0
         }
         hyperparams = {
             "gp_amp": 1.0,
@@ -252,7 +260,8 @@ class TestGPLogPosterior:
     def test_gplogposterior_init(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
                                    test_gp_priors, test_gp_hyperpriors) -> None:
         """Test GPLogPosterior initialization."""
-        time, vel, verr = test_gp_data
+        time, vel, velerr, instrument = test_gp_data
+        unique_instruments = list(np.unique(instrument))
         params = test_gp_circular_params
         hyperparams = test_gp_hyperparams
         priors = test_gp_priors
@@ -275,16 +284,19 @@ class TestGPLogPosterior:
             fixed_hyperparams=fixed_hyperparams,
             free_params_names=free_params_names,
             free_hyperparams_names=free_hyperparams_names,
-            time=time, vel=vel, verr=verr, t0=2.0
+            time=time, vel=vel, velerr=velerr, t0=2.0,
+            instrument=instrument, unique_instruments=unique_instruments
         )
 
         assert lpost.planet_letters == ["b"]
         assert lpost.gp_kernel == gp_kernel
+        assert lpost.unique_instruments == ["HARPS"]
 
     def test_gplogposterior_valid_calculation(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
                                                test_gp_priors, test_gp_hyperpriors) -> None:
         """Test GP log-posterior calculation with valid parameters."""
-        time, vel, verr = test_gp_data
+        time, vel, velerr, instrument = test_gp_data
+        unique_instruments = list(np.unique(instrument))
         params = test_gp_circular_params
         hyperparams = test_gp_hyperparams
         priors = test_gp_priors
@@ -306,11 +318,12 @@ class TestGPLogPosterior:
             fixed_hyperparams=fixed_hyperparams,
             free_params_names=free_params_names,
             free_hyperparams_names=free_hyperparams_names,
-            time=time, vel=vel, verr=verr, t0=2.0
+            time=time, vel=vel, velerr=velerr, t0=2.0,
+            instrument=instrument, unique_instruments=unique_instruments
         )
 
         combined_dict = {
-            "K_b": 5.0, "jit": 1.0,
+            "K_b": 5.0, "jit_HARPS": 1.0,
             "gp_amp": 1.0, "gp_lambda_e": 50.0, "gp_lambda_p": 0.5, "gp_period": 10.0
         }
         log_post = lpost.log_probability(combined_dict)
@@ -322,7 +335,8 @@ class TestGPLogPosterior:
     def test_gplogposterior_invalid_prior(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
                                            test_gp_priors, test_gp_hyperpriors) -> None:
         """Test GP log-posterior returns -inf when prior is invalid."""
-        time, vel, verr = test_gp_data
+        time, vel, velerr, instrument = test_gp_data
+        unique_instruments = list(np.unique(instrument))
         params = test_gp_circular_params
         hyperparams = test_gp_hyperparams
         priors = test_gp_priors
@@ -344,11 +358,12 @@ class TestGPLogPosterior:
             fixed_hyperparams=fixed_hyperparams,
             free_params_names=free_params_names,
             free_hyperparams_names=free_hyperparams_names,
-            time=time, vel=vel, verr=verr, t0=2.0
+            time=time, vel=vel, velerr=velerr, t0=2.0,
+            instrument=instrument, unique_instruments=unique_instruments
         )
 
         combined_dict = {
-            "K_b": -1.0, "jit": 1.0,  # Invalid K_b outside prior bounds
+            "K_b": -1.0, "jit_HARPS": 1.0,  # Invalid K_b outside prior bounds
             "gp_amp": 1.0, "gp_lambda_e": 50.0, "gp_lambda_p": 0.5, "gp_period": 10.0
         }
         log_post = lpost.log_probability(combined_dict)
@@ -375,12 +390,14 @@ class TestGPFitter:
         """Test adding valid data to GPFitter."""
         gp_kernel = GPKernel("Quasiperiodic")
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, verr = test_gp_data
-        fitter.add_data(time, vel, verr, t0=2.0)
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
         np.testing.assert_array_equal(fitter.time, time)
         np.testing.assert_array_equal(fitter.vel, vel)
-        np.testing.assert_array_equal(fitter.verr, verr)
+        np.testing.assert_array_equal(fitter.velerr, velerr)
+        np.testing.assert_array_equal(fitter.instrument, instrument)
+        assert fitter.unique_instruments == ["HARPS"]
         assert fitter.t0 == 2.0
 
     def test_add_data_mismatched_lengths(self) -> None:
@@ -389,26 +406,31 @@ class TestGPFitter:
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
         time = np.array([0.0, 1.0])
         vel = np.array([5.0, -2.0, -5.0])  # Different length
-        verr = np.array([1.0, 1.0])
+        velerr = np.array([1.0, 1.0])
+        instrument = np.array(["HARPS", "HARPS"])
 
-        with pytest.raises(ValueError, match="Time, velocity, and uncertainty arrays must be the same length"):
-            fitter.add_data(time, vel, verr, t0=2.0)
+        with pytest.raises(ValueError, match="arrays must be the same length"):
+            fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
-    def test_params_property_valid(self, test_gp_circular_params) -> None:
+    def test_params_property_valid(self, test_gp_data, test_gp_circular_params) -> None:
         """Test setting valid parameters via property."""
         gp_kernel = GPKernel("Quasiperiodic")
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
         params = test_gp_circular_params
         fitter.params = params
 
-        assert len(fitter.params) == 9  # 5 planetary + 3 trend params + jit
+        assert len(fitter.params) == 9  # 5 planetary + 2 trend params + g_HARPS + jit_HARPS
         assert "P_b" in fitter.params
-        assert "jit" in fitter.params
+        assert "jit_HARPS" in fitter.params
 
-    def test_hyperparams_property_valid(self, test_gp_circular_params, test_gp_hyperparams) -> None:
+    def test_hyperparams_property_valid(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams) -> None:
         """Test setting valid hyperparameters via property."""
         gp_kernel = GPKernel("Quasiperiodic")
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
         params = test_gp_circular_params
         hyperparams = test_gp_hyperparams
 
@@ -419,10 +441,12 @@ class TestGPFitter:
         assert "gp_amp" in fitter.hyperparams
         assert "gp_period" in fitter.hyperparams
 
-    def test_hyperparams_missing(self, test_gp_circular_params) -> None:
+    def test_hyperparams_missing(self, test_gp_data, test_gp_circular_params) -> None:
         """Test error when required hyperparameters are missing."""
         gp_kernel = GPKernel("Quasiperiodic")
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
         params = test_gp_circular_params
         fitter.params = params
 
@@ -435,10 +459,12 @@ class TestGPFitter:
         with pytest.raises(ValueError, match="Missing required hyperparameters"):
             fitter.hyperparams = incomplete_hyperparams
 
-    def test_add_priors_valid(self, test_gp_circular_params, test_gp_priors) -> None:
+    def test_add_priors_valid(self, test_gp_data, test_gp_circular_params, test_gp_priors) -> None:
         """Test adding valid priors."""
         gp_kernel = GPKernel("Quasiperiodic")
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
         params = test_gp_circular_params
         priors = test_gp_priors
 
@@ -447,12 +473,14 @@ class TestGPFitter:
 
         assert len(fitter.priors) == 2
         assert "K_b" in fitter.priors
-        assert "jit" in fitter.priors
+        assert "jit_HARPS" in fitter.priors
 
-    def test_add_hyperpriors_valid(self, test_gp_circular_params, test_gp_hyperparams, test_gp_priors, test_gp_hyperpriors) -> None:
+    def test_add_hyperpriors_valid(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams, test_gp_priors, test_gp_hyperpriors) -> None:
         """Test adding valid hyperpriors."""
         gp_kernel = GPKernel("Quasiperiodic")
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
         params = test_gp_circular_params
         hyperparams = test_gp_hyperparams
         priors = test_gp_priors
@@ -467,10 +495,12 @@ class TestGPFitter:
         assert "gp_amp" in fitter.hyperpriors
         assert "gp_period" in fitter.hyperpriors
 
-    def test_get_free_params(self, test_gp_circular_params) -> None:
+    def test_get_free_params(self, test_gp_data, test_gp_circular_params) -> None:
         """Test getting free parameters."""
         gp_kernel = GPKernel("Quasiperiodic")
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
         params = test_gp_circular_params
         fitter.params = params
 
@@ -478,17 +508,19 @@ class TestGPFitter:
         free_names = fitter.free_params_names
         free_vals = fitter.free_params_values
 
-        assert len(free_params) == 2  # K_b and jit
+        assert len(free_params) == 2  # K_b and jit_HARPS
         assert "K_b" in free_names
-        assert "jit" in free_names
+        assert "jit_HARPS" in free_names
         assert len(free_vals) == 2
         assert 5.0 in free_vals  # K_b value
-        assert 1.0 in free_vals  # jit value
+        assert 1.0 in free_vals  # jit_HARPS value
 
-    def test_get_free_hyperparams(self, test_gp_circular_params, test_gp_hyperparams) -> None:
+    def test_get_free_hyperparams(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams) -> None:
         """Test getting free hyperparameters."""
         gp_kernel = GPKernel("Quasiperiodic")
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
         params = test_gp_circular_params
         hyperparams = test_gp_hyperparams
 
@@ -515,8 +547,8 @@ class TestGPFitterIntegration:
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
 
         # Add data
-        time, vel, verr = test_gp_data
-        fitter.add_data(time, vel, verr, t0=2.0)
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
         # Add parameters and hyperparameters
         params = test_gp_circular_params
@@ -538,3 +570,4 @@ class TestGPFitterIntegration:
         assert len(fitter.free_params_names) == 2
         assert len(fitter.free_hyperparams_names) == 4
         assert fitter.ndim == 6  # 2 free params + 4 free hyperparams
+        assert fitter.unique_instruments == ["HARPS"]
