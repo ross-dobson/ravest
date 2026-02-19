@@ -3112,6 +3112,9 @@ class LogLikelihood:
         # Precompute log(2*pi) — it's a constant, no need to recalculate every time
         self._log_2pi = np.log(2 * np.pi)
 
+        # Precompute velerr squared — constant (observed data doesn't change) so no need to recalculate every time
+        self._velerr_sq = self.velerr ** 2
+
     def __call__(self, params: Dict[str, float]) -> float:
         """Calculate log likelihood for given parameters.
 
@@ -3166,7 +3169,7 @@ class LogLikelihood:
         # The result is a full-length array ready for vectorised arithmetic — no Python loop needed.
         jitter_per_instrument = np.array([params[k] for k in self._jitter_keys])
         jitter_at_each_obs = jitter_per_instrument[self._instrument_indices]
-        velerr_jit_sq = self.velerr**2 + jitter_at_each_obs**2
+        velerr_jit_sq = self._velerr_sq + jitter_at_each_obs**2
         penalty_term = self._log_2pi + np.log(velerr_jit_sq)
         residuals = rv_total - self.vel
         chi2 = residuals**2 / velerr_jit_sq
@@ -7020,6 +7023,9 @@ class GPLogLikelihood:
         self._gamma_keys = [f"g_{inst}" for inst in self.unique_instruments]
         self._jitter_keys = [f"jit_{inst}" for inst in self.unique_instruments]
 
+        # Precompute jax_velerr squared — constant (as observed data doesn't change) so no need to recalculate every time
+        self._velerr_sq = self.jax_velerr ** 2
+
     def _calculate_mean_model(self, params: Dict[str, float]) -> jnp.ndarray:
         """Calculate the Keplerian RV model (the mean function for the GP).
 
@@ -7122,7 +7128,7 @@ class GPLogLikelihood:
         # N.B. we don't sqrt here - tinygp diag wants variance, not stddev
         jitter_per_instrument = jnp.array([params[k] for k in self._jitter_keys])
         jitter_at_each_obs = jitter_per_instrument[self._instrument_indices]
-        velerr_jit_squared = self.jax_velerr**2 + jitter_at_each_obs**2
+        velerr_jit_squared = self._velerr_sq + jitter_at_each_obs**2
 
         # Use JIT-compiled helper for the expensive GP computation
         return self._compute_gp_log_likelihood(
