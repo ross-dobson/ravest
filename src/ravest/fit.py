@@ -3103,6 +3103,12 @@ class LogLikelihood:
         _inst_to_idx = {inst: i for i, inst in enumerate(self.unique_instruments)}
         self._instrument_indices = np.array([_inst_to_idx[inst] for inst in self.instrument])
 
+        # Precompute parameter key strings for gamma and jitter lookups.
+        # These strings (e.g. "g_HARPS", "jit_ESPRESSO") are constant for the lifetime
+        # of this object — precomputing them avoids rebuilding f-strings on every call.
+        self._gamma_keys = [f"g_{inst}" for inst in self.unique_instruments]
+        self._jitter_keys = [f"jit_{inst}" for inst in self.unique_instruments]
+
     def __call__(self, params: Dict[str, float]) -> float:
         """Calculate log likelihood for given parameters.
 
@@ -3145,7 +3151,7 @@ class LogLikelihood:
         # Build a small array of gamma values, one per instrument (length K), then use
         # _instrument_indices to select the right gamma for each of the N observations.
         # This gives a length-N array in one numpy operation — no Python loop needed.
-        gamma_per_instrument = np.array([params[f"g_{inst}"] for inst in self.unique_instruments])
+        gamma_per_instrument = np.array([params[k] for k in self._gamma_keys])
         gamma_at_each_obs = gamma_per_instrument[self._instrument_indices]
         rv_total += gamma_at_each_obs
 
@@ -3155,7 +3161,7 @@ class LogLikelihood:
         #   1. Build a small array of jitter values, one per instrument (length K)
         #   2. Use _instrument_indices to select the right jitter for each observation (length N)
         # The result is a full-length array ready for vectorised arithmetic — no Python loop needed.
-        jitter_per_instrument = np.array([params[f"jit_{inst}"] for inst in self.unique_instruments])
+        jitter_per_instrument = np.array([params[k] for k in self._jitter_keys])
         jitter_at_each_obs = jitter_per_instrument[self._instrument_indices]
         velerr_jit_sq = self.velerr**2 + jitter_at_each_obs**2
         penalty_term = np.log(2 * np.pi * velerr_jit_sq)
@@ -7005,6 +7011,12 @@ class GPLogLikelihood:
         _inst_to_idx = {inst: i for i, inst in enumerate(self.unique_instruments)}
         self._instrument_indices = jnp.array([_inst_to_idx[inst] for inst in self.instrument])
 
+        # Precompute parameter key strings for gamma and jitter lookups.
+        # These strings (e.g. "g_HARPS", "jit_ESPRESSO") are constant for the lifetime
+        # of this object — precomputing them avoids rebuilding f-strings on every call.
+        self._gamma_keys = [f"g_{inst}" for inst in self.unique_instruments]
+        self._jitter_keys = [f"jit_{inst}" for inst in self.unique_instruments]
+
     def _calculate_mean_model(self, params: Dict[str, float]) -> jnp.ndarray:
         """Calculate the Keplerian RV model (the mean function for the GP).
 
@@ -7050,7 +7062,7 @@ class GPLogLikelihood:
         # Build a small array of gamma values, one per instrument (length K), then use
         # _instrument_indices to select the right gamma for each of the N observations.
         # JAX arrays are immutable so we use addition rather than in-place update.
-        gamma_per_instrument = jnp.array([params[f"g_{inst}"] for inst in self.unique_instruments])
+        gamma_per_instrument = jnp.array([params[k] for k in self._gamma_keys])
         gamma_at_each_obs = gamma_per_instrument[self._instrument_indices]
         rv_total = rv_total + gamma_at_each_obs
 
@@ -7105,7 +7117,7 @@ class GPLogLikelihood:
         #   1. Build a small array of jitter values, one per instrument (length K)
         #   2. Use _instrument_indices to select the right jitter for each observation (length N)
         # N.B. we don't sqrt here - tinygp diag wants variance, not stddev
-        jitter_per_instrument = jnp.array([params[f"jit_{inst}"] for inst in self.unique_instruments])
+        jitter_per_instrument = jnp.array([params[k] for k in self._jitter_keys])
         jitter_at_each_obs = jitter_per_instrument[self._instrument_indices]
         velerr_jit_squared = self.jax_velerr**2 + jitter_at_each_obs**2
 
