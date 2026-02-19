@@ -3092,11 +3092,16 @@ class LogLikelihood:
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
 
-        # Precompute instrument masks to avoid repeated string comparisons
-        # These are constant for the lifetime of this object
-        self.instrument_masks = {
-            inst: (self.instrument == inst) for inst in self.unique_instruments
-        }
+        # Precompute a per-observation integer index array.
+        # For each observation, store which instrument it came from as an integer:
+        #   e.g. unique_instruments = ["HARPS", "ESPRESSO"]
+        #        instrument          = ["HARPS", "HARPS", "ESPRESSO", "HARPS", ...]
+        #        _instrument_indices = [0,       0,       1,          0,       ...]
+        # This lets us use numpy fancy indexing (array[integer_array]) to look up
+        # per-instrument values for all observations in one vectorised operation,
+        # instead of looping over instruments with boolean mask slices.
+        _inst_to_idx = {inst: i for i, inst in enumerate(self.unique_instruments)}
+        self._instrument_indices = np.array([_inst_to_idx[inst] for inst in self.instrument])
 
     def __call__(self, params: Dict[str, float]) -> float:
         """Calculate log likelihood for given parameters.
@@ -3136,21 +3141,27 @@ class LogLikelihood:
         _rv_trend = _this_trend.radial_velocity(self.time)
         rv_total += _rv_trend
 
-        # Step 3: Add per-instrument gamma offsets (using precomputed masks)
-        for inst in self.unique_instruments:
-            mask = self.instrument_masks[inst]
-            rv_total[mask] += params[f"g_{inst}"]
+        # Step 3: Add per-instrument gamma offsets using vectorised fancy indexing.
+        # Build a small array of gamma values, one per instrument (length K), then use
+        # _instrument_indices to select the right gamma for each of the N observations.
+        # This gives a length-N array in one numpy operation — no Python loop needed.
+        gamma_per_instrument = np.array([params[f"g_{inst}"] for inst in self.unique_instruments])
+        gamma_at_each_obs = gamma_per_instrument[self._instrument_indices]
+        rv_total += gamma_at_each_obs
 
-        # Step 4: Calculate log-likelihood with per-instrument jitter (using precomputed masks)
-        ll = 0.0
-        for inst in self.unique_instruments:
-            mask = self.instrument_masks[inst]
-            jit = params[f"jit_{inst}"]
-            velerr_jit_sq = self.velerr[mask]**2 + jit**2
-            penalty_term = np.log(2 * np.pi * velerr_jit_sq)
-            residuals = rv_total[mask] - self.vel[mask]
-            chi2 = residuals**2 / velerr_jit_sq
-            ll += -0.5 * np.sum(chi2 + penalty_term)
+        # Step 4: Calculate log-likelihood with per-instrument jitter using vectorised fancy indexing.
+        # Each instrument has its own jitter value. We need to pair each of the N observations
+        # with its instrument's jitter. We do this in two steps:
+        #   1. Build a small array of jitter values, one per instrument (length K)
+        #   2. Use _instrument_indices to select the right jitter for each observation (length N)
+        # The result is a full-length array ready for vectorised arithmetic — no Python loop needed.
+        jitter_per_instrument = np.array([params[f"jit_{inst}"] for inst in self.unique_instruments])
+        jitter_at_each_obs = jitter_per_instrument[self._instrument_indices]
+        velerr_jit_sq = self.velerr**2 + jitter_at_each_obs**2
+        penalty_term = np.log(2 * np.pi * velerr_jit_sq)
+        residuals = rv_total - self.vel
+        chi2 = residuals**2 / velerr_jit_sq
+        ll = -0.5 * np.sum(chi2 + penalty_term)
 
         return ll
 
@@ -6984,16 +6995,15 @@ class GPLogLikelihood:
         self.jax_vel = jnp.array(self.vel)
         self.jax_velerr = jnp.array(self.velerr)
 
-        # Precompute instrument masks to avoid repeated string comparisons
-        # These are constant for the lifetime of this object
-        self.instrument_masks = {
-            inst: (self.instrument == inst) for inst in self.unique_instruments
-        }
-        # Also precompute velerr squared per instrument (constant, used in jitter calc)
-        self.velerr_sq_by_inst = {
-            inst: self.jax_velerr[self.instrument_masks[inst]]**2
-            for inst in self.unique_instruments
-        }
+        # Precompute a per-observation integer index array (same pattern as LogLikelihood).
+        # For each observation, store which instrument it came from as an integer:
+        #   e.g. unique_instruments = ["HARPS", "ESPRESSO"]
+        #        instrument          = ["HARPS", "HARPS", "ESPRESSO", "HARPS", ...]
+        #        _instrument_indices = [0,       0,       1,          0,       ...]
+        # This lets us use JAX fancy indexing to expand per-instrument values to length-N
+        # arrays in one operation, rather than looping with boolean mask slices.
+        _inst_to_idx = {inst: i for i, inst in enumerate(self.unique_instruments)}
+        self._instrument_indices = jnp.array([_inst_to_idx[inst] for inst in self.instrument])
 
     def _calculate_mean_model(self, params: Dict[str, float]) -> jnp.ndarray:
         """Calculate the Keplerian RV model (the mean function for the GP).
@@ -7036,10 +7046,13 @@ class GPLogLikelihood:
         _rv_trend = _this_trend.radial_velocity(self.time)
         rv_total += jnp.array(_rv_trend)
 
-        # Step 3: Add per-instrument gamma offsets (using precomputed masks)
-        for inst in self.unique_instruments:
-            mask = self.instrument_masks[inst]
-            rv_total = rv_total.at[mask].add(params[f"g_{inst}"])
+        # Step 3: Add per-instrument gamma offsets using vectorised fancy indexing.
+        # Build a small array of gamma values, one per instrument (length K), then use
+        # _instrument_indices to select the right gamma for each of the N observations.
+        # JAX arrays are immutable so we use addition rather than in-place update.
+        gamma_per_instrument = jnp.array([params[f"g_{inst}"] for inst in self.unique_instruments])
+        gamma_at_each_obs = gamma_per_instrument[self._instrument_indices]
+        rv_total = rv_total + gamma_at_each_obs
 
         return rv_total
 
@@ -7086,15 +7099,15 @@ class GPLogLikelihood:
         # Build GP kernel with hyperparameters
         kernel = self.gp_kernel.build_kernel(hyperparams)
 
-        # Add per-instrument jitter to observational uncertainties (using precomputed masks)
+        # Add per-instrument jitter to observational uncertainties using vectorised fancy indexing.
+        # Each instrument has its own jitter value. We need to pair each of the N observations
+        # with its instrument's jitter. We do this in two steps:
+        #   1. Build a small array of jitter values, one per instrument (length K)
+        #   2. Use _instrument_indices to select the right jitter for each observation (length N)
         # N.B. we don't sqrt here - tinygp diag wants variance, not stddev
-        velerr_jit_squared = jnp.zeros(len(self.time))
-        for inst in self.unique_instruments:
-            mask = self.instrument_masks[inst]
-            jit_value = params[f"jit_{inst}"]
-            velerr_jit_squared = velerr_jit_squared.at[mask].set(
-                self.velerr_sq_by_inst[inst] + jit_value**2
-            )
+        jitter_per_instrument = jnp.array([params[f"jit_{inst}"] for inst in self.unique_instruments])
+        jitter_at_each_obs = jitter_per_instrument[self._instrument_indices]
+        velerr_jit_squared = self.jax_velerr**2 + jitter_at_each_obs**2
 
         # Use JIT-compiled helper for the expensive GP computation
         return self._compute_gp_log_likelihood(
