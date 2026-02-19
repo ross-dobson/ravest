@@ -3109,6 +3109,9 @@ class LogLikelihood:
         self._gamma_keys = [f"g_{inst}" for inst in self.unique_instruments]
         self._jitter_keys = [f"jit_{inst}" for inst in self.unique_instruments]
 
+        # Precompute log(2*pi) — it's a constant, no need to recalculate every time
+        self._log_2pi = np.log(2 * np.pi)
+
     def __call__(self, params: Dict[str, float]) -> float:
         """Calculate log likelihood for given parameters.
 
@@ -3164,7 +3167,7 @@ class LogLikelihood:
         jitter_per_instrument = np.array([params[k] for k in self._jitter_keys])
         jitter_at_each_obs = jitter_per_instrument[self._instrument_indices]
         velerr_jit_sq = self.velerr**2 + jitter_at_each_obs**2
-        penalty_term = np.log(2 * np.pi * velerr_jit_sq)
+        penalty_term = self._log_2pi + np.log(velerr_jit_sq)
         residuals = rv_total - self.vel
         chi2 = residuals**2 / velerr_jit_sq
         ll = -0.5 * np.sum(chi2 + penalty_term)
