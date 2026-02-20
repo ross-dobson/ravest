@@ -204,6 +204,17 @@ class Fitter:
         # Check for unexpected parameters
         unexpected_params = provided_params - expected_params
         if unexpected_params:
+            # Give a specific hint if user is passing legacy single-instrument parameters
+            legacy_params = unexpected_params & {"g", "jit"}
+            if legacy_params:
+                raise ValueError(
+                    f"Unexpected parameters: {unexpected_params}. "
+                    f"Single-instrument 'g' and 'jit' parameters are no longer supported. "
+                    f"Use per-instrument names instead, e.g. "
+                    f"{[f'g_{inst}' for inst in self.unique_instruments]} and "
+                    f"{[f'jit_{inst}' for inst in self.unique_instruments]}, "
+                    f"matching the instrument names passed to add_data()."
+                )
             raise ValueError(
                 f"Unexpected parameters: {unexpected_params}. "
                 f"Expected {len(expected_params)} parameters, got {len(provided_params)}"
@@ -3406,6 +3417,17 @@ class GPFitter:
         # Check for unexpected parameters
         unexpected_params = provided_params - expected_params
         if unexpected_params:
+            # Give a specific hint if user is passing legacy single-instrument parameters
+            legacy_params = unexpected_params & {"g", "jit"}
+            if legacy_params:
+                raise ValueError(
+                    f"Unexpected parameters: {unexpected_params}. "
+                    f"Single-instrument 'g' and 'jit' parameters are no longer supported. "
+                    f"Use per-instrument names instead, e.g. "
+                    f"{[f'g_{inst}' for inst in self.unique_instruments]} and "
+                    f"{[f'jit_{inst}' for inst in self.unique_instruments]}, "
+                    f"matching the instrument names passed to add_data()."
+                )
             raise ValueError(
                 f"Unexpected parameters: {unexpected_params}. "
                 f"Expected {len(expected_params)} parameters, got {len(provided_params)}"

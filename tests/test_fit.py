@@ -171,7 +171,74 @@ class TestFitter:
         params = test_circular_params.copy()
         params["invalid_param"] = Parameter(1.0, "")  # Add unexpected parameter
 
+        # Should raise generic unexpected-parameter error, NOT the legacy g/jit hint
         with pytest.raises(ValueError, match="Unexpected parameters.*Expected 9 parameters, got 10"):
+            fitter.params = params
+
+    def test_add_params_legacy_only(self, test_data) -> None:
+        """Test error when only legacy g and jit parameters are provided (nothing else)."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        params = {
+            "g": Parameter(0.0, "m/s"),
+            "jit": Parameter(1.0, "m/s"),
+        }
+
+        with pytest.raises(ValueError, match="Single-instrument 'g' and 'jit' parameters are no longer supported"):
+            fitter.params = params
+
+    def test_add_params_legacy_single_instrument(self, test_data, test_circular_params) -> None:
+        """Test error when legacy g/jit are used instead of g_HARPS/jit_HARPS (single instrument).
+
+        The error message should name the correct per-instrument parameter names.
+        """
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        params = test_circular_params.copy()
+        del params["g_HARPS"]
+        del params["jit_HARPS"]
+        params["g"] = Parameter(0.0, "m/s")
+        params["jit"] = Parameter(1.0, "m/s")
+
+        with pytest.raises(ValueError, match="Single-instrument 'g' and 'jit' parameters are no longer supported.*g_HARPS.*jit_HARPS"):
+            fitter.params = params
+
+    def test_add_params_legacy_partial_multi_instrument(self, test_data_multi_instrument, test_circular_params_multi_instrument) -> None:
+        """Test error when legacy g/jit are used for one instrument in a multi-instrument setup.
+
+        User provides g_HARPS/jit_HARPS correctly, but g/jit instead of g_HIRES/jit_HIRES.
+        """
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data_multi_instrument
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        params = test_circular_params_multi_instrument.copy()
+        del params["g_HIRES"]
+        del params["jit_HIRES"]
+        params["g"] = Parameter(100.0, "m/s")
+        params["jit"] = Parameter(2.0, "m/s")
+
+        with pytest.raises(ValueError, match="Single-instrument 'g' and 'jit' parameters are no longer supported"):
+            fitter.params = params
+
+    def test_add_params_legacy_alongside_correct_multi_instrument(self, test_data_multi_instrument, test_circular_params_multi_instrument) -> None:
+        """Test error when legacy g/jit are provided alongside all correct per-instrument params.
+
+        All 11 required parameters are present, but g and jit are also included.
+        """
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data_multi_instrument
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        params = test_circular_params_multi_instrument.copy()
+        params["g"] = Parameter(0.0, "m/s")    # Legacy, on top of all correct params
+        params["jit"] = Parameter(1.0, "m/s")  # Legacy, on top of all correct params
+
+        with pytest.raises(ValueError, match="Single-instrument 'g' and 'jit' parameters are no longer supported"):
             fitter.params = params
 
     def test_add_priors_valid(self, test_data, test_circular_params, test_simple_priors) -> None:
