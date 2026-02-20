@@ -142,6 +142,15 @@ class Fitter:
         # Update ndim based on new free parameters
         self.ndim = len(self.free_params_values)
 
+        if self.ndim == 0:
+            warnings.warn(
+                "All parameters are fixed. MCMC methods (find_map_estimate, "
+                "generate_initial_walker_positions_*, run_mcmc) require at least one "
+                "free parameter (fixed=False).",
+                UserWarning,
+                stacklevel=2
+            )
+
     @property
     def priors(self) -> dict:
         """Priors dictionary. Set via: fitter.priors = prior_dict."""
@@ -559,6 +568,12 @@ class Fitter:
 
         initial_guess = self.free_params_values
 
+        if len(initial_guess) == 0:
+            raise ValueError(
+                "Cannot run MAP optimisation: no free parameters to optimise. "
+                "At least one parameter must be set as free (fixed=False) before calling find_map_estimate()."
+            )
+
         # Perform MAP optimization
         def negative_log_posterior(*args: float) -> float:
             return lp._negative_log_probability_for_MAP(*args)
@@ -612,6 +627,12 @@ class Fitter:
         >>> initial_positions = fitter.generate_initial_walker_positions_random(nwalkers)
         >>> fitter.run_mcmc(initial_positions, nwalkers, max_steps=2000)
         """
+        if len(self.free_params_values) == 0:
+            raise ValueError(
+                "Cannot generate walker positions: no free parameters to sample. "
+                "At least one parameter must be set as free (fixed=False)."
+            )
+
         if verbose:
             print("Free parameters:", self.free_params_names)
 
@@ -762,6 +783,12 @@ class Fitter:
         ... )
         >>> fitter.run_mcmc(initial_positions, nwalkers=40, max_steps=2000)
         """
+        if len(self.free_params_values) == 0:
+            raise ValueError(
+                "Cannot generate walker positions: no free parameters to sample. "
+                "At least one parameter must be set as free (fixed=False)."
+            )
+
         centre = np.asarray(centre)
 
         if len(centre) != len(self.free_params_names):
@@ -910,6 +937,12 @@ class Fitter:
         ... )
         >>> fitter.run_mcmc(initial_positions, nwalkers=40, max_steps=2000)
         """
+        if len(self.free_params_values) == 0:
+            raise ValueError(
+                "Cannot generate walker positions: no free parameters to sample. "
+                "At least one parameter must be set as free (fixed=False)."
+            )
+
         return self.generate_initial_walker_positions_around_point(
             centre=map_result.x,
             nwalkers=nwalkers,
@@ -949,6 +982,12 @@ class Fitter:
             Minimum iteration before starting convergence checks. Set this sensibly
             (e.g. 2x burn-in) to avoid inaccurate tau estimates on short chains (default: 0)
         """
+        if len(self.free_params_values) == 0:
+            raise ValueError(
+                "Cannot run MCMC: no free parameters to sample. "
+                "At least one parameter must be set as free (fixed=False)."
+            )
+
         # Initialize log-posterior object for MCMC sampling
         lp = LogPosterior(
             self.planet_letters,
@@ -3331,6 +3370,14 @@ class GPFitter:
         # Update ndim to total number of free parameters (hyperparams are added to ndim when they're set later on)
         self.ndim = len(self.free_params_values)
 
+        if self.ndim == 0:
+            warnings.warn(
+                "All parameters are fixed. MCMC methods require at least one "
+                "free parameter or hyperparameter (fixed=False).",
+                UserWarning,
+                stacklevel=2
+            )
+
     @property
     def hyperparams(self) -> Dict[str, Parameter]:
         """Hyperparameters dictionary. Set via: gpfitter.hyperparams = hyperparam_dict."""
@@ -3351,6 +3398,14 @@ class GPFitter:
 
         # Update ndim to include hyperparameters (total free params + hyperparams)
         self.ndim = len(self.free_params_values) + len(self.free_hyperparams_values)
+
+        if self.ndim == 0:
+            warnings.warn(
+                "All parameters and hyperparameters are fixed. MCMC methods require "
+                "at least one free parameter or hyperparameter (fixed=False).",
+                UserWarning,
+                stacklevel=2
+            )
 
     @property
     def priors(self) -> dict:
@@ -3857,6 +3912,12 @@ class GPFitter:
         # Combine free params and free hyperparams for initial guess
         initial_guess = self.free_params_values + self.free_hyperparams_values
 
+        if len(initial_guess) == 0:
+            raise ValueError(
+                "Cannot run MAP optimisation: no free parameters or hyperparameters to optimise. "
+                "At least one parameter or hyperparameter must be set as free (fixed=False) before calling find_map_estimate()."
+            )
+
         # Perform MAP optimization
         def negative_log_posterior(*args: float) -> float:
             return gp_lp._negative_log_probability_for_MAP(*args)
@@ -3917,6 +3978,12 @@ class GPFitter:
         >>> initial_positions = gpfitter.generate_initial_walker_positions_random(nwalkers)
         >>> gpfitter.run_mcmc(initial_positions, nwalkers, max_steps=2000)
         """
+        if len(self.free_params_values) + len(self.free_hyperparams_values) == 0:
+            raise ValueError(
+                "Cannot generate walker positions: no free parameters or hyperparameters to sample. "
+                "At least one parameter or hyperparameter must be set as free (fixed=False)."
+            )
+
         if verbose:
             print("Free parameters:", self.free_params_names)
             print("Free hyperparameters:", self.free_hyperparams_names)
@@ -4125,6 +4192,12 @@ class GPFitter:
         ... )
         >>> gpfitter.run_mcmc(initial_positions, nwalkers=40, max_steps=2000)
         """
+        if len(self.free_params_values) + len(self.free_hyperparams_values) == 0:
+            raise ValueError(
+                "Cannot generate walker positions: no free parameters or hyperparameters to sample. "
+                "At least one parameter or hyperparameter must be set as free (fixed=False)."
+            )
+
         centre = np.asarray(centre)
         expected_length = len(self.free_params_names) + len(self.free_hyperparams_names)
 
@@ -4322,6 +4395,12 @@ class GPFitter:
         ... )
         >>> gpfitter.run_mcmc(initial_positions, nwalkers=40, max_steps=2000)
         """
+        if len(self.free_params_values) + len(self.free_hyperparams_values) == 0:
+            raise ValueError(
+                "Cannot generate walker positions: no free parameters or hyperparameters to sample. "
+                "At least one parameter or hyperparameter must be set as free (fixed=False)."
+            )
+
         return self.generate_initial_walker_positions_around_point(
             centre=map_result.x,
             nwalkers=nwalkers,
@@ -4362,6 +4441,12 @@ class GPFitter:
             Minimum iteration before starting convergence checks. Set this sensibly
             (e.g. 2x burn-in) to avoid inaccurate tau estimates on short chains (default: 0)
         """
+        if len(self.free_params_values) + len(self.free_hyperparams_values) == 0:
+            raise ValueError(
+                "Cannot run MCMC: no free parameters or hyperparameters to sample. "
+                "At least one parameter or hyperparameter must be set as free (fixed=False)."
+            )
+
         # Initialize log-posterior object for MCMC sampling
         gp_lp = GPLogPosterior(
             self.planet_letters,

@@ -706,6 +706,62 @@ class TestFitterIntegration:
         assert "jit_HARPS" in fitter.params
         assert "jit_HIRES" in fitter.params
 
+    def test_params_all_fixed_warns(self, test_data, test_circular_params) -> None:
+        """Test that setting all parameters as fixed issues a UserWarning."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_circular_params.items()}
+
+        with pytest.warns(UserWarning, match="All parameters are fixed"):
+            fitter.params = params
+
+    def test_find_map_estimate_all_fixed_raises(self, test_data, test_circular_params) -> None:
+        """Test that find_map_estimate raises a clear error when all parameters are fixed.
+
+        scipy.minimize cannot handle a zero-dimensional parameter space and produces
+        a cryptic _MaxFuncCallError. We guard against this with an explicit ValueError.
+        """
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        # Set all parameters as fixed — no priors needed as there are no free params
+        params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_circular_params.items()}
+        with pytest.warns(UserWarning):
+            fitter.params = params
+
+        with pytest.raises(ValueError, match="no free parameters to optimise"):
+            fitter.find_map_estimate()
+
+    def test_generate_walker_positions_random_all_fixed_raises(self, test_data, test_circular_params) -> None:
+        """Test that generate_initial_walker_positions_random raises when all parameters are fixed."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_circular_params.items()}
+        with pytest.warns(UserWarning):
+            fitter.params = params
+
+        with pytest.raises(ValueError, match="no free parameters to sample"):
+            fitter.generate_initial_walker_positions_random(nwalkers=10)
+
+    def test_run_mcmc_all_fixed_raises(self, test_data, test_circular_params) -> None:
+        """Test that run_mcmc raises a clear error when all parameters are fixed."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_circular_params.items()}
+        with pytest.warns(UserWarning):
+            fitter.params = params
+
+        dummy_positions = np.empty((10, 0))
+        with pytest.raises(ValueError, match="no free parameters to sample"):
+            fitter.run_mcmc(dummy_positions, nwalkers=10, max_steps=10, progress=False)
+
 
 class TestAdaptiveConvergence:
     """Tests for adaptive convergence feature in run_mcmc."""

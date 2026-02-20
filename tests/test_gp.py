@@ -536,6 +536,85 @@ class TestGPFitter:
         assert "gp_period" in free_hypernames
         assert len(free_hypervals) == 4
 
+    def test_params_all_fixed_warns(self, test_gp_data, test_gp_circular_params) -> None:
+        """Test that setting all parameters as fixed issues a UserWarning."""
+        gp_kernel = GPKernel("Quasiperiodic")
+        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_circular_params.items()}
+
+        with pytest.warns(UserWarning, match="All parameters are fixed"):
+            fitter.params = params
+
+    def test_hyperparams_all_fixed_warns(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams) -> None:
+        """Test that setting all hyperparameters as fixed issues a UserWarning."""
+        gp_kernel = GPKernel("Quasiperiodic")
+        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        with pytest.warns(UserWarning):
+            fitter.params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_circular_params.items()}
+
+        hyperparams = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_hyperparams.items()}
+
+        with pytest.warns(UserWarning, match="All parameters and hyperparameters are fixed"):
+            fitter.hyperparams = hyperparams
+
+    def test_find_map_estimate_all_fixed_raises(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams) -> None:
+        """Test that find_map_estimate raises a clear error when all parameters and hyperparameters are fixed.
+
+        scipy.minimize cannot handle a zero-dimensional parameter space and produces
+        a cryptic _MaxFuncCallError. We guard against this with an explicit ValueError.
+        """
+        gp_kernel = GPKernel("Quasiperiodic")
+        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_circular_params.items()}
+        hyperparams = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_hyperparams.items()}
+        with pytest.warns(UserWarning):
+            fitter.params = params
+        with pytest.warns(UserWarning):
+            fitter.hyperparams = hyperparams
+
+        with pytest.raises(ValueError, match="no free parameters or hyperparameters to optimise"):
+            fitter.find_map_estimate()
+
+    def test_generate_walker_positions_random_all_fixed_raises(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams) -> None:
+        """Test that generate_initial_walker_positions_random raises when all params and hyperparams are fixed."""
+        gp_kernel = GPKernel("Quasiperiodic")
+        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        with pytest.warns(UserWarning):
+            fitter.params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_circular_params.items()}
+        with pytest.warns(UserWarning):
+            fitter.hyperparams = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_hyperparams.items()}
+
+        with pytest.raises(ValueError, match="no free parameters or hyperparameters to sample"):
+            fitter.generate_initial_walker_positions_random(nwalkers=10)
+
+    def test_run_mcmc_all_fixed_raises(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams) -> None:
+        """Test that run_mcmc raises a clear error when all parameters and hyperparameters are fixed."""
+        gp_kernel = GPKernel("Quasiperiodic")
+        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+
+        with pytest.warns(UserWarning):
+            fitter.params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_circular_params.items()}
+        with pytest.warns(UserWarning):
+            fitter.hyperparams = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_hyperparams.items()}
+
+        dummy_positions = np.empty((10, 0))
+        with pytest.raises(ValueError, match="no free parameters or hyperparameters to sample"):
+            fitter.run_mcmc(dummy_positions, nwalkers=10, max_steps=10, progress=False)
+
 
 class TestGPFitterIntegration:
     """Integration tests for complete GPFitter workflow."""
