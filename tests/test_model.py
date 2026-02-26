@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from ravest.model import Instrument, Planet, Star, Trend
+from ravest.model import Instrument, Planet, Star, Trend, _compute_rv, _njit_kepler_rv
 from ravest.param import Parameterisation
 
 
@@ -258,3 +258,57 @@ def test_trend_repr_str() -> None:
     trend = Trend(t0=1000.0, params={"gd": 0.5, "gdd": 0.1})
     assert "gd" in repr(trend) or "0.5" in repr(trend)
     assert "1000" in repr(trend)
+
+
+# ============================================================================
+# Numba Kepler solver tests
+# ============================================================================
+
+
+def _numpy_reference_rv(M, e, K, w):
+    """Reference numpy/scipy implementation for validation against numba solver."""
+    from scipy.optimize import newton
+
+    def kepler_eq(E, M_i, e):
+        return E - e * np.sin(E) - M_i
+
+    def kepler_eq_prime(E, M_i, e):
+        return 1 - e * np.cos(E)
+
+    E = np.array([newton(kepler_eq, Mi, fprime=kepler_eq_prime, args=(Mi, e))
+                  for Mi in M])
+    f = 2 * np.arctan(np.sqrt((1 + e) / (1 - e)) * np.tan(E / 2))
+    return K * (np.cos(f + w) + e * np.cos(w))
+
+
+def test_numba_kepler_rv_matches_scipy_eccentric() -> None:
+    """Test that numba solver matches scipy newton for eccentric orbits."""
+    M = np.linspace(0, 2 * np.pi, 200)
+    e, K, w = 0.3, 25.0, 1.2
+
+    rv_numba = _njit_kepler_rv(M, e, K, w)
+    rv_scipy = _numpy_reference_rv(M, e, K, w)
+
+    np.testing.assert_allclose(rv_numba, rv_scipy, atol=1e-6, rtol=1e-10)
+
+
+def test_numba_kepler_rv_matches_scipy_high_eccentricity() -> None:
+    """Test numba solver at high eccentricity (e=0.8)."""
+    M = np.linspace(0, 2 * np.pi, 200)
+    e, K, w = 0.8, 50.0, 2.5
+
+    rv_numba = _njit_kepler_rv(M, e, K, w)
+    rv_scipy = _numpy_reference_rv(M, e, K, w)
+
+    np.testing.assert_allclose(rv_numba, rv_scipy, atol=1e-6, rtol=1e-10)
+
+
+def test_compute_rv_circular_dispatch() -> None:
+    """Test that _compute_rv returns correct RV for circular orbits (e=0)."""
+    M = np.linspace(0, 2 * np.pi, 100)
+    K, w = 10.0, np.pi / 4
+
+    rv = _compute_rv(M, 0.0, K, w)
+    expected = K * np.cos(M + w)
+
+    np.testing.assert_allclose(rv, expected, atol=1e-12)

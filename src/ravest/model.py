@@ -5,13 +5,230 @@ and stellar trends (constant, linear, quadratic).
 """
 # model.py
 
+import math
+
 import matplotlib.pyplot as plt
+import numba
 import numpy as np
 from astropy import constants as const
 from matplotlib.ticker import MultipleLocator
 from scipy import constants
 
 from ravest.param import Parameterisation
+
+# Kepler solver functions are module-level rather than Planet methods because
+# numba's @njit cannot compile methods on Python classes.
+# They are called by Planet.radial_velocity() via _compute_rv().
+
+@numba.njit(cache=True)
+def _solve_kepler(Mi: float, e: float) -> tuple[float, float]:
+    """Solve Kepler's equation for a single mean anomaly value.
+
+    Kepler's equation E - e*sin(E) = M must be solved iteratively for the
+    eccentric anomaly E. Uses Halley's method (cubic convergence) with the
+    same tolerance and iteration limits as scipy's newton solver.
+
+    Parameters
+    ----------
+    Mi : float
+        Mean anomaly at a single time (radians).
+    e : float
+        Eccentricity of the orbit, 0 < e < 1 (dimensionless).
+
+    Returns
+    -------
+    cos_E : float
+        Cosine of the eccentric anomaly.
+    sin_E : float
+        Sine of the eccentric anomaly.
+    """
+    tol = 1.48e-08  # scipy default tolerance
+    maxiter = 50    # scipy default max iterations
+
+    # Initial guess E0 = M (good for low-moderate eccentricity)
+    Ei = Mi
+    sin_E = cos_E = 0.0
+
+    for _ in range(maxiter):
+        sin_E = math.sin(Ei)
+        cos_E = math.cos(Ei)
+
+        # f(E) = E - e*sin(E) - M and its first two derivatives
+        f = Ei - e * sin_E - Mi        # f(E)
+        fp = 1.0 - e * cos_E           # f'(E)
+        fpp = e * sin_E                # f''(E)
+
+        # Halley's method: E_new = E - f / (f' - f*f''/(2*f'))
+        E_new = Ei - f / (fp - (f * fpp) / (2.0 * fp))
+
+        if abs(E_new - Ei) < tol:
+            sin_E = math.sin(E_new)
+            cos_E = math.cos(E_new)
+            break
+        Ei = E_new
+
+    return cos_E, sin_E
+
+
+@numba.njit(cache=True)
+def _true_anomaly(cos_E: float, sin_E: float, e: float, sqrt_1me2: float) -> tuple[float, float]:
+    """Compute cos(f) and sin(f) of the true anomaly from the eccentric anomaly.
+
+    Calculates the true anomaly directly from cos(E) and sin(E) rather than
+    via the arctan formula, avoiding a trig call per element.
+
+    Parameters
+    ----------
+    cos_E : float
+        Cosine of the eccentric anomaly.
+    sin_E : float
+        Sine of the eccentric anomaly.
+    e : float
+        Eccentricity of the orbit (dimensionless).
+    sqrt_1me2 : float
+        Precomputed sqrt(1 - e^2).
+
+    Returns
+    -------
+    cos_f : float
+        Cosine of the true anomaly.
+    sin_f : float
+        Sine of the true anomaly.
+
+    Notes
+    -----
+    Rather than computing f as an angle via the arctan formula
+    f = 2*arctan(sqrt((1+e)/(1-e)) * tan(E/2)), we obtain cos(f) and sin(f)
+    directly from cos(E) and sin(E):
+
+        cos(f) = (cos(E) - e) / (1 - e*cos(E))
+        sin(f) = sqrt(1 - e^2) * sin(E) / (1 - e*cos(E))
+
+    The cos(f) identity is a standard result from the geometry of the
+    auxiliary circle (Perryman, Exoplanet Handbook, eq. 2.6). sin(f)
+    follows from sin^2(f) = 1 - cos^2(f), which simplifies to
+    (1 - e^2)*sin^2(E) / (1 - e*cos(E))^2.
+
+    Since cos(E) and sin(E) are already available from the Kepler solver,
+    this avoids any additional trig calls.
+    """
+    denom = 1.0 - e * cos_E  # common denominator of cos(f) and sin(f)
+    cos_f = (cos_E - e) / denom
+    sin_f = sqrt_1me2 * sin_E / denom
+    return cos_f, sin_f
+
+
+@numba.njit(cache=True)
+def _radial_velocity_from_f(cos_f: float, sin_f: float, K: float,
+                            cos_w: float, sin_w: float, e_cos_w: float) -> float:
+    """Compute radial velocity from the true anomaly of a single observation.
+
+    Uses the trig identity cos(f + w) = cos(f)*cos(w) - sin(f)*sin(w) to
+    avoid computing f explicitly.
+
+    Parameters
+    ----------
+    cos_f : float
+        Cosine of the true anomaly.
+    sin_f : float
+        Sine of the true anomaly.
+    K : float
+        Semi-amplitude of the stellar radial velocity (m/s).
+    cos_w : float
+        Precomputed cos(w).
+    sin_w : float
+        Precomputed sin(w).
+    e_cos_w : float
+        Precomputed e*cos(w).
+
+    Returns
+    -------
+    float
+        Radial velocity (m/s).
+
+    Notes
+    -----
+    The RV equation is K * [cos(f + w) + e*cos(w)]. Rather than computing
+    the angle f and evaluating cos(f + w), we expand via the addition
+    identity cos(f + w) = cos(f)*cos(w) - sin(f)*sin(w), using cos(f) and
+    sin(f) from _true_anomaly directly. cos(w), sin(w), and e*cos(w) are
+    constant across all observations and precomputed by the caller.
+    """
+    # RV = K * [cos(f + w) + e*cos(w)]
+    return K * (cos_f * cos_w - sin_f * sin_w + e_cos_w)
+
+
+@numba.njit(cache=True)
+def _njit_kepler_rv(M: np.ndarray, e: float, K: float, w: float) -> np.ndarray:
+    """Solve Kepler's equation and compute radial velocity for an array of times.
+
+    Loops over mean anomaly values element-by-element, calling the scalar
+    Kepler solver, true anomaly, and RV functions for each. Numba inlines
+    these calls at compile time, so performance is identical to a single
+    monolithic loop while keeping each step readable.
+
+    Parameters
+    ----------
+    M : np.ndarray
+        Mean anomaly at each time (radians).
+    e : float
+        Eccentricity of the orbit, 0 < e < 1 (dimensionless).
+    K : float
+        Semi-amplitude of the stellar radial velocity (m/s).
+    w : float
+        Argument of periapsis of the star (radians).
+
+    Returns
+    -------
+    np.ndarray
+        Radial velocity of the star due to the planet at each time (m/s).
+    """
+    n = M.shape[0]
+    rv = np.empty(n)
+
+    # Precompute constants that are fixed across the time array within a single
+    # call. These are recomputed each call, so they update between MCMC samples.
+    sqrt_1me2 = math.sqrt(1.0 - e * e)
+    cos_w = math.cos(w)
+    sin_w = math.sin(w)
+    e_cos_w = e * cos_w
+
+    for i in range(n):
+        cos_E, sin_E = _solve_kepler(M[i], e)
+        cos_f, sin_f = _true_anomaly(cos_E, sin_E, e, sqrt_1me2)
+        rv[i] = _radial_velocity_from_f(cos_f, sin_f, K, cos_w, sin_w, e_cos_w)
+
+    return rv
+
+
+def _compute_rv(M: np.ndarray, e: float, K: float, w: float) -> np.ndarray:
+    """Compute radial velocity from mean anomaly, dispatching by eccentricity.
+
+    For circular orbits (e=0) the RV simplifies to K*cos(M + w) and can be
+    computed directly with numpy. For eccentric orbits, delegates to the
+    numba-compiled solver.
+
+    Parameters
+    ----------
+    M : np.ndarray
+        Mean anomaly at each time (radians).
+    e : float
+        Eccentricity of the orbit, 0 <= e < 1 (dimensionless).
+    K : float
+        Semi-amplitude of the stellar radial velocity (m/s).
+    w : float
+        Argument of periapsis of the star (radians).
+
+    Returns
+    -------
+    np.ndarray
+        Radial velocity of the star due to the planet at each time (m/s).
+    """
+    if e == 0:
+        # For circular orbits, E = M and f = M so the RV is just K*cos(M + w).
+        # No need to iterate Kepler's equation — use vectorised numpy directly.
+        return K * (np.cos(M + w) + e * np.cos(w))
+    return _njit_kepler_rv(M, e, K, w)
 
 
 class Planet:
@@ -97,121 +314,20 @@ class Planet:
         """
         return n * (t - time_peri)
 
-    def _solve_keplerian_equation(self, eccentricity: float, M: np.ndarray) -> np.ndarray:
-        """Solve the Keplerian equation for eccentric anomaly E using vectorized Halley's method.
-
-        The eccentric anomaly is the corresponding angle for the true anomaly on
-        the auxiliary circle, rather than the real elliptical orbit. Therefore, if
-        the ``eccentricity`` e=0, then the eccentric anomaly E is equivalent to the
-        mean anomaly ``M``. However, for eccentric cases, the equation is
-        E(t) = M(t) + e*sin(E(t)), which requires solving iteratively.
-
-        This implementation uses Halley's method for cubic convergence with identical
-        tolerance and convergence criteria to scipy's newton solver (tol=1.48e-08,
-        maxiter=50).
-
-        Parameters
-        ----------
-        M : `np.ndarray`
-            The mean anomaly at time t (array).
-        eccentricity : `float`
-            The eccentricity of the orbit, 0 <= e < 1  (dimensionless).
-
-        Returns
-        -------
-        `np.ndarray`
-            The eccentric anomaly at time t (array).
-        """
-        if eccentricity == 0:
-            return M
-
-        E = M.copy()  # Initial guess: E0 = M
-
-        # Halley's method iteration with scipy's exact parameters
-        tol = 1.48e-08  # scipy default tolerance
-        maxiter = 50    # scipy default max iterations
-
-        for iteration in range(maxiter):
-            sin_E = np.sin(E)
-            cos_E = np.cos(E)
-
-            # Function and derivatives for Kepler's equation: f(E) = E - e*sin(E) - M
-            f = E - eccentricity * sin_E - M        # f(E)
-            fp = 1 - eccentricity * cos_E           # f'(E)
-            fpp = eccentricity * sin_E              # f''(E)
-
-            # Halley's method update: E_new = E - f / (f' - f*f''/(2*f'))
-            denominator = fp - ((f * fpp) / (2 * fp))
-            E_new = E - (f / denominator)
-
-            # Check convergence using scipy's absolute tolerance on step size
-            if np.all(np.abs(E_new - E) < tol):
-                break
-
-            E = E_new
-
-        return E
-
-    def _true_anomaly(self, E: np.ndarray, eccentricity: float) -> np.ndarray:
-        """Calculate true anomaly at time t.
-
-        Calculate true anomaly, the angle between periastron and planet, as
-        measured from the system barycentre. This is the angle normally used to
-        characterise an orbit. If orbit is circular, this is equal to mean anomaly.
-
-        Parameters
-        ----------
-        E : `float`
-            The Eccentric anomaly at time t (radian)
-        eccentricity : `float`
-            The eccentricity of the orbit, 0 <= e < 1  (dimensionless).
-
-        Returns
-        -------
-        `float`
-            The true anomaly (radians)
-        """
-        return 2 * np.arctan(np.sqrt((1 + eccentricity) / (1 - eccentricity)) * np.tan(E / 2))
-
-    def _radial_velocity(self, true_anomaly: np.ndarray, semi_amplitude: float, eccentricity: float, omega_star: float,) -> np.ndarray:
-        """Calculate the radial velocity of the star due to the planet, at a given true anomaly.
-
-        Parameters
-        ----------
-        true_anomaly : `float`
-            The true anomaly at time t (radian).
-        period : `float`
-            The orbital period of planet (day).
-        semi_amplitude : `float`
-            The Semi-amplitude of the radial velocity of the star (m/s).
-        eccentricity : `float`
-            The eccentricity of the orbit, 0 <= e < 1  (dimensionless).
-        omega_star : `float`
-            The angle of periastron of the star (radians).
-        time_peri : `float`
-            The time of periastron passage (day).
-
-        Returns
-        -------
-        `float`
-            Radial velocity of the reflex motion of star due to the planet (m/s).
-        """
-        return semi_amplitude * (np.cos(true_anomaly + omega_star) + eccentricity * np.cos(omega_star))
-
     def radial_velocity(self, t: np.ndarray) -> np.ndarray:
         """Calculate radial velocity of the star due to the planet, at time t.
 
-        Calculates the true anomaly at time t by solving the Keplerian equation,
-        and uses that true anomaly to calculate the radial velocity.
+        Uses a numba-compiled Kepler solver that solves Kepler's equation and
+        computes the radial velocity in a single pass.
 
         Parameters
         ----------
-        t : `float`
-            The time to calculate the radial velocity at (day)
+        t : np.ndarray
+            The time to calculate the radial velocity at (day).
 
         Returns
         -------
-        `float`
+        np.ndarray
             Radial velocity of the reflex motion of star due to the planet (m/s).
         """
         P = self._rvparams["P"]
@@ -222,10 +338,8 @@ class Planet:
 
         n = self._calculate_mean_motion(period=P)
         M = self._calculate_mean_anomaly(t=t, n=n, time_peri=tp)
-        E = self._solve_keplerian_equation(M=M, eccentricity=e)
-        f = self._true_anomaly(E=E, eccentricity=e)
 
-        return self._radial_velocity(true_anomaly=f, semi_amplitude=K, eccentricity=e, omega_star=w)
+        return _compute_rv(M, e, K, w)
 
     def mpsini(self, mass_star: float, unit: str = "kg") -> float:
         """Calculate the minimum mass of the planet.

@@ -31,6 +31,7 @@ from tqdm import tqdm
 
 import ravest.model
 from ravest.gp import GPKernel
+from ravest.model import _njit_kepler_rv
 from ravest.param import Parameter, Parameterisation
 
 # Enable 64-bit precision for better numerical accuracy
@@ -60,6 +61,10 @@ class Fitter:
         """
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
+
+        # Trigger numba JIT compilation before MCMC
+        _dummy_M = np.linspace(0, 2 * np.pi, 10)
+        _njit_kepler_rv(_dummy_M, 0.3, 10.0, 0.5)
 
         # Initialize parameter storage
         self._params: Dict[str, Parameter] = {}
@@ -3286,6 +3291,10 @@ class GPFitter:
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
         self.gp_kernel = gp_kernel
+
+        # Trigger numba JIT compilation before MCMC
+        _dummy_M = np.linspace(0, 2 * np.pi, 10)
+        _njit_kepler_rv(_dummy_M, 0.3, 10.0, 0.5)
 
         # Initialize parameter storage
         self._params: Dict[str, Parameter] = {}
