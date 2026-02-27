@@ -842,16 +842,33 @@ class Fitter:
         # Generate walker positions around centre
         mcmc_init = []
 
+        if verbose and relative and np.any(centre == 0.0):
+            zero_names = [self.free_params_names[i] for i in range(len(centre)) if centre[i] == 0.0]
+            print(f"Note: centre value is exactly 0.0 for {zero_names}; "
+                  f"using absolute perturbation (scale={scale}) for these parameters.")
+
         for walker_idx in range(nwalkers):
             attempts = 0
             while attempts < max_attempts:
                 # Generate perturbation
+                random_vals = np.random.randn(len(centre))
                 if relative:
-                    # Relative perturbation: scales with parameter values
-                    perturbation = scale * np.random.randn(len(centre)) * np.abs(centre)
+                    # Relative perturbation: scales with parameter values.
+                    # When a centre value is exactly 0.0, the relative
+                    # perturbation (scale * randn * |0|) is always zero,
+                    # producing identical walker values in that dimension.
+                    # This causes emcee to reject the walkers as linearly
+                    # dependent (condition number check). Fall back to
+                    # absolute perturbation for those parameters.
+                    perturbation = np.empty(len(centre))
+                    for i in range(len(centre)):
+                        if centre[i] == 0.0:
+                            perturbation[i] = scale * random_vals[i]
+                        else:
+                            perturbation[i] = scale * random_vals[i] * np.abs(centre[i])
                 else:
                     # Absolute perturbation: same scale for all parameters
-                    perturbation = scale * np.random.randn(len(centre))
+                    perturbation = scale * random_vals
 
                 walker_position = centre + perturbation
 
@@ -4278,16 +4295,34 @@ class GPFitter:
         param_init = []
         hyperparam_init = []
 
+        if verbose and relative and np.any(centre == 0.0):
+            all_names = self.free_params_names + self.free_hyperparams_names
+            zero_names = [all_names[i] for i in range(len(centre)) if centre[i] == 0.0]
+            print(f"Note: centre value is exactly 0.0 for {zero_names}; "
+                  f"using absolute perturbation (scale={scale}) for these parameters.")
+
         for walker_idx in range(nwalkers):
             attempts = 0
             while attempts < max_attempts:
                 # Generate perturbation
+                random_vals = np.random.randn(len(centre))
                 if relative:
-                    # Relative perturbation: scales with parameter values
-                    perturbation = scale * np.random.randn(len(centre)) * np.abs(centre)
+                    # Relative perturbation: scales with parameter values.
+                    # When a centre value is exactly 0.0, the relative
+                    # perturbation (scale * randn * |0|) is always zero,
+                    # producing identical walker values in that dimension.
+                    # This causes emcee to reject the walkers as linearly
+                    # dependent (condition number check). Fall back to
+                    # absolute perturbation for those parameters.
+                    perturbation = np.empty(len(centre))
+                    for i in range(len(centre)):
+                        if centre[i] == 0.0:
+                            perturbation[i] = scale * random_vals[i]
+                        else:
+                            perturbation[i] = scale * random_vals[i] * np.abs(centre[i])
                 else:
                     # Absolute perturbation: same scale for all parameters
-                    perturbation = scale * np.random.randn(len(centre))
+                    perturbation = scale * random_vals
 
                 walker_position = centre + perturbation
                 walker_params = walker_position[:n_params]
