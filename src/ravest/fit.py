@@ -2181,7 +2181,7 @@ class Fitter:
         # Plot median model and uncertainty
         ax1.plot(tsmooth, rv_percentiles_smooth[1], label="Model", color="black", zorder=2)
         if show_CI:
-            ax1.fill_between(tsmooth, rv_percentiles_smooth[0], rv_percentiles_smooth[2], color="tab:gray", alpha=0.3, edgecolor="none", label="68.3% CI")
+            ax1.fill_between(tsmooth, rv_percentiles_smooth[0], rv_percentiles_smooth[2], color="tab:gray", alpha=0.3, edgecolor="none", label="68.3% CI", zorder=1)
 
         ax1.set_xlim(tsmooth[0], tsmooth[-1])
         if ylabel_main:
@@ -2365,10 +2365,10 @@ class Fitter:
 
         # Plot planet model with uncertainty, sorted by phase
         ax1.plot(tsmooth_fold_sorted, rv_planet_smooth_percs[1][smooth_inds],
-                linestyle="-", color="black", zorder=3, label="Model")
+                linestyle="-", color="black", zorder=2, label="Model")
         if show_CI:
             ax1.fill_between(tsmooth_fold_sorted, rv_planet_smooth_percs[0][smooth_inds],
-                            rv_planet_smooth_percs[2][smooth_inds], color="tab:gray", alpha=0.3, edgecolor="none", label="68.3% CI")
+                            rv_planet_smooth_percs[2][smooth_inds], color="tab:gray", alpha=0.3, edgecolor="none", label="68.3% CI", zorder=1)
 
         ax1.set_xlim(-0.5, 0.5)
         ax1.xaxis.set_major_locator(MultipleLocator(0.25))  # Set x-ticks every 0.25
@@ -5492,32 +5492,33 @@ class GPFitter:
             mask = (self.instrument == inst)
             ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=self.velerr[mask],
                         marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
-                        linestyle="None", markersize=8, zorder=4, label=inst)
+                        linestyle="None", markersize=8, zorder=6, label=inst)
             # Jitter extension (faded, no label)
             ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=velerr_with_jit[mask],
                         marker="None", ecolor=inst_colors[inst], linestyle="None",
-                        alpha=0.5, zorder=3)
+                        alpha=0.5, zorder=5)
 
         # Plot mean model component
-        ax1.plot(tsmooth, rv_mean_smooth, label="Mean Model (Planets + Trend)", color="red", zorder=2)
+        ax1.plot(tsmooth, rv_mean_smooth, label="Mean Model (Planets + Trend)", color="red", zorder=3)
 
         # Plot GP component
         # (We add the trend component so that the planet and GP signals start at the same baseline/gamma RV)
-        ax1.plot(tsmooth, rv_gp_mean_smooth+rv_trend_smooth, color="blue", label='GP Component')
+        ax1.plot(tsmooth, rv_gp_mean_smooth+rv_trend_smooth, color="blue", label='GP Component', zorder=2)
 
         # Plot total model (Planet + GP)
-        ax1.plot(tsmooth, rv_total_smooth, label='Total Model (Planet + Trend + GP)', color="black", zorder=3)
+        ax1.plot(tsmooth, rv_total_smooth, label='Total Model (Planet + Trend + GP)', color="black", zorder=4)
 
         # Add 1-sigma uncertainty band around total model
         ax1.fill_between(tsmooth, rv_total_smooth - rv_gp_std_smooth, rv_total_smooth + rv_gp_std_smooth,
-                        color='darkgrey')
+                        color='darkgrey', zorder=1)
 
         ax1.set_xlim(tsmooth[0], tsmooth[-1])
         if ylabel_main:
             ax1.set_ylabel(ylabel_main)
         if title:
             ax1.set_title(title)
-        ax1.legend(loc="upper right")
+        legend = ax1.legend(loc="upper right")
+        legend.set_zorder(7)
         ax1.tick_params(axis='x', labelbottom=False, bottom=True, top=False, direction='in')  # Remove x-axis labels from top plot
         ax1.tick_params(axis='y', direction='in')
 
@@ -5531,15 +5532,13 @@ class GPFitter:
             mask = (self.instrument == inst)
             ax2.errorbar(self.time[mask], residuals[mask], yerr=self.velerr[mask],
                         marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
-                        linestyle="None", markersize=8, zorder=4)
+                        linestyle="None", markersize=8, zorder=6)
             ax2.errorbar(self.time[mask], residuals[mask], yerr=velerr_with_jit[mask],
                         marker="None", ecolor=inst_colors[inst], linestyle="None",
-                        alpha=0.5, zorder=3)
+                        alpha=0.5, zorder=5)
 
-        # # Add the GP uncertainty around the residual line
-        # ax2.fill_between(self.time, np.zeros(len(self.time)) - rv_gp_std_obs, np.zeros(len(self.time)) + rv_gp_std_obs,
-        #                 alpha=0.5, color='black', zorder=2)
-        ax2.axhline(0, color="black", linestyle="--", zorder=1)
+        ax2.axhline(0, color="black", linestyle="--", zorder=2)
+        ax2.set_xlim(tsmooth[0], tsmooth[-1])
 
         # Set symmetric y-limits for residuals
         max_abs_residual = np.max(np.abs(residuals + velerr_with_jit))
@@ -5927,7 +5926,7 @@ class GPFitter:
         # Plot median model and uncertainty
         ax1.plot(tsmooth, rv_percentiles_smooth[1], label="Model (Mean + GP)", color="black", zorder=2)
         if show_CI:
-            ax1.fill_between(tsmooth, rv_percentiles_smooth[0], rv_percentiles_smooth[2], color="tab:gray", alpha=0.3, edgecolor="none", label="68.3% CI")
+            ax1.fill_between(tsmooth, rv_percentiles_smooth[0], rv_percentiles_smooth[2], color="tab:gray", alpha=0.3, edgecolor="none", label="68.3% CI", zorder=1)
 
         ax1.set_xlim(tsmooth[0], tsmooth[-1])
         if ylabel_main:
