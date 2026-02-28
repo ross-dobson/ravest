@@ -119,3 +119,273 @@ ALLOWED_PARAMETERISATIONS = ["P K e w Tp",
 def test_invalid_parameterisation() -> None:
     with pytest.raises(Exception):
         Parameterisation("not a valid parameterisation")
+
+
+# ============================================================================
+# Test convert_pars_to_default_parameterisation for all parameterisations
+# ============================================================================
+
+
+# Reference parameters in default parameterisation (P K e w Tp)
+_DEFAULT_PARAMS = {"P": 10.0, "K": 25.0, "e": 0.3, "w": 0.5, "Tp": 5.0}
+
+
+class TestConvertToDefault:
+    """Test convert_pars_to_default_parameterisation for each parameterisation."""
+
+    def test_pkewtc_to_default(self) -> None:
+        """Test P K e w Tc -> P K e w Tp round-trip."""
+        para_tc = Parameterisation("P K e w Tc")
+        para_default = Parameterisation("P K e w Tp")
+
+        # Convert default -> Tc parameterisation
+        tc = para_default.convert_tp_to_tc(_DEFAULT_PARAMS["Tp"], _DEFAULT_PARAMS["P"],
+                                           _DEFAULT_PARAMS["e"], _DEFAULT_PARAMS["w"])
+        tc_params = {"P": 10.0, "K": 25.0, "e": 0.3, "w": 0.5, "Tc": tc}
+
+        # Convert back to default
+        result = para_tc.convert_pars_to_default_parameterisation(tc_params)
+
+        for key in _DEFAULT_PARAMS:
+            np.testing.assert_allclose(result[key], _DEFAULT_PARAMS[key], atol=1e-10,
+                                       err_msg=f"Mismatch on {key}")
+
+    def test_ecosw_esinw_tp_to_default(self) -> None:
+        """Test P K ecosw esinw Tp -> P K e w Tp."""
+        para = Parameterisation("P K ecosw esinw Tp")
+        ecosw = _DEFAULT_PARAMS["e"] * np.cos(_DEFAULT_PARAMS["w"])
+        esinw = _DEFAULT_PARAMS["e"] * np.sin(_DEFAULT_PARAMS["w"])
+        inpars = {"P": 10.0, "K": 25.0, "ecosw": ecosw, "esinw": esinw, "Tp": 5.0}
+
+        result = para.convert_pars_to_default_parameterisation(inpars)
+
+        np.testing.assert_allclose(result["e"], _DEFAULT_PARAMS["e"], atol=1e-10)
+        np.testing.assert_allclose(result["w"], _DEFAULT_PARAMS["w"], atol=1e-10)
+        assert result["Tp"] == _DEFAULT_PARAMS["Tp"]
+
+    def test_ecosw_esinw_tc_to_default(self) -> None:
+        """Test P K ecosw esinw Tc -> P K e w Tp."""
+        para = Parameterisation("P K ecosw esinw Tc")
+        para_default = Parameterisation("P K e w Tp")
+
+        ecosw = _DEFAULT_PARAMS["e"] * np.cos(_DEFAULT_PARAMS["w"])
+        esinw = _DEFAULT_PARAMS["e"] * np.sin(_DEFAULT_PARAMS["w"])
+        tc = para_default.convert_tp_to_tc(_DEFAULT_PARAMS["Tp"], _DEFAULT_PARAMS["P"],
+                                           _DEFAULT_PARAMS["e"], _DEFAULT_PARAMS["w"])
+        inpars = {"P": 10.0, "K": 25.0, "ecosw": ecosw, "esinw": esinw, "Tc": tc}
+
+        result = para.convert_pars_to_default_parameterisation(inpars)
+
+        np.testing.assert_allclose(result["e"], _DEFAULT_PARAMS["e"], atol=1e-10)
+        np.testing.assert_allclose(result["w"], _DEFAULT_PARAMS["w"], atol=1e-10)
+        np.testing.assert_allclose(result["Tp"], _DEFAULT_PARAMS["Tp"], atol=1e-10)
+
+    def test_secosw_sesinw_tp_to_default(self) -> None:
+        """Test P K secosw sesinw Tp -> P K e w Tp."""
+        para = Parameterisation("P K secosw sesinw Tp")
+        secosw = np.sqrt(_DEFAULT_PARAMS["e"]) * np.cos(_DEFAULT_PARAMS["w"])
+        sesinw = np.sqrt(_DEFAULT_PARAMS["e"]) * np.sin(_DEFAULT_PARAMS["w"])
+        inpars = {"P": 10.0, "K": 25.0, "secosw": secosw, "sesinw": sesinw, "Tp": 5.0}
+
+        result = para.convert_pars_to_default_parameterisation(inpars)
+
+        np.testing.assert_allclose(result["e"], _DEFAULT_PARAMS["e"], atol=1e-10)
+        np.testing.assert_allclose(result["w"], _DEFAULT_PARAMS["w"], atol=1e-10)
+        assert result["Tp"] == _DEFAULT_PARAMS["Tp"]
+
+    def test_secosw_sesinw_tc_to_default(self) -> None:
+        """Test P K secosw sesinw Tc -> P K e w Tp."""
+        para = Parameterisation("P K secosw sesinw Tc")
+        para_default = Parameterisation("P K e w Tp")
+
+        secosw = np.sqrt(_DEFAULT_PARAMS["e"]) * np.cos(_DEFAULT_PARAMS["w"])
+        sesinw = np.sqrt(_DEFAULT_PARAMS["e"]) * np.sin(_DEFAULT_PARAMS["w"])
+        tc = para_default.convert_tp_to_tc(_DEFAULT_PARAMS["Tp"], _DEFAULT_PARAMS["P"],
+                                           _DEFAULT_PARAMS["e"], _DEFAULT_PARAMS["w"])
+        inpars = {"P": 10.0, "K": 25.0, "secosw": secosw, "sesinw": sesinw, "Tc": tc}
+
+        result = para.convert_pars_to_default_parameterisation(inpars)
+
+        np.testing.assert_allclose(result["e"], _DEFAULT_PARAMS["e"], atol=1e-10)
+        np.testing.assert_allclose(result["w"], _DEFAULT_PARAMS["w"], atol=1e-10)
+        np.testing.assert_allclose(result["Tp"], _DEFAULT_PARAMS["Tp"], atol=1e-10)
+
+
+class TestConvertFromDefault:
+    """Test convert_pars_from_default_parameterisation for each parameterisation."""
+
+    def test_default_to_pkewtc(self) -> None:
+        """Test default -> P K e w Tc."""
+        para = Parameterisation("P K e w Tc")
+        para_default = Parameterisation("P K e w Tp")
+
+        result = para.convert_pars_from_default_parameterisation(_DEFAULT_PARAMS)
+
+        assert result["P"] == _DEFAULT_PARAMS["P"]
+        assert result["K"] == _DEFAULT_PARAMS["K"]
+        assert result["e"] == _DEFAULT_PARAMS["e"]
+        assert result["w"] == _DEFAULT_PARAMS["w"]
+        # Tc should match the forward conversion
+        expected_tc = para_default.convert_tp_to_tc(_DEFAULT_PARAMS["Tp"], _DEFAULT_PARAMS["P"],
+                                                     _DEFAULT_PARAMS["e"], _DEFAULT_PARAMS["w"])
+        np.testing.assert_allclose(result["Tc"], expected_tc, atol=1e-10)
+
+    def test_default_to_ecosw_esinw_tp(self) -> None:
+        """Test default -> P K ecosw esinw Tp."""
+        para = Parameterisation("P K ecosw esinw Tp")
+
+        result = para.convert_pars_from_default_parameterisation(_DEFAULT_PARAMS)
+
+        expected_ecosw = _DEFAULT_PARAMS["e"] * np.cos(_DEFAULT_PARAMS["w"])
+        expected_esinw = _DEFAULT_PARAMS["e"] * np.sin(_DEFAULT_PARAMS["w"])
+        np.testing.assert_allclose(result["ecosw"], expected_ecosw, atol=1e-10)
+        np.testing.assert_allclose(result["esinw"], expected_esinw, atol=1e-10)
+        assert result["Tp"] == _DEFAULT_PARAMS["Tp"]
+
+    def test_default_to_ecosw_esinw_tc(self) -> None:
+        """Test default -> P K ecosw esinw Tc."""
+        para = Parameterisation("P K ecosw esinw Tc")
+
+        result = para.convert_pars_from_default_parameterisation(_DEFAULT_PARAMS)
+
+        expected_ecosw = _DEFAULT_PARAMS["e"] * np.cos(_DEFAULT_PARAMS["w"])
+        expected_esinw = _DEFAULT_PARAMS["e"] * np.sin(_DEFAULT_PARAMS["w"])
+        np.testing.assert_allclose(result["ecosw"], expected_ecosw, atol=1e-10)
+        np.testing.assert_allclose(result["esinw"], expected_esinw, atol=1e-10)
+        assert "Tc" in result
+
+    def test_default_to_secosw_sesinw_tp(self) -> None:
+        """Test default -> P K secosw sesinw Tp."""
+        para = Parameterisation("P K secosw sesinw Tp")
+
+        result = para.convert_pars_from_default_parameterisation(_DEFAULT_PARAMS)
+
+        expected_secosw = np.sqrt(_DEFAULT_PARAMS["e"]) * np.cos(_DEFAULT_PARAMS["w"])
+        expected_sesinw = np.sqrt(_DEFAULT_PARAMS["e"]) * np.sin(_DEFAULT_PARAMS["w"])
+        np.testing.assert_allclose(result["secosw"], expected_secosw, atol=1e-10)
+        np.testing.assert_allclose(result["sesinw"], expected_sesinw, atol=1e-10)
+        assert result["Tp"] == _DEFAULT_PARAMS["Tp"]
+
+    def test_default_to_secosw_sesinw_tc(self) -> None:
+        """Test default -> P K secosw sesinw Tc."""
+        para = Parameterisation("P K secosw sesinw Tc")
+
+        result = para.convert_pars_from_default_parameterisation(_DEFAULT_PARAMS)
+
+        expected_secosw = np.sqrt(_DEFAULT_PARAMS["e"]) * np.cos(_DEFAULT_PARAMS["w"])
+        expected_sesinw = np.sqrt(_DEFAULT_PARAMS["e"]) * np.sin(_DEFAULT_PARAMS["w"])
+        np.testing.assert_allclose(result["secosw"], expected_secosw, atol=1e-10)
+        np.testing.assert_allclose(result["sesinw"], expected_sesinw, atol=1e-10)
+        assert "Tc" in result
+
+    def test_default_identity(self) -> None:
+        """Test P K e w Tp -> P K e w Tp is identity."""
+        para = Parameterisation("P K e w Tp")
+
+        result = para.convert_pars_from_default_parameterisation(_DEFAULT_PARAMS)
+
+        for key in _DEFAULT_PARAMS:
+            assert result[key] == _DEFAULT_PARAMS[key]
+
+
+class TestRoundTripConversions:
+    """Test that to_default -> from_default round-trips preserve values."""
+
+    @pytest.mark.parametrize("param_str", [
+        "P K e w Tc",
+        "P K ecosw esinw Tp",
+        "P K ecosw esinw Tc",
+        "P K secosw sesinw Tp",
+        "P K secosw sesinw Tc",
+    ])
+    def test_round_trip(self, param_str) -> None:
+        """Test default -> parameterisation -> default round-trip."""
+        para = Parameterisation(param_str)
+
+        # Default -> this parameterisation
+        converted = para.convert_pars_from_default_parameterisation(_DEFAULT_PARAMS)
+
+        # Back to default
+        restored = para.convert_pars_to_default_parameterisation(converted)
+
+        for key in _DEFAULT_PARAMS:
+            np.testing.assert_allclose(restored[key], _DEFAULT_PARAMS[key], atol=1e-10,
+                                       err_msg=f"Round-trip failed for {param_str} on {key}")
+
+
+# ============================================================================
+# Test array-input validation paths
+# ============================================================================
+
+
+class TestArrayValidation:
+    """Test validation methods with array inputs."""
+
+    def test_validate_period_array_valid(self) -> None:
+        """Test period validation with valid array."""
+        para = Parameterisation("P K e w Tp")
+        para._validate_period(np.array([1.0, 2.0, 3.0]))  # Should not raise
+
+    def test_validate_period_array_invalid(self) -> None:
+        """Test period validation with array containing invalid value."""
+        para = Parameterisation("P K e w Tp")
+        with pytest.raises(ValueError, match="some values <= 0"):
+            para._validate_period(np.array([1.0, -0.5, 3.0]))
+
+    def test_validate_semi_amplitude_array_valid(self) -> None:
+        """Test semi-amplitude validation with valid array."""
+        para = Parameterisation("P K e w Tp")
+        para._validate_semi_amplitude(np.array([1.0, 5.0, 10.0]))  # Should not raise
+
+    def test_validate_semi_amplitude_array_invalid(self) -> None:
+        """Test semi-amplitude validation with array containing invalid value."""
+        para = Parameterisation("P K e w Tp")
+        with pytest.raises(ValueError, match="some values <= 0"):
+            para._validate_semi_amplitude(np.array([1.0, 0.0, 3.0]))
+
+    def test_validate_eccentricity_array_valid(self) -> None:
+        """Test eccentricity validation with valid array."""
+        para = Parameterisation("P K e w Tp")
+        para._validate_eccentricity(np.array([0.0, 0.3, 0.9]))  # Should not raise
+
+    def test_validate_eccentricity_array_negative(self) -> None:
+        """Test eccentricity validation with negative array value."""
+        para = Parameterisation("P K e w Tp")
+        with pytest.raises(ValueError, match="some values < 0"):
+            para._validate_eccentricity(np.array([0.0, -0.1, 0.5]))
+
+    def test_validate_eccentricity_array_ge_one(self) -> None:
+        """Test eccentricity validation with array value >= 1."""
+        para = Parameterisation("P K e w Tp")
+        with pytest.raises(ValueError, match="some values >= 1.0"):
+            para._validate_eccentricity(np.array([0.0, 0.5, 1.0]))
+
+    def test_validate_argument_periastron_array_valid(self) -> None:
+        """Test argument of periastron validation with valid array."""
+        para = Parameterisation("P K e w Tp")
+        para._validate_argument_periastron(np.array([-np.pi + 0.01, 0.0, np.pi - 0.01]))
+
+    def test_validate_argument_periastron_array_invalid(self) -> None:
+        """Test argument of periastron validation with out-of-range array value."""
+        para = Parameterisation("P K e w Tp")
+        with pytest.raises(ValueError, match="some values not in"):
+            para._validate_argument_periastron(np.array([0.0, np.pi]))  # pi is excluded
+
+
+# ============================================================================
+# Test Parameter and Parameterisation repr/str
+# ============================================================================
+
+
+class TestParameterReprStr:
+    """Test string representations."""
+
+    def test_parameterisation_str(self) -> None:
+        """Test Parameterisation __str__ includes parameterisation string."""
+        para = Parameterisation("P K e w Tp")
+        assert "P K e w Tp" in str(para)
+
+    def test_parameterisation_repr(self) -> None:
+        """Test Parameterisation __repr__ includes parameterisation string."""
+        para = Parameterisation("P K e w Tp")
+        assert "P K e w Tp" in repr(para)

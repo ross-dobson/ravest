@@ -312,3 +312,313 @@ def test_compute_rv_circular_dispatch() -> None:
     expected = K * np.cos(M + w)
 
     np.testing.assert_allclose(rv, expected, atol=1e-12)
+
+
+# ============================================================================
+# Trend.radial_velocity and zero-value branch tests
+# ============================================================================
+
+
+class TestTrendBranches:
+    """Test Trend methods including zero-value optimisation branches."""
+
+    def test_linear_zero_returns_zeros(self) -> None:
+        """Test that _linear returns zeros when gd=0."""
+        trend = Trend(t0=100.0, params={"gd": 0.0, "gdd": 0.0})
+        t = np.array([90.0, 100.0, 110.0])
+        result = trend._linear(t, trend.t0)
+        np.testing.assert_array_equal(result, np.zeros(3))
+
+    def test_quadratic_zero_returns_zeros(self) -> None:
+        """Test that _quadratic returns zeros when gdd=0."""
+        trend = Trend(t0=100.0, params={"gd": 0.0, "gdd": 0.0})
+        t = np.array([90.0, 100.0, 110.0])
+        result = trend._quadratic(t, trend.t0)
+        np.testing.assert_array_equal(result, np.zeros(3))
+
+    def test_radial_velocity_combined(self) -> None:
+        """Test radial_velocity with both linear and quadratic terms."""
+        trend = Trend(t0=0.0, params={"gd": 2.0, "gdd": 0.5})
+        t = np.array([0.0, 1.0, 2.0, -1.0])
+
+        # trend(t) = gd*(t - t0) + gdd*(t - t0)^2
+        expected = 2.0 * t + 0.5 * t**2
+        result = trend.radial_velocity(t)
+        np.testing.assert_allclose(result, expected, atol=1e-12)
+
+    def test_radial_velocity_zero_trend(self) -> None:
+        """Test radial_velocity with all-zero trend."""
+        trend = Trend(t0=5.0, params={"gd": 0.0, "gdd": 0.0})
+        t = np.array([0.0, 5.0, 10.0])
+
+        result = trend.radial_velocity(t)
+        np.testing.assert_array_equal(result, np.zeros(3))
+
+    def test_trend_invalid_t0(self) -> None:
+        """Test that non-numeric t0 raises ValueError."""
+        with pytest.raises(ValueError, match="t0 must be a numeric value"):
+            Trend(t0="not_a_number", params={"gd": 0.0, "gdd": 0.0})
+
+
+# ============================================================================
+# Star.radial_velocity integration tests
+# ============================================================================
+
+
+class TestStarRadialVelocity:
+    """Test Star.radial_velocity method."""
+
+    def test_star_rv_single_planet(self) -> None:
+        """Test Star.radial_velocity with one planet and trend."""
+        star = Star(name="test", mass=1.0)
+        planet = Planet(letter="b", parameterisation=Parameterisation("P K e w Tp"),
+                        params={"P": 10.0, "K": 5.0, "e": 0.0, "w": np.pi/2, "Tp": 0.0})
+        trend = Trend(t0=0.0, params={"gd": 0.0, "gdd": 0.0})
+
+        star.add_planet(planet)
+        star.add_trend(trend)
+
+        t = np.array([0.0, 2.5, 5.0, 7.5])
+        rv = star.radial_velocity(t)
+
+        # With zero trend, star RV should equal planet RV
+        planet_rv = planet.radial_velocity(t)
+        np.testing.assert_allclose(rv, planet_rv, atol=1e-12)
+
+    def test_star_rv_with_trend(self) -> None:
+        """Test Star.radial_velocity with planet + non-zero trend."""
+        star = Star(name="test", mass=1.0)
+        planet = Planet(letter="b", parameterisation=Parameterisation("P K e w Tp"),
+                        params={"P": 10.0, "K": 5.0, "e": 0.0, "w": np.pi/2, "Tp": 0.0})
+        trend = Trend(t0=5.0, params={"gd": 1.0, "gdd": 0.0})
+
+        star.add_planet(planet)
+        star.add_trend(trend)
+
+        t = np.array([0.0, 5.0, 10.0])
+        rv = star.radial_velocity(t)
+
+        # star RV = planet RV + trend RV
+        expected = planet.radial_velocity(t) + trend.radial_velocity(t)
+        np.testing.assert_allclose(rv, expected, atol=1e-12)
+
+    def test_star_rv_multi_planet(self) -> None:
+        """Test Star.radial_velocity with two planets."""
+        star = Star(name="test", mass=1.0)
+        planet_b = Planet(letter="b", parameterisation=Parameterisation("P K e w Tp"),
+                          params={"P": 10.0, "K": 5.0, "e": 0.0, "w": np.pi/2, "Tp": 0.0})
+        planet_c = Planet(letter="c", parameterisation=Parameterisation("P K e w Tp"),
+                          params={"P": 20.0, "K": 3.0, "e": 0.0, "w": 0.0, "Tp": 0.0})
+        trend = Trend(t0=0.0, params={"gd": 0.0, "gdd": 0.0})
+
+        star.add_planet(planet_b)
+        star.add_planet(planet_c)
+        star.add_trend(trend)
+
+        t = np.array([0.0, 2.5, 5.0, 7.5, 10.0])
+        rv = star.radial_velocity(t)
+
+        expected = planet_b.radial_velocity(t) + planet_c.radial_velocity(t)
+        np.testing.assert_allclose(rv, expected, atol=1e-12)
+
+
+# ============================================================================
+# Star.str with trend tests
+# ============================================================================
+
+
+def test_star_str_with_trend() -> None:
+    """Test Star __str__ when trend is present."""
+    star = Star(name="test", mass=1.0)
+    star.add_trend(Trend(t0=0.0, params={"gd": 0.5, "gdd": 0.0}))
+    result = str(star)
+    assert "test" in result
+    assert "Trend" in result
+
+
+def test_star_str_without_trend() -> None:
+    """Test Star __str__ when no trend."""
+    star = Star(name="test", mass=1.0)
+    result = str(star)
+    assert "test" in result
+
+
+# ============================================================================
+# Planet with non-default parameterisations
+# ============================================================================
+
+
+class TestPlanetParameterisations:
+    """Test Planet creation with different parameterisations."""
+
+    def test_planet_ecosw_esinw_tp(self) -> None:
+        """Test Planet with ecosw/esinw/Tp parameterisation."""
+        e, w = 0.3, 0.5
+        ecosw = e * np.cos(w)
+        esinw = e * np.sin(w)
+        planet = Planet(letter="b", parameterisation=Parameterisation("P K ecosw esinw Tp"),
+                        params={"P": 10.0, "K": 5.0, "ecosw": ecosw, "esinw": esinw, "Tp": 0.0})
+
+        # Should successfully compute RV
+        t = np.array([0.0, 2.5, 5.0])
+        rv = planet.radial_velocity(t)
+        assert np.all(np.isfinite(rv))
+        assert len(rv) == 3
+
+    def test_planet_secosw_sesinw_tc(self) -> None:
+        """Test Planet with secosw/sesinw/Tc parameterisation."""
+        e, w = 0.2, 0.3
+        secosw = np.sqrt(e) * np.cos(w)
+        sesinw = np.sqrt(e) * np.sin(w)
+        planet = Planet(letter="b", parameterisation=Parameterisation("P K secosw sesinw Tc"),
+                        params={"P": 10.0, "K": 5.0, "secosw": secosw, "sesinw": sesinw, "Tc": 2.0})
+
+        t = np.array([0.0, 2.5, 5.0])
+        rv = planet.radial_velocity(t)
+        assert np.all(np.isfinite(rv))
+
+    def test_planet_rv_matches_across_parameterisations(self) -> None:
+        """Test that same orbit gives same RV regardless of parameterisation."""
+        e, w, tp = 0.3, 0.5, 2.0
+        P, K = 10.0, 5.0
+
+        # Default parameterisation
+        planet_default = Planet(letter="b", parameterisation=Parameterisation("P K e w Tp"),
+                                params={"P": P, "K": K, "e": e, "w": w, "Tp": tp})
+
+        # ecosw/esinw parameterisation
+        ecosw = e * np.cos(w)
+        esinw = e * np.sin(w)
+        planet_ecosw = Planet(letter="b", parameterisation=Parameterisation("P K ecosw esinw Tp"),
+                              params={"P": P, "K": K, "ecosw": ecosw, "esinw": esinw, "Tp": tp})
+
+        # secosw/sesinw parameterisation
+        secosw = np.sqrt(e) * np.cos(w)
+        sesinw = np.sqrt(e) * np.sin(w)
+        planet_secosw = Planet(letter="b", parameterisation=Parameterisation("P K secosw sesinw Tp"),
+                               params={"P": P, "K": K, "secosw": secosw, "sesinw": sesinw, "Tp": tp})
+
+        t = np.linspace(0, 20, 100)
+        rv_default = planet_default.radial_velocity(t)
+        rv_ecosw = planet_ecosw.radial_velocity(t)
+        rv_secosw = planet_secosw.radial_velocity(t)
+
+        np.testing.assert_allclose(rv_ecosw, rv_default, atol=1e-10)
+        np.testing.assert_allclose(rv_secosw, rv_default, atol=1e-10)
+
+
+# ============================================================================
+# calculate_mpsini tests
+# ============================================================================
+
+
+class TestMpsini:
+    """Test Planet.mpsini and calculate_mpsini function."""
+
+    def test_mpsini_kg(self) -> None:
+        """Test mpsini in kg is positive and finite."""
+        from ravest.model import calculate_mpsini
+
+        result = calculate_mpsini(mass_star=1.0, period=10.0, semi_amplitude=5.0,
+                                  eccentricity=0.0, unit="kg")
+        assert np.isfinite(result)
+        assert result > 0
+
+    def test_mpsini_earth(self) -> None:
+        """Test mpsini in Earth masses."""
+        from ravest.model import calculate_mpsini
+
+        result_kg = calculate_mpsini(1.0, 10.0, 5.0, 0.0, unit="kg")
+        result_earth = calculate_mpsini(1.0, 10.0, 5.0, 0.0, unit="M_earth")
+
+        from astropy import constants as const
+        np.testing.assert_allclose(result_earth, result_kg / const.M_earth.value, atol=1e-10)
+
+    def test_mpsini_jupiter(self) -> None:
+        """Test mpsini in Jupiter masses."""
+        from ravest.model import calculate_mpsini
+
+        result_kg = calculate_mpsini(1.0, 10.0, 5.0, 0.0, unit="kg")
+        result_jup = calculate_mpsini(1.0, 10.0, 5.0, 0.0, unit="M_jupiter")
+
+        from astropy import constants as const
+        np.testing.assert_allclose(result_jup, result_kg / const.M_jup.value, atol=1e-10)
+
+    def test_mpsini_invalid_unit(self) -> None:
+        """Test invalid unit raises ValueError."""
+        from ravest.model import calculate_mpsini
+
+        with pytest.raises(ValueError, match="Unit.*not valid"):
+            calculate_mpsini(1.0, 10.0, 5.0, 0.0, unit="invalid")
+
+    def test_mpsini_via_planet(self) -> None:
+        """Test mpsini via Planet.mpsini method."""
+        planet = Planet(letter="b", parameterisation=Parameterisation("P K e w Tp"),
+                        params={"P": 10.0, "K": 5.0, "e": 0.3, "w": 0.5, "Tp": 0.0})
+
+        result = planet.mpsini(mass_star=1.0, unit="M_earth")
+        assert np.isfinite(result)
+        assert result > 0
+
+    def test_mpsini_eccentricity_effect(self) -> None:
+        """Test that higher eccentricity reduces mpsini (via sqrt(1-e^2) factor)."""
+        from ravest.model import calculate_mpsini
+
+        mpsini_circular = calculate_mpsini(1.0, 10.0, 5.0, 0.0, unit="kg")
+        mpsini_eccentric = calculate_mpsini(1.0, 10.0, 5.0, 0.5, unit="kg")
+
+        # m*sin(i) ~ K * ... * sqrt(1 - e^2), so higher e -> lower mpsini
+        assert mpsini_eccentric < mpsini_circular
+
+
+# ============================================================================
+# fold_time_series tests
+# ============================================================================
+
+
+class TestFoldTimeSeries:
+    """Test fold_time_series function."""
+
+    def test_fold_time_series_basic(self) -> None:
+        """Test basic time folding."""
+        from ravest.model import fold_time_series
+
+        times = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+        period = 2.0
+        t_ref = 0.0
+
+        phases, indices = fold_time_series(times, period, t_ref)
+
+        # All phases should be in [-0.5, 0.5]
+        assert np.all(phases >= -0.5)
+        assert np.all(phases <= 0.5)
+        # Should be sorted
+        assert np.all(np.diff(phases) >= 0)
+
+    def test_fold_time_series_preserves_indices(self) -> None:
+        """Test that sort indices can reconstruct original order."""
+        from ravest.model import fold_time_series
+
+        times = np.array([3.0, 1.0, 4.0, 0.0, 2.0])
+        period = 2.0
+        t_ref = 0.5
+
+        phases, indices = fold_time_series(times, period, t_ref)
+
+        # Using indices on original data should give sorted result
+        assert len(indices) == len(times)
+        assert set(indices) == set(range(len(times)))
+
+
+# ============================================================================
+# Star invalid mass test
+# ============================================================================
+
+
+def test_star_invalid_mass() -> None:
+    """Test Star with invalid mass raises ValueError."""
+    with pytest.raises(ValueError, match="must be greater than zero"):
+        Star(name="test", mass=0.0)
+
+    with pytest.raises(ValueError, match="must be greater than zero"):
+        Star(name="test", mass=-1.0)
