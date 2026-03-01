@@ -1334,7 +1334,7 @@ class Fitter:
         """Calculate log-likelihood for given parameter values.
 
         Note this does not include (log-)prior probabilities, this is just the
-        (log-) *likelihood* primarily for use in AIC & BIC calculation.
+        (log-) *likelihood* primarily for use in AICc & BIC calculation.
 
         Parameters
         ----------
@@ -1365,7 +1365,7 @@ class Fitter:
         Takes free parameter float values (which can be from any source e.g. MAP results, MCMC posteriors,
         or any custom values) and combines them with the fixed parameter values to create
         a complete parameter dictionary. This dict is ideal for calculating chi2, log-likelihood,
-        AIC, and BIC.
+        AICc, and BIC.
 
         This is designed for a single value per parameter. For combining the MCMC posterior
         chains for free parameters and the fixed values for fixed parameters, use
@@ -1388,7 +1388,7 @@ class Fitter:
         >>> # From MAP optimization result
         >>> map_result = fitter.find_map_estimate()
         >>> params = fitter.build_params_dict(map_result.x)
-        >>> aic = fitter.calculate_aic(params)
+        >>> aicc = fitter.calculate_aicc(params)
         >>>
         >>> # From best MCMC sample
         >>> best_sample = fitter.get_sample_with_best_lnprob(discard_start=1000)
@@ -1466,11 +1466,12 @@ class Fitter:
 
         return chi2
 
-    def calculate_aic(self, params_dict: Dict[str, float]) -> float:
-        """Calculate Akaike Information Criterion (AIC) for given parameters.
+    def calculate_aicc(self, params_dict: Dict[str, float]) -> float:
+        """Calculate corrected Akaike Information Criterion (AICc).
 
-        AIC = 2*k - 2*ln(L), where k is the number of free parameters
-        and L is the likelihood.
+        AICc = 2*k - 2*ln(L) + (2*k^2 + 2*k) / (n - k - 1), where k is the
+        number of free parameters, n is the number of observations, and L is
+        the likelihood. Converges to AIC for large n.
 
         Parameters
         ----------
@@ -1480,10 +1481,14 @@ class Fitter:
         Returns
         -------
         float
-            AIC value
+            AICc value
         """
+        k = self.ndim
+        n = len(self.time)
         log_like = self.calculate_log_likelihood(params_dict)
-        return 2 * self.ndim - 2 * log_like
+        aic = 2 * k - 2 * log_like  # traditional AIC
+        correction = (2 * k**2 + 2 * k) / (n - k - 1)  # small-sample correction
+        return aic + correction
 
     def calculate_bic(self, params_dict: Dict[str, float]) -> float:
         """Calculate Bayesian Information Criterion (BIC) for given parameters.
@@ -4846,7 +4851,7 @@ class GPFitter:
         """Calculate log-likelihood for given parameter and hyperparameter values.
 
         Note this does not include (log-)prior probabilities, this is just the
-        (log-) *likelihood* primarily for use in AIC & BIC calculation.
+        (log-) *likelihood* primarily for use in AICc & BIC calculation.
 
         Parameters
         ----------
@@ -4886,7 +4891,7 @@ class GPFitter:
         Takes free parameter and hyperparameter values from various sources (MAP results,
         MCMC samples, or custom values) and combines them with the fixed parameter and
         hyperparameter values to create a complete dictionary suitable for calculating
-        log-likelihood, chi2, AIC, and BIC.
+        log-likelihood, chi2, AICc, and BIC.
 
         Parameters
         ----------
@@ -4905,7 +4910,7 @@ class GPFitter:
         >>> # From MAP optimization result
         >>> map_result = gpfitter.find_map_estimate()
         >>> params = gpfitter.build_params_dict(map_result.x)
-        >>> aic = gpfitter.calculate_aic(params)
+        >>> aicc = gpfitter.calculate_aicc(params)
         >>>
         >>> # From best MCMC sample
         >>> best_sample = gpfitter.get_sample_with_best_lnprob(discard_start=1000)
@@ -5053,11 +5058,12 @@ class GPFitter:
         # Calculate chi^2 = r^T K^(-1) r using full covariance matrix
         return float(self._compute_gp_chi2(kernel, gp_ll.jax_time, velerr_jitter_squared, residuals))
 
-    def calculate_aic(self, params_hyperparams_dict: Dict[str, float]) -> float:
-        """Calculate Akaike Information Criterion (AIC) for given parameters and hyperparameters.
+    def calculate_aicc(self, params_hyperparams_dict: Dict[str, float]) -> float:
+        """Calculate corrected Akaike Information Criterion (AICc).
 
-        AIC = 2*k - 2*ln(L), where k is the number of free parameters and hyperparameters
-        and L is the likelihood.
+        AICc = 2*k - 2*ln(L) + (2*k^2 + 2*k) / (n - k - 1), where k is the
+        number of free parameters and hyperparameters, n is the number of
+        observations, and L is the likelihood. Converges to AIC for large n.
 
         Parameters
         ----------
@@ -5067,10 +5073,14 @@ class GPFitter:
         Returns
         -------
         float
-            AIC value
+            AICc value
         """
+        k = self.ndim
+        n = len(self.time)
         log_like = self.calculate_log_likelihood(params_hyperparams_dict)
-        return 2 * self.ndim - 2 * log_like
+        aic = 2 * k - 2 * log_like  # traditional AIC
+        correction = (2 * k**2 + 2 * k) / (n - k - 1)  # small-sample correction
+        return aic + correction
 
     def calculate_bic(self, params_hyperparams_dict: Dict[str, float]) -> float:
         """Calculate Bayesian Information Criterion (BIC) for given parameters and hyperparameters.
