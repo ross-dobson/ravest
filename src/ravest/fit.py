@@ -32,7 +32,7 @@ from tqdm import tqdm
 import ravest.model
 from ravest.gp import GPKernel
 from ravest.model import _njit_kepler_rv
-from ravest.param import Parameter, Parameterisation
+from ravest.param import Parameter, Parameterisation, param_key_to_latex
 
 # Enable 64-bit precision for better numerical accuracy
 jax.config.update("jax_enable_x64", True)
@@ -1602,7 +1602,7 @@ class Fitter:
 
         # Plot convergence threshold (N/50)
         ax.plot([0, max_iteration], [0, max_iteration / 50], "--k", linewidth=2,
-                label="N/50 convergence threshold")
+                label="N/50")
 
         if plot_mean:
             # Plot mean tau
@@ -1626,7 +1626,7 @@ class Fitter:
 
             # Plot individual parameter taus
             for i, param_name in zip(indices_to_plot, params_to_plot):
-                ax.plot(iterations, tau_history[:, i], alpha=0.7, label=param_name)
+                ax.plot(iterations, tau_history[:, i], alpha=0.7, label=param_key_to_latex(param_name))
 
         ax.set_xlim(0, iterations.max())
         ax.set_ylim(bottom=0)
@@ -1693,14 +1693,14 @@ class Fitter:
         for i in range(self.ndim):
             ax = axes[i]
             ax.set_xlim(0, len(samples))
-            ax.set_ylabel(self.free_params_names[i])
-            ax.yaxis.set_label_coords(-0.1, 0.5)
+            ax.set_ylabel(param_key_to_latex(self.free_params_names[i]))
 
             to_plot = samples[:, :, i]
             ax.plot(to_plot, "k", alpha=0.3)
             if truths is not None and truths[i] is not None:
                 ax.axhline(truths[i], color="tab:blue")
 
+        fig.align_ylabels(axes)
         if xlabel:
             axes[-1].set_xlabel(xlabel)
         if save:
@@ -1784,9 +1784,9 @@ class Fitter:
             Resolution for saving (default: 100)
         """
         flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
-        param_names = self.free_params_names
+        param_labels = [param_key_to_latex(n) for n in self.free_params_names]
         fig = corner.corner(
-            flat_samples, labels=param_names, show_titles=True,
+            flat_samples, labels=param_labels, show_titles=True,
             plot_datapoints=plot_datapoints, quantiles=[0.1585, 0.5, 0.8415],
             truths=truths,
         )
@@ -2072,7 +2072,9 @@ class Fitter:
 
         # Annotate with planet info
         K_value = params[f"K_{planet_letter}"]
-        s = f"Planet {planet_letter}\nP={P:.2f} d\nK={K_value:.2f} m/s"
+        P_label = param_key_to_latex(f"P_{planet_letter}")
+        K_label = param_key_to_latex(f"K_{planet_letter}")
+        s = f"Planet {planet_letter}\n{P_label}={P:.2f} d\n{K_label}={K_value:.2f} m/s"
         ax1.annotate(s, xy=(0, 1), xycoords="axes fraction",
                     xytext=(+0.5, -0.5), textcoords="offset fontsize", va="top")
 
@@ -5191,7 +5193,7 @@ class GPFitter:
 
         # Plot convergence threshold (N/50)
         ax.plot([0, max_iteration], [0, max_iteration / 50], "--k", linewidth=2,
-                label="N/50 convergence threshold")
+                label="N/50")
 
         if plot_mean:
             # Plot mean tau
@@ -5236,7 +5238,7 @@ class GPFitter:
 
             # Plot individual parameter/hyperparameter taus
             for idx, name in zip(indices_to_plot, names_to_plot):
-                ax.plot(iterations, tau_history[:, idx], alpha=0.7, label=name)
+                ax.plot(iterations, tau_history[:, idx], alpha=0.7, label=param_key_to_latex(name))
 
         ax.set_xlim(0, iterations.max())
         ax.set_ylim(bottom=0)
@@ -5308,11 +5310,11 @@ class GPFitter:
 
             ax.plot(to_plot, "k", alpha=0.3)
             ax.set_xlim(0, len(samples))
-            ax.set_ylabel(param_names[i])
-            ax.yaxis.set_label_coords(-0.1, 0.5)
+            ax.set_ylabel(param_key_to_latex(param_names[i]))
 
             if truths is not None and truths[i] is not None:
                 ax.axhline(truths[i], color="tab:blue")
+        fig.align_ylabels(axes)
         if xlabel:
             axes[-1].set_xlabel(xlabel)
         if save:
@@ -5394,11 +5396,11 @@ class GPFitter:
             Resolution for saving (default: 100)
         """
         flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
-        param_names = self.free_params_names + self.free_hyperparams_names
+        param_labels = [param_key_to_latex(n) for n in self.free_params_names + self.free_hyperparams_names]
         fig = corner.corner(
-        flat_samples, labels=param_names, show_titles=True,
-        plot_datapoints=plot_datapoints, quantiles=[0.1585, 0.5, 0.8415],
-        truths=truths,
+            flat_samples, labels=param_labels, show_titles=True,
+            plot_datapoints=plot_datapoints, quantiles=[0.1585, 0.5, 0.8415],
+            truths=truths,
         )
         fig.suptitle("Corner plots")
         if save:
@@ -5772,7 +5774,9 @@ class GPFitter:
 
         # Annotate with planet info
         K_value = params_hyperparams[f"K_{planet_letter}"]
-        s = f"Planet {planet_letter}\nP={P:.2f} d\nK={K_value:.2f} m/s"
+        P_label = param_key_to_latex(f"P_{planet_letter}")
+        K_label = param_key_to_latex(f"K_{planet_letter}")
+        s = f"Planet {planet_letter}\n{P_label}={P:.2f} d\n{K_label}={K_value:.2f} m/s"
         ax1.annotate(s, xy=(0, 1), xycoords="axes fraction",
                     xytext=(+0.5, -0.5), textcoords="offset fontsize", va="top")
 
