@@ -5,13 +5,230 @@ and stellar trends (constant, linear, quadratic).
 """
 # model.py
 
+import math
+
 import matplotlib.pyplot as plt
+import numba
 import numpy as np
 from astropy import constants as const
 from matplotlib.ticker import MultipleLocator
 from scipy import constants
 
 from ravest.param import Parameterisation
+
+# Kepler solver functions are module-level rather than Planet methods because
+# numba's @njit cannot compile methods on Python classes.
+# They are called by Planet.radial_velocity() via _compute_rv().
+
+@numba.njit(cache=True)
+def _solve_kepler(Mi: float, e: float) -> tuple[float, float]:
+    """Solve Kepler's equation for a single mean anomaly value.
+
+    Kepler's equation E - e*sin(E) = M must be solved iteratively for the
+    eccentric anomaly E. Uses Halley's method (cubic convergence) with the
+    same tolerance and iteration limits as scipy's newton solver.
+
+    Parameters
+    ----------
+    Mi : float
+        Mean anomaly at a single time (radians).
+    e : float
+        Eccentricity of the orbit, 0 < e < 1 (dimensionless).
+
+    Returns
+    -------
+    cos_E : float
+        Cosine of the eccentric anomaly.
+    sin_E : float
+        Sine of the eccentric anomaly.
+    """
+    tol = 1.48e-08  # scipy default tolerance
+    maxiter = 50    # scipy default max iterations
+
+    # Initial guess E0 = M (good for low-moderate eccentricity)
+    Ei = Mi
+    sin_E = cos_E = 0.0
+
+    for _ in range(maxiter):
+        sin_E = math.sin(Ei)
+        cos_E = math.cos(Ei)
+
+        # f(E) = E - e*sin(E) - M and its first two derivatives
+        f = Ei - e * sin_E - Mi        # f(E)
+        fp = 1.0 - e * cos_E           # f'(E)
+        fpp = e * sin_E                # f''(E)
+
+        # Halley's method: E_new = E - f / (f' - f*f''/(2*f'))
+        E_new = Ei - f / (fp - (f * fpp) / (2.0 * fp))
+
+        if abs(E_new - Ei) < tol:
+            sin_E = math.sin(E_new)
+            cos_E = math.cos(E_new)
+            break
+        Ei = E_new
+
+    return cos_E, sin_E
+
+
+@numba.njit(cache=True)
+def _true_anomaly(cos_E: float, sin_E: float, e: float, sqrt_1me2: float) -> tuple[float, float]:
+    """Compute cos(f) and sin(f) of the true anomaly from the eccentric anomaly.
+
+    Calculates the true anomaly directly from cos(E) and sin(E) rather than
+    via the arctan formula, avoiding a trig call per element.
+
+    Parameters
+    ----------
+    cos_E : float
+        Cosine of the eccentric anomaly.
+    sin_E : float
+        Sine of the eccentric anomaly.
+    e : float
+        Eccentricity of the orbit (dimensionless).
+    sqrt_1me2 : float
+        Precomputed sqrt(1 - e^2).
+
+    Returns
+    -------
+    cos_f : float
+        Cosine of the true anomaly.
+    sin_f : float
+        Sine of the true anomaly.
+
+    Notes
+    -----
+    Rather than computing f as an angle via the arctan formula
+    f = 2*arctan(sqrt((1+e)/(1-e)) * tan(E/2)), we obtain cos(f) and sin(f)
+    directly from cos(E) and sin(E):
+
+        cos(f) = (cos(E) - e) / (1 - e*cos(E))
+        sin(f) = sqrt(1 - e^2) * sin(E) / (1 - e*cos(E))
+
+    The cos(f) identity is a standard result from the geometry of the
+    auxiliary circle (Perryman, Exoplanet Handbook, eq. 2.6). sin(f)
+    follows from sin^2(f) = 1 - cos^2(f), which simplifies to
+    (1 - e^2)*sin^2(E) / (1 - e*cos(E))^2.
+
+    Since cos(E) and sin(E) are already available from the Kepler solver,
+    this avoids any additional trig calls.
+    """
+    denom = 1.0 - e * cos_E  # common denominator of cos(f) and sin(f)
+    cos_f = (cos_E - e) / denom
+    sin_f = sqrt_1me2 * sin_E / denom
+    return cos_f, sin_f
+
+
+@numba.njit(cache=True)
+def _radial_velocity_from_f(cos_f: float, sin_f: float, K: float,
+                            cos_w: float, sin_w: float, e_cos_w: float) -> float:
+    """Compute radial velocity from the true anomaly of a single observation.
+
+    Uses the trig identity cos(f + w) = cos(f)*cos(w) - sin(f)*sin(w) to
+    avoid computing f explicitly.
+
+    Parameters
+    ----------
+    cos_f : float
+        Cosine of the true anomaly.
+    sin_f : float
+        Sine of the true anomaly.
+    K : float
+        Semi-amplitude of the stellar radial velocity (m/s).
+    cos_w : float
+        Precomputed cos(w).
+    sin_w : float
+        Precomputed sin(w).
+    e_cos_w : float
+        Precomputed e*cos(w).
+
+    Returns
+    -------
+    float
+        Radial velocity (m/s).
+
+    Notes
+    -----
+    The RV equation is K * [cos(f + w) + e*cos(w)]. Rather than computing
+    the angle f and evaluating cos(f + w), we expand via the addition
+    identity cos(f + w) = cos(f)*cos(w) - sin(f)*sin(w), using cos(f) and
+    sin(f) from _true_anomaly directly. cos(w), sin(w), and e*cos(w) are
+    constant across all observations and precomputed by the caller.
+    """
+    # RV = K * [cos(f + w) + e*cos(w)]
+    return K * (cos_f * cos_w - sin_f * sin_w + e_cos_w)
+
+
+@numba.njit(cache=True)
+def _njit_kepler_rv(M: np.ndarray, e: float, K: float, w: float) -> np.ndarray:
+    """Solve Kepler's equation and compute radial velocity for an array of times.
+
+    Loops over mean anomaly values element-by-element, calling the scalar
+    Kepler solver, true anomaly, and RV functions for each. Numba inlines
+    these calls at compile time, so performance is identical to a single
+    monolithic loop while keeping each step readable.
+
+    Parameters
+    ----------
+    M : np.ndarray
+        Mean anomaly at each time (radians).
+    e : float
+        Eccentricity of the orbit, 0 < e < 1 (dimensionless).
+    K : float
+        Semi-amplitude of the stellar radial velocity (m/s).
+    w : float
+        Argument of periapsis of the star (radians).
+
+    Returns
+    -------
+    np.ndarray
+        Radial velocity of the star due to the planet at each time (m/s).
+    """
+    n = M.shape[0]
+    rv = np.empty(n)
+
+    # Precompute constants that are fixed across the time array within a single
+    # call. These are recomputed each call, so they update between MCMC samples.
+    sqrt_1me2 = math.sqrt(1.0 - e * e)
+    cos_w = math.cos(w)
+    sin_w = math.sin(w)
+    e_cos_w = e * cos_w
+
+    for i in range(n):
+        cos_E, sin_E = _solve_kepler(M[i], e)
+        cos_f, sin_f = _true_anomaly(cos_E, sin_E, e, sqrt_1me2)
+        rv[i] = _radial_velocity_from_f(cos_f, sin_f, K, cos_w, sin_w, e_cos_w)
+
+    return rv
+
+
+def _compute_rv(M: np.ndarray, e: float, K: float, w: float) -> np.ndarray:
+    """Compute radial velocity from mean anomaly, dispatching by eccentricity.
+
+    For circular orbits (e=0) the RV simplifies to K*cos(M + w) and can be
+    computed directly with numpy. For eccentric orbits, delegates to the
+    numba-compiled solver.
+
+    Parameters
+    ----------
+    M : np.ndarray
+        Mean anomaly at each time (radians).
+    e : float
+        Eccentricity of the orbit, 0 <= e < 1 (dimensionless).
+    K : float
+        Semi-amplitude of the stellar radial velocity (m/s).
+    w : float
+        Argument of periapsis of the star (radians).
+
+    Returns
+    -------
+    np.ndarray
+        Radial velocity of the star due to the planet at each time (m/s).
+    """
+    if e == 0:
+        # For circular orbits, E = M and f = M so the RV is just K*cos(M + w).
+        # No need to iterate Kepler's equation — use vectorised numpy directly.
+        return K * (np.cos(M + w) + e * np.cos(w))
+    return _njit_kepler_rv(M, e, K, w)
 
 
 class Planet:
@@ -97,121 +314,20 @@ class Planet:
         """
         return n * (t - time_peri)
 
-    def _solve_keplerian_equation(self, eccentricity: float, M: np.ndarray) -> np.ndarray:
-        """Solve the Keplerian equation for eccentric anomaly E using vectorized Halley's method.
-
-        The eccentric anomaly is the corresponding angle for the true anomaly on
-        the auxiliary circle, rather than the real elliptical orbit. Therefore, if
-        the ``eccentricity`` e=0, then the eccentric anomaly E is equivalent to the
-        mean anomaly ``M``. However, for eccentric cases, the equation is
-        E(t) = M(t) + e*sin(E(t)), which requires solving iteratively.
-
-        This implementation uses Halley's method for cubic convergence with identical
-        tolerance and convergence criteria to scipy's newton solver (tol=1.48e-08,
-        maxiter=50).
-
-        Parameters
-        ----------
-        M : `np.ndarray`
-            The mean anomaly at time t (array).
-        eccentricity : `float`
-            The eccentricity of the orbit, 0 <= e < 1  (dimensionless).
-
-        Returns
-        -------
-        `np.ndarray`
-            The eccentric anomaly at time t (array).
-        """
-        if eccentricity == 0:
-            return M
-
-        E = M.copy()  # Initial guess: E0 = M
-
-        # Halley's method iteration with scipy's exact parameters
-        tol = 1.48e-08  # scipy default tolerance
-        maxiter = 50    # scipy default max iterations
-
-        for iteration in range(maxiter):
-            sin_E = np.sin(E)
-            cos_E = np.cos(E)
-
-            # Function and derivatives for Kepler's equation: f(E) = E - e*sin(E) - M
-            f = E - eccentricity * sin_E - M        # f(E)
-            fp = 1 - eccentricity * cos_E           # f'(E)
-            fpp = eccentricity * sin_E              # f''(E)
-
-            # Halley's method update: E_new = E - f / (f' - f*f''/(2*f'))
-            denominator = fp - ((f * fpp) / (2 * fp))
-            E_new = E - (f / denominator)
-
-            # Check convergence using scipy's absolute tolerance on step size
-            if np.all(np.abs(E_new - E) < tol):
-                break
-
-            E = E_new
-
-        return E
-
-    def _true_anomaly(self, E: np.ndarray, eccentricity: float) -> np.ndarray:
-        """Calculate true anomaly at time t.
-
-        Calculate true anomaly, the angle between periastron and planet, as
-        measured from the system barycentre. This is the angle normally used to
-        characterise an orbit. If orbit is circular, this is equal to mean anomaly.
-
-        Parameters
-        ----------
-        E : `float`
-            The Eccentric anomaly at time t (radian)
-        eccentricity : `float`
-            The eccentricity of the orbit, 0 <= e < 1  (dimensionless).
-
-        Returns
-        -------
-        `float`
-            The true anomaly (radians)
-        """
-        return 2 * np.arctan(np.sqrt((1 + eccentricity) / (1 - eccentricity)) * np.tan(E / 2))
-
-    def _radial_velocity(self, true_anomaly: np.ndarray, semi_amplitude: float, eccentricity: float, omega_star: float,) -> np.ndarray:
-        """Calculate the radial velocity of the star due to the planet, at a given true anomaly.
-
-        Parameters
-        ----------
-        true_anomaly : `float`
-            The true anomaly at time t (radian).
-        period : `float`
-            The orbital period of planet (day).
-        semi_amplitude : `float`
-            The Semi-amplitude of the radial velocity of the star (m/s).
-        eccentricity : `float`
-            The eccentricity of the orbit, 0 <= e < 1  (dimensionless).
-        omega_star : `float`
-            The angle of periastron of the star (radians).
-        time_peri : `float`
-            The time of periastron passage (day).
-
-        Returns
-        -------
-        `float`
-            Radial velocity of the reflex motion of star due to the planet (m/s).
-        """
-        return semi_amplitude * (np.cos(true_anomaly + omega_star) + eccentricity * np.cos(omega_star))
-
     def radial_velocity(self, t: np.ndarray) -> np.ndarray:
         """Calculate radial velocity of the star due to the planet, at time t.
 
-        Calculates the true anomaly at time t by solving the Keplerian equation,
-        and uses that true anomaly to calculate the radial velocity.
+        Uses a numba-compiled Kepler solver that solves Kepler's equation and
+        computes the radial velocity in a single pass.
 
         Parameters
         ----------
-        t : `float`
-            The time to calculate the radial velocity at (day)
+        t : np.ndarray
+            The time to calculate the radial velocity at (day).
 
         Returns
         -------
-        `float`
+        np.ndarray
             Radial velocity of the reflex motion of star due to the planet (m/s).
         """
         P = self._rvparams["P"]
@@ -222,10 +338,8 @@ class Planet:
 
         n = self._calculate_mean_motion(period=P)
         M = self._calculate_mean_anomaly(t=t, n=n, time_peri=tp)
-        E = self._solve_keplerian_equation(M=M, eccentricity=e)
-        f = self._true_anomaly(E=E, eccentricity=e)
 
-        return self._radial_velocity(true_anomaly=f, semi_amplitude=K, eccentricity=e, omega_star=w)
+        return _compute_rv(M, e, K, w)
 
     def mpsini(self, mass_star: float, unit: str = "kg") -> float:
         """Calculate the minimum mass of the planet.
@@ -252,41 +366,93 @@ class Planet:
         return mpsini
 
 
-class Trend:
-    """Trend in the radial velocity of the star.
+class Instrument:
+    """Instrument-specific parameters for RV observations.
+
+    Represents the measurement characteristics of a specific instrument/telescope,
+    including its velocity offset (gamma) and additional noise (jitter).
 
     Parameters
     ----------
-    t0 : `float`
+    name : str
+        The name/identifier of the instrument (e.g., "HARPS").
+        Must match the labels used in the data's instrument column.
+    g : float
+        Gamma offset - the constant RV offset for this instrument [m/s].
+    jit : float
+        Jitter - additional noise added in quadrature to uncertainties [m/s].
+        Must be >= 0.
+
+    Examples
+    --------
+    >>> harps = Instrument("HARPS", g=5.0, jit=2.0)
+    >>> print(harps)
+    Instrument HARPS: γ=5.0 m/s, jitter=2.0 m/s
+
+    >>> hires = Instrument("HIRES", g=-3.6, jit=1.5)
+    >>> hires.g
+    -3.6
+    """
+
+    def __init__(self, name: str, g: float, jit: float) -> None:
+        if not isinstance(name, str) or len(name) == 0:
+            raise ValueError(f"Instrument name must be a non-empty string, got: {name!r}")
+        if jit < 0:
+            raise ValueError(f"Jitter must be >= 0, got: {jit}")
+
+        self.name = name
+        self.g = g
+        self.jit = jit
+
+    def __repr__(self) -> str:
+        return f"Instrument(name={self.name!r}, g={self.g}, jit={self.jit})"
+
+    def __str__(self) -> str:
+        return f"Instrument {self.name}: γ={self.g} m/s, jitter={self.jit} m/s"
+
+
+class Trend:
+    """System-wide trend in the radial velocity of the star.
+
+    Represents long-term velocity trends that apply across all instruments,
+    such as acceleration from a distant companion. The constant offset (gamma)
+    is now handled per-instrument via the Instrument class.
+
+    Parameters
+    ----------
+    t0 : float
         The reference zero-point time for the linear and quadratic trend.
         Recommended to be the mean of the input times.
-    params : `dict`
-        The parameters of the trend: the constant, linear, and quadratic
-        components. These must be named "g", "gd", and "gdd" respectively (which
-        stands for gamma, gamma-dot, gamma-dot-dot). These are in units of m/s,
-        m/s/day, and m/s/day^2 respectively.
+    params : dict
+        The parameters of the trend: linear and quadratic components.
+        These must be named "gd" and "gdd" respectively (gamma-dot,
+        gamma-dot-dot). These are in units of m/s/day and m/s/day^2 respectively.
 
     Returns
     -------
-    `float`
+    float
         The radial velocity of the star due to the trend (m/s).
 
     Notes
     -----
-    The radial velocity of the star due to the trend is calculated as the sum of
-    the constant, linear, and quadratic components. The constant component is
-    simply a constant offset of value gamma. The linear and quadratic components
-    are calculated as `gd*(t-t0)` and `gdd*((t-t0)**2)` respectively.
+    The radial velocity contribution from the trend is calculated as the sum of
+    the linear and quadratic components: `gd*(t-t0)` and `gdd*((t-t0)**2)`.
 
-    In general the trend is used to account for any unexpected effects. These
-    could be due to instrumental effects, or for example a very long-term
-    companion could show as a linear and/or quadratic trend in the data. If you
-    see a strong linear or quadratic trend in the data, it is worth
-    investigating.
+    The constant offset (gamma) is now instrument-specific and handled via the
+    Instrument class. Use `star.gamma_offsets(instrument)` to get per-instrument
+    offsets.
+
+    In general the trend is used to account for long-term effects such as
+    acceleration from a distant companion. If you see a strong linear or
+    quadratic trend in the data, it is worth investigating.
+
+    Examples
+    --------
+    >>> trend = Trend(t0=2458000.0, params={"gd": 0.001, "gdd": 0.0})
+    >>> rv_trend = trend.radial_velocity(times)
     """
 
     def __init__(self, t0: float, params: dict[str, float]) -> None:
-        self.gamma = params["g"]
         self.gammadot = params["gd"]
         self.gammadotdot = params["gdd"]
 
@@ -297,13 +463,10 @@ class Trend:
             raise ValueError(f"t0 must be a numeric value (recommend mean or median of observation times), but got {type(t0).__name__}: {t0}") from e
 
     def __str__(self) -> str:
-        return f"Trend: $\\gamma$={self.gamma}, $\\dot\\gamma$={self.gammadot}, $\\ddot\\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
+        return f"Trend: $\\dot\\gamma$={self.gammadot}, $\\ddot\\gamma$={self.gammadotdot}, $t_0$={self.t0:.2f}"
 
     def __repr__(self) -> str:
-        return f"Trend(params={{'g': {self.gamma}, 'gd': {self.gammadot}, 'gdd': {self.gammadotdot} }}, t0={self.t0:.2f})"
-
-    def _constant(self, t: np.ndarray) -> float:
-        return self.gamma
+        return f"Trend(params={{'gd': {self.gammadot}, 'gdd': {self.gammadotdot}}}, t0={self.t0:.2f})"
 
     def _linear(self, t: np.ndarray, t0: float) -> np.ndarray:
         if self.gammadot == 0:
@@ -326,10 +489,9 @@ class Trend:
         Returns
         -------
         array_like
-            RV trend values (constant + linear + quadratic terms)
+            RV trend values (linear + quadratic terms)
         """
         rv = 0
-        rv += self._constant(t)
         rv += self._linear(t, self.t0)
         rv += self._quadratic(t, self.t0)
         return rv
@@ -358,6 +520,7 @@ class Star:
         self.name = name
         self.mass = mass
         self.planets = {}
+        self.instruments = {}
         self.num_planets = 0
         if mass <= 0:
             raise ValueError(f"Stellar mass {self.mass} must be greater than zero")
@@ -400,6 +563,66 @@ class Star:
             A `ravest.model.Trend` object
         """
         self.trend = trend
+
+    def add_instrument(self, instrument: Instrument) -> None:
+        """Store `Instrument` object in `instruments` dict with key `instrument.name`.
+
+        Instruments cannot share names; if two instruments have the same name then
+        the second one will overwrite the first.
+
+        Parameters
+        ----------
+        instrument : `Instrument`
+            A `ravest.model.Instrument` object
+        """
+        import warnings
+        if instrument.name in self.instruments:
+            warnings.warn(f"Instrument {instrument.name} already exists and will be overwritten",
+                         UserWarning, stacklevel=2)
+        self.instruments[instrument.name] = instrument
+
+    def gamma_offsets(self, instrument: np.ndarray) -> np.ndarray:
+        """Return gamma offset for each observation based on instrument column.
+
+        Parameters
+        ----------
+        instrument : np.ndarray
+            Array of instrument names for each observation.
+
+        Returns
+        -------
+        np.ndarray
+            Array of gamma offsets (m/s) for each observation.
+
+        Raises
+        ------
+        ValueError
+            If an instrument in the data is not found in the Star's instruments.
+        """
+        result = np.zeros(len(instrument))
+        for name, inst in self.instruments.items():
+            mask = (instrument == name)
+            result[mask] = inst.g
+        return result
+
+    def jitter_values(self, instrument: np.ndarray) -> np.ndarray:
+        """Return jitter value for each observation based on instrument column.
+
+        Parameters
+        ----------
+        instrument : np.ndarray
+            Array of instrument names for each observation.
+
+        Returns
+        -------
+        np.ndarray
+            Array of jitter values (m/s) for each observation.
+        """
+        result = np.zeros(len(instrument))
+        for name, inst in self.instruments.items():
+            mask = (instrument == name)
+            result[mask] = inst.jit
+        return result
 
     def radial_velocity(self, t: np.ndarray) -> np.ndarray:
         """Calculate the radial velocity of the star at time ``t`` due to the planets and trend.
@@ -445,26 +668,44 @@ class Star:
         """
         return self.planets[planet_letter].mpsini(self.mass, unit)
 
-    def phase_plot(self, t: float, ydata: float, yerr: float) -> None:
+    def phase_plot(self, t: np.ndarray, ydata: np.ndarray, yerr: np.ndarray,
+                   instrument: np.ndarray) -> None:
         """Generate a phase plot for each planet.
 
         Given RV ``ydata`` at time ``t`` with errorbars ``yerr``, generates a phase
-        plot for each planet.
+        plot for each planet. Data is coloured by instrument and gamma offsets
+        are subtracted before plotting.
 
         Parameters
         ----------
-        t : `float`
+        t : np.ndarray
             The time of the observations ``ydata`` (day)
-        ydata : `float`
+        ydata : np.ndarray
             The observed radial velocity at time ``t`` (m/s)
-        yerr : `float`
+        yerr : np.ndarray
             The measurement error of the datapoint ``ydata`` (m/s)
+        instrument : np.ndarray
+            The instrument/telescope name for each observation.
         """
         # TODO use gridspec or subfigures to sort out figure spacing
-        len(t)
-        t = np.sort(t)
-        tlin = np.linspace(t[0], t[-1], 1000)
-        fig, axs = plt.subplots(2+self.num_planets,1, figsize=(10, (2*10/3)+(self.num_planets*10/3)), constrained_layout=True,)
+
+        # Subtract gamma offsets from data
+        gamma_offsets = self.gamma_offsets(instrument)
+        ydata_corrected = ydata - gamma_offsets
+
+        # Get unique instruments and assign colours
+        unique_instruments = np.unique(instrument)
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        inst_colors = {inst: colors[i % len(colors)]
+                       for i, inst in enumerate(unique_instruments)}
+
+        # Sort data by time for plotting
+        sort_inds = np.argsort(t)
+        t_sorted = t[sort_inds]
+        tlin = np.linspace(t_sorted[0], t_sorted[-1], 1000)
+        fig, axs = plt.subplots(2+self.num_planets, 1,
+                                figsize=(10, (2*10/3)+(self.num_planets*10/3)),
+                                constrained_layout=True)
 
         # Panel 1: Observed data with complete system model overlay
         axs[0].set_title("Stellar radial velocity")
@@ -472,17 +713,31 @@ class Star:
         axs[0].set_xlabel("Time [days]")
         axs[0].axhline(y=0, color="k", alpha=0.25, linestyle="--", zorder=1)
 
+        # Model curve (planets + trend, no gamma)
         modelled_rv_tlin = self.radial_velocity(tlin)
         modelled_rv_tdata = self.radial_velocity(t)
-        axs[0].plot(tlin, modelled_rv_tlin, color="tab:blue", zorder=2)
-        axs[0].errorbar(t, ydata, yerr=yerr, marker=".", color="k", mfc="white", ecolor="tab:gray", markersize=10, linestyle="None", zorder=3)
+        axs[0].plot(tlin, modelled_rv_tlin, color="k", zorder=2)
+
+        # Plot data points coloured by instrument
+        for inst in unique_instruments:
+            mask = (instrument == inst)
+            axs[0].errorbar(t[mask], ydata_corrected[mask], yerr=yerr[mask],
+                           marker="o", color=inst_colors[inst], mfc="white",
+                           ecolor=inst_colors[inst], markersize=8,
+                           linestyle="None", zorder=3, label=inst, alpha=0.8)
+        axs[0].legend()
 
         # Panel 2: Observed minus calculated (O-C) residuals
         axs[1].set_title("Observed-Calculated")
         axs[1].set_xlabel("Time [days]")
         axs[1].set_ylabel("Residual [m/s]")
-        axs[1].axhline(y=0, color="tab:blue", linestyle="-")
-        axs[1].errorbar(t, ydata-modelled_rv_tdata, yerr=yerr, marker=".", mfc="white", color="k", ecolor="tab:gray", markersize=10, linestyle="None")
+        axs[1].axhline(y=0, color="k", linestyle="-")
+        for inst in unique_instruments:
+            mask = (instrument == inst)
+            axs[1].errorbar(t[mask], ydata_corrected[mask] - modelled_rv_tdata[mask],
+                           yerr=yerr[mask], marker="o", mfc="white",
+                           color=inst_colors[inst], ecolor=inst_colors[inst],
+                           markersize=8, linestyle="None", alpha=0.8)
 
         # Panels 3+: Individual planet phase plots
         for n, letter in enumerate(self.planets):
@@ -491,7 +746,7 @@ class Star:
             axs[n].set_xlabel("Orbital phase")
             axs[n].set_ylabel("Radial velocity [m/s]")
             axs[n].set_xlim(-0.5, 0.5)
-            axs[n].xaxis.set_major_locator(MultipleLocator(0.25))  # Set x-ticks every 0.25
+            axs[n].xaxis.set_major_locator(MultipleLocator(0.25))
             axs[n].axhline(y=0, color="k", alpha=0.25, linestyle="--", zorder=1)
 
             this_planet = self.planets[letter]
@@ -503,19 +758,28 @@ class Star:
 
             yplot = this_planet.radial_velocity(tlin)
             tlin_fold_sorted, tlin_inds = fold_time_series(tlin, p, tc)
-            axs[n].plot(tlin_fold_sorted, yplot[tlin_inds], label=f"{n},{letter}, rvplot", color="tab:blue")
+            axs[n].plot(tlin_fold_sorted, yplot[tlin_inds], color="k")
 
-            # Calculate RV contributions from all other planets
+            # Calculate RV contributions from all other planets and trend
             # Subtract from observed data to isolate the current planet's signal
-            other_planets_modelled_rv_tdata = np.zeros(len(t))
+            other_rv = np.zeros(len(t))
             for _letter in self.planets:
-                if _letter == letter:
-                    continue  # don't do anything for this planet
-                else:
-                    other_planets_modelled_rv_tdata += self.planets[_letter].radial_velocity(t)
-            subtracted_data = ydata - other_planets_modelled_rv_tdata
-            tdata_fold_sorted, tdata_inds = fold_time_series(t, p, tc)
-            axs[n].errorbar(tdata_fold_sorted, subtracted_data[tdata_inds], yerr=yerr[tdata_inds], marker=".", mfc="white", color="k", ecolor="tab:gray", markersize=10, linestyle="None")
+                if _letter != letter:
+                    other_rv += self.planets[_letter].radial_velocity(t)
+            other_rv += self.trend.radial_velocity(t)
+            subtracted_data = ydata_corrected - other_rv
+
+            # Plot phase-folded data coloured by instrument
+            for inst in unique_instruments:
+                mask = (instrument == inst)
+                t_inst = t[mask]
+                y_inst = subtracted_data[mask]
+                yerr_inst = yerr[mask]
+                tdata_fold_sorted, tdata_inds = fold_time_series(t_inst, p, tc)
+                axs[n].errorbar(tdata_fold_sorted, y_inst[tdata_inds],
+                               yerr=yerr_inst[tdata_inds], marker="o", mfc="white",
+                               color=inst_colors[inst], ecolor=inst_colors[inst],
+                               markersize=8, linestyle="None", alpha=0.8)
 
 def calculate_mpsini(mass_star: float, period: float, semi_amplitude: float, eccentricity: float, unit: str = "kg") -> float:
     """Calculate the minimum mass of the planet.

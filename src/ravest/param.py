@@ -426,6 +426,148 @@ class Parameterisation:
             raise ValueError(f"parameterisation {self.parameterisation} not recognised")
 
 
+def param_key_to_latex(key: str) -> str:
+    """Convert a parameter key to a LaTeX-formatted label for plotting.
+
+    Parameters
+    ----------
+    key : str
+        Parameter key, e.g. 'P_b', 'w_c', 'jit_HARPS', 'gp_amp'.
+
+    Returns
+    -------
+    str
+        LaTeX-formatted string suitable for matplotlib labels. Returns
+        the input key unchanged if the parameter is not recognised.
+    """
+    # Orbital parameter base names -> LaTeX (without planet suffix)
+    _BASE_LATEX = {
+        "P": "P",
+        "K": "K",
+        "e": "e",
+        "w": r"\omega",
+        "secosw": r"\sqrt{e}\cos\omega",
+        "sesinw": r"\sqrt{e}\sin\omega",
+        "ecosw": r"e\cos\omega",
+        "esinw": r"e\sin\omega",
+    }
+
+    # GP hyperparameters
+    _GP_LATEX = {
+        "gp_amp": r"$A$",
+        "gp_period": r"$P_{\rm GP}$",
+        "gp_lambda_e": r"$\lambda_e$",
+        "gp_lambda_p": r"$\lambda_p$",
+    }
+    if key in _GP_LATEX:
+        return _GP_LATEX[key]
+
+    # Trend parameters
+    if key == "gd":
+        return r"$\dot{\gamma}$"
+    if key == "gdd":
+        return r"$\ddot{\gamma}$"
+
+    # Tc and Tp with optional planet suffix
+    if key.startswith("Tc"):
+        suffix = key[2:]  # e.g. '_b' or ''
+        if suffix:
+            planet = suffix.lstrip("_")
+            return r"$T_{{\rm c}," + planet + r"}$"
+        return r"$T_{\rm c}$"
+    if key.startswith("Tp"):
+        suffix = key[2:]
+        if suffix:
+            planet = suffix.lstrip("_")
+            return r"$T_{{\rm p}," + planet + r"}$"
+        return r"$T_{\rm p}$"
+
+    # Instrument parameters: jit_<instrument> or g_<instrument>
+    if key.startswith("jit_"):
+        inst = key[4:]
+        return r"$\sigma_{{\rm {}}}$".format(inst)
+    if key.startswith("g_"):
+        inst = key[2:]
+        return r"$\gamma_{{\rm {}}}$".format(inst)
+
+    # Orbital parameters with optional planet suffix (e.g. P_b, secosw_c)
+    for base in sorted(_BASE_LATEX.keys(), key=len, reverse=True):
+        if key == base:
+            return "${}$".format(_BASE_LATEX[base])
+        if key.startswith(base + "_"):
+            planet = key[len(base) + 1:]
+            return "${}_{}$".format(_BASE_LATEX[base], planet)
+
+    # Unrecognised key: return unchanged
+    return key
+
+
+def param_key_to_unit(key: str) -> str | None:
+    """Return the internal unit string for a parameter key.
+
+    All parameters in ravest have fixed internal units — this function
+    returns the correct unit for a given parameter key. Useful for
+    labelling plots and formatting results tables.
+
+    Parameters
+    ----------
+    key : str
+        Parameter key, e.g. 'P_b', 'K_c', 'jit_HARPS', 'gp_amp'.
+
+    Returns
+    -------
+    str or None
+        Unit string (e.g. 'd', 'm/s', 'rad'). Returns '' for
+        dimensionless parameters. Returns None if the parameter
+        is not recognised.
+    """
+    # Orbital parameter base names -> units
+    _BASE_UNITS = {
+        "P": "d",
+        "K": r"$\mathrm{m}\,\mathrm{s}^{-1}$",
+        "e": "",
+        "w": "rad",
+        "secosw": "",
+        "sesinw": "",
+        "ecosw": "",
+        "esinw": "",
+    }
+
+    # GP hyperparameters
+    _GP_UNITS = {
+        "gp_amp": r"$\mathrm{m}\,\mathrm{s}^{-1}$",
+        "gp_period": "d",
+        "gp_lambda_e": "d",
+        "gp_lambda_p": "",
+    }
+    if key in _GP_UNITS:
+        return _GP_UNITS[key]
+
+    # Trend parameters
+    if key == "gd":
+        return r"$\mathrm{m}\,\mathrm{s}^{-1}\,\mathrm{d}^{-1}$"
+    if key == "gdd":
+        return r"$\mathrm{m}\,\mathrm{s}^{-1}\,\mathrm{d}^{-2}$"
+
+    # Tc and Tp (with or without planet suffix)
+    if key.startswith("Tc") or key.startswith("Tp"):
+        return "d"
+
+    # Instrument parameters
+    if key.startswith("jit_"):
+        return r"$\mathrm{m}\,\mathrm{s}^{-1}$"
+    if key.startswith("g_"):
+        return r"$\mathrm{m}\,\mathrm{s}^{-1}$"
+
+    # Orbital parameters with optional planet suffix
+    for base in sorted(_BASE_UNITS.keys(), key=len, reverse=True):
+        if key == base or key.startswith(base + "_"):
+            return _BASE_UNITS[base]
+
+    # Unrecognised key
+    return None
+
+
 class Parameter:
     """Represents a model parameter with value, unit, and fixed/free status."""
 

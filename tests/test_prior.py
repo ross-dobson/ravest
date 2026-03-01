@@ -257,6 +257,172 @@ class TestTruncatedNormal:
         assert repr(prior) == "TruncatedNormal(mean=1.0, std=0.5, lower=-2.0, upper=4.0)"
 
 
+class TestHalfNormal:
+    """Tests for the HalfNormal prior class."""
+
+    def test_halfnormal_init(self) -> None:
+        """Test HalfNormal prior initialization."""
+        prior = ravest.prior.HalfNormal(2.0)
+        assert prior.std == 2.0
+
+    def test_halfnormal_init_invalid_std(self) -> None:
+        """Test invalid standard deviation."""
+        with pytest.raises(ValueError, match="Standard deviation must be positive, got 0"):
+            ravest.prior.HalfNormal(0)
+
+        with pytest.raises(ValueError, match="Standard deviation must be positive, got -1"):
+            ravest.prior.HalfNormal(-1)
+
+    def test_halfnormal_positive_value(self) -> None:
+        """Test log probability for positive value."""
+        prior = ravest.prior.HalfNormal(1.0)
+        result = prior(1.0)
+        assert np.isfinite(result)
+
+    def test_halfnormal_at_zero(self) -> None:
+        """Test log probability at zero (should be finite, maximum density)."""
+        prior = ravest.prior.HalfNormal(1.0)
+        assert np.isfinite(prior(0.0))
+
+    def test_halfnormal_negative_returns_neginf(self) -> None:
+        """Test that negative values return -inf."""
+        prior = ravest.prior.HalfNormal(1.0)
+        assert prior(-0.001) == -np.inf
+        assert prior(-5.0) == -np.inf
+
+    def test_halfnormal_decreases_with_value(self) -> None:
+        """Test that density decreases as value increases."""
+        prior = ravest.prior.HalfNormal(1.0)
+        assert prior(0.0) > prior(1.0) > prior(2.0)
+
+    def test_halfnormal_against_scipy(self) -> None:
+        """Test against scipy reference values."""
+        from scipy.stats import halfnorm
+
+        prior = ravest.prior.HalfNormal(2.5)
+        for x in [0.0, 0.5, 1.0, 2.0, 5.0]:
+            expected = halfnorm.logpdf(x, scale=2.5)
+            np.testing.assert_allclose(prior(x), expected, atol=1e-12)
+
+    def test_halfnormal_repr(self) -> None:
+        """Test string representation."""
+        prior = ravest.prior.HalfNormal(3.0)
+        assert repr(prior) == "HalfNormal(std=3.0)"
+
+
+class TestRayleigh:
+    """Tests for the Rayleigh prior class."""
+
+    def test_rayleigh_init(self) -> None:
+        """Test Rayleigh prior initialization."""
+        prior = ravest.prior.Rayleigh(1.0)
+        assert prior.scale == 1.0
+
+    def test_rayleigh_init_invalid_scale(self) -> None:
+        """Test invalid scale parameter."""
+        with pytest.raises(ValueError, match="Scale parameter must be positive, got 0"):
+            ravest.prior.Rayleigh(0)
+
+        with pytest.raises(ValueError, match="Scale parameter must be positive, got -1"):
+            ravest.prior.Rayleigh(-1)
+
+    def test_rayleigh_positive_value(self) -> None:
+        """Test log probability for positive value."""
+        prior = ravest.prior.Rayleigh(1.0)
+        assert np.isfinite(prior(1.0))
+
+    def test_rayleigh_at_zero_is_neginf(self) -> None:
+        """Test that Rayleigh prior is -inf at zero (zero density at origin)."""
+        prior = ravest.prior.Rayleigh(1.0)
+        assert prior(0.0) == -np.inf
+
+    def test_rayleigh_negative_returns_neginf(self) -> None:
+        """Test that negative values return -inf."""
+        prior = ravest.prior.Rayleigh(1.0)
+        assert prior(-0.001) == -np.inf
+        assert prior(-5.0) == -np.inf
+
+    def test_rayleigh_against_scipy(self) -> None:
+        """Test against scipy reference values."""
+        from scipy.stats import rayleigh
+
+        prior = ravest.prior.Rayleigh(2.0)
+        for x in [0.5, 1.0, 2.0, 5.0]:
+            expected = rayleigh.logpdf(x, scale=2.0)
+            np.testing.assert_allclose(prior(x), expected, atol=1e-12)
+
+    def test_rayleigh_repr(self) -> None:
+        """Test string representation."""
+        prior = ravest.prior.Rayleigh(2.5)
+        assert repr(prior) == "Rayleigh(scale=2.5)"
+
+
+class TestVanEylen19Mixture:
+    """Tests for the VanEylen19Mixture prior class."""
+
+    def test_mixture_init(self) -> None:
+        """Test VanEylen19Mixture initialization."""
+        prior = ravest.prior.VanEylen19Mixture(0.049, 0.26, 0.08)
+        assert prior.sigma_normal == 0.049
+        assert prior.sigma_rayleigh == 0.26
+        assert prior.f == 0.08
+
+    def test_mixture_init_invalid_sigma_normal(self) -> None:
+        """Test invalid sigma_normal."""
+        with pytest.raises(ValueError, match="sigma_normal must be positive"):
+            ravest.prior.VanEylen19Mixture(0.0, 0.26, 0.08)
+
+    def test_mixture_init_invalid_sigma_rayleigh(self) -> None:
+        """Test invalid sigma_rayleigh."""
+        with pytest.raises(ValueError, match="sigma_rayleigh must be positive"):
+            ravest.prior.VanEylen19Mixture(0.049, -1.0, 0.08)
+
+    def test_mixture_init_invalid_f(self) -> None:
+        """Test invalid mixing fraction."""
+        with pytest.raises(ValueError, match="Mixing fraction f must be between 0 and 1"):
+            ravest.prior.VanEylen19Mixture(0.049, 0.26, -0.1)
+
+        with pytest.raises(ValueError, match="Mixing fraction f must be between 0 and 1"):
+            ravest.prior.VanEylen19Mixture(0.049, 0.26, 1.5)
+
+    def test_mixture_positive_value(self) -> None:
+        """Test log probability for positive value."""
+        prior = ravest.prior.VanEylen19Mixture(0.049, 0.26, 0.08)
+        assert np.isfinite(prior(0.1))
+
+    def test_mixture_negative_returns_neginf(self) -> None:
+        """Test that negative values return -inf."""
+        prior = ravest.prior.VanEylen19Mixture(0.049, 0.26, 0.08)
+        assert prior(-0.001) == -np.inf
+
+    def test_mixture_pure_halfnormal(self) -> None:
+        """Test f=0 gives pure half-Normal."""
+        from scipy.stats import halfnorm
+
+        sigma = 0.049
+        prior = ravest.prior.VanEylen19Mixture(sigma, 0.26, 0.0)
+
+        for x in [0.01, 0.05, 0.1, 0.3]:
+            expected = halfnorm.logpdf(x, scale=sigma)
+            np.testing.assert_allclose(prior(x), expected, atol=1e-10)
+
+    def test_mixture_pure_rayleigh(self) -> None:
+        """Test f=1 gives pure Rayleigh."""
+        from scipy.stats import rayleigh
+
+        sigma = 0.26
+        prior = ravest.prior.VanEylen19Mixture(0.049, sigma, 1.0)
+
+        for x in [0.1, 0.3, 0.5]:
+            expected = rayleigh.logpdf(x, scale=sigma)
+            np.testing.assert_allclose(prior(x), expected, atol=1e-10)
+
+    def test_mixture_repr(self) -> None:
+        """Test string representation."""
+        prior = ravest.prior.VanEylen19Mixture(0.049, 0.26, 0.08)
+        assert repr(prior) == "VanEylen19Mixture(sigma_normal=0.049, sigma_rayleigh=0.26, f=0.08)"
+
+
 class TestBeta:
     """Tests for the Beta prior class."""
 
