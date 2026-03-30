@@ -3,13 +3,14 @@
 ---
 
 **Radial Velocity fitting with Bayesian model comparison**
+
 Features:
 - Model exoplanets and host stars, to simulate RV data for given orbital and instrumental parameters
 - Fit RV data with MCMC to explore posterior distributions for parameters - including Gaussian Processes for stellar activity
-- Bayesian Model Comparison using the Learned Harmonic Mean Estimator [harmonic](https://astro-informatics.github.io/harmonic/)
+- Bayesian Model Comparison using the Learned Harmonic Mean Estimator from [harmonic](https://astro-informatics.github.io/harmonic/)
 - Visualise/animate the star's orbit (coming soon!)
 
-Check out the tutorial notebooks at the [online documentation](https://ravest.readthedocs.io/) to see examples of all of these!
+Check out the tutorial notebooks at the [online documentation](https://ravest.readthedocs.io/) to see examples of how to do all of these!
 
 ## Installation
 
