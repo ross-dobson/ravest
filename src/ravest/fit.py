@@ -1818,7 +1818,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def _plot_rv(self, params: Dict[str, float], title: str = "RV Model", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "rv_plot.png", dpi: int = 100) -> None:
+    def _plot_rv(self, params: Dict[str, float], title: str = "RV Model", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "rv_plot.png", dpi: int = 100) -> None:
         """Helper function to plot RV model with given parameters.
 
         Parameters
@@ -1833,6 +1833,16 @@ class Fitter:
             X-axis label for residuals plot (default: "Time [days]"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
             Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+        xlim : tuple or None, optional
+            (xmin, xmax) limits for the main RV plot x-axis (default: None, uses data range)
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main RV plot y-axis (default: None, auto-scaled)
+        res_xlim : tuple or None, optional
+            (xmin, xmax) limits for the residuals plot x-axis (default: None, uses data range)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
+        n_smooth : int, optional
+            Number of points in the smooth model curve (default: 1000)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -1850,7 +1860,7 @@ class Fitter:
         # Create smooth time curve for plotting
         _tmin, _tmax = self.time.min(), self.time.max()
         _trange = _tmax - _tmin
-        tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
+        tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, n_smooth)
 
         # Initialize arrays for planetary contributions
         rv_all_planets_smooth = np.zeros(len(tsmooth))
@@ -1910,7 +1920,9 @@ class Fitter:
                         alpha=0.5, zorder=3)
 
         ax1.plot(tsmooth, rv_total_smooth, label="Model", color="black", zorder=2)
-        ax1.set_xlim(tsmooth[0], tsmooth[-1])
+        ax1.set_xlim(xlim if xlim is not None else (tsmooth[0], tsmooth[-1]))
+        if ylim is not None:
+            ax1.set_ylim(ylim)
         if ylabel_main:
             ax1.set_ylabel(ylabel_main)
         if title:
@@ -1934,11 +1946,14 @@ class Fitter:
                         marker="None", ecolor=inst_colors[inst], linestyle="None",
                         alpha=0.5, zorder=3)
         ax2.axhline(0, color="k", linestyle="--", zorder=2)
-        ax2.set_xlim(tsmooth[0], tsmooth[-1])
+        ax2.set_xlim(res_xlim if res_xlim is not None else (xlim if xlim is not None else (tsmooth[0], tsmooth[-1])))
 
         # Set symmetric y-limits for residuals
-        max_abs_residual = np.max(np.abs(residuals + velerr_with_jit))
-        ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
+        if res_ylim is not None:
+            ax2.set_ylim(res_ylim)
+        else:
+            max_abs_residual = np.max(np.abs(residuals + velerr_with_jit))
+            ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
 
         if xlabel:
             ax2.set_xlabel(xlabel)
@@ -2762,7 +2777,7 @@ class Fitter:
         # Use helper function to create the plot
         self._plot_phase(planet_letter, all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, save=save, fname=fname, dpi=dpi)
 
-    def plot_custom_rv(self, params: dict, title: str | None = "Custom RV Plot", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "custom_rv.png", dpi: int = 100) -> None:
+    def plot_custom_rv(self, params: dict, title: str | None = "Custom RV Plot", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "custom_rv.png", dpi: int = 100) -> None:
         """Plot radial velocity data and model using custom parameter values.
 
         Allows plotting with arbitrary parameter values for exploring parameter space
@@ -2782,6 +2797,16 @@ class Fitter:
             X-axis label for residuals plot (default: "Time [days]"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
             Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+        xlim : tuple or None, optional
+            (xmin, xmax) limits for the main RV plot x-axis (default: None, uses data range)
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main RV plot y-axis (default: None, auto-scaled)
+        res_xlim : tuple or None, optional
+            (xmin, xmax) limits for the residuals plot x-axis (default: None, uses data range)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
+        n_smooth : int, optional
+            Number of points in the smooth model curve (default: 1000)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -2805,7 +2830,7 @@ class Fitter:
             raise ValueError(f"Missing required parameters: {missing_params}")
 
         # Use helper function to create the plot
-        self._plot_rv(params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, save=save, fname=fname, dpi=dpi)
+        self._plot_rv(params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, n_smooth=n_smooth, save=save, fname=fname, dpi=dpi)
 
     def plot_custom_phase(self, planet_letter: str, params: dict, title: str | None = None, ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "custom_phase.png", dpi: int = 100) -> None:
         """Plot phase-folded radial velocity data and model using custom parameter values.
@@ -5449,7 +5474,7 @@ class GPFitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def _plot_rv(self, params_hyperparams: Dict[str, float], title: str = "RV Model", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "rv_plot.png", dpi: int = 100) -> None:
+    def _plot_rv(self, params_hyperparams: Dict[str, float], title: str = "RV Model", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "rv_plot.png", dpi: int = 100) -> None:
         """Helper function to plot RV model with given parameters.
 
         For GP fitting, this plots both the mean model (planets + trend)
@@ -5469,6 +5494,16 @@ class GPFitter:
             X-axis label for residuals plot (default: "Time [days]"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
             Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+        xlim : tuple or None, optional
+            (xmin, xmax) limits for the main RV plot x-axis (default: None, uses data range)
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main RV plot y-axis (default: None, auto-scaled)
+        res_xlim : tuple or None, optional
+            (xmin, xmax) limits for the residuals plot x-axis (default: None, uses data range)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
+        n_smooth : int, optional
+            Number of points in the smooth model curve (default: 1000)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -5479,7 +5514,7 @@ class GPFitter:
         # Step 1: RV at smooth time points, for plotting
         _tmin, _tmax = self.time.min(), self.time.max()
         _trange = _tmax - _tmin
-        tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
+        tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, n_smooth)
 
         # Calculate mean model (planets + trend) at smooth time points (no gamma - that's per-instrument)
         rv_mean_smooth = np.zeros(len(tsmooth))
@@ -5599,7 +5634,9 @@ class GPFitter:
         ax1.fill_between(tsmooth, rv_total_smooth - rv_gp_std_smooth, rv_total_smooth + rv_gp_std_smooth,
                         color='darkgrey', zorder=1)
 
-        ax1.set_xlim(tsmooth[0], tsmooth[-1])
+        ax1.set_xlim(xlim if xlim is not None else (tsmooth[0], tsmooth[-1]))
+        if ylim is not None:
+            ax1.set_ylim(ylim)
         if ylabel_main:
             ax1.set_ylabel(ylabel_main)
         if title:
@@ -5625,11 +5662,14 @@ class GPFitter:
                         alpha=0.5, zorder=5)
 
         ax2.axhline(0, color="black", linestyle="--", zorder=2)
-        ax2.set_xlim(tsmooth[0], tsmooth[-1])
+        ax2.set_xlim(res_xlim if res_xlim is not None else (xlim if xlim is not None else (tsmooth[0], tsmooth[-1])))
 
         # Set symmetric y-limits for residuals
-        max_abs_residual = np.max(np.abs(residuals + velerr_with_jit))
-        ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
+        if res_ylim is not None:
+            ax2.set_ylim(res_ylim)
+        else:
+            max_abs_residual = np.max(np.abs(residuals + velerr_with_jit))
+            ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
 
         if xlabel:
             ax2.set_xlabel(xlabel)
@@ -6405,7 +6445,7 @@ class GPFitter:
         # Use helper function to create the plot
         self._plot_phase(planet_letter, all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, save=save, fname=fname, dpi=dpi)
 
-    def plot_custom_rv(self, params_hyperparams: dict, title: str | None = "Custom GP RV Plot", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "custom_rv.png", dpi: int = 100) -> None:
+    def plot_custom_rv(self, params_hyperparams: dict, title: str | None = "Custom GP RV Plot", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "custom_rv.png", dpi: int = 100) -> None:
         """Plot GP radial velocity data and model using custom parameter and hyperparameter values.
 
         Allows plotting with arbitrary parameter and hyperparameter values for exploring
@@ -6427,6 +6467,16 @@ class GPFitter:
             X-axis label for residuals plot (default: "Time [days]"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
             Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+        xlim : tuple or None, optional
+            (xmin, xmax) limits for the main RV plot x-axis (default: None, uses data range)
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main RV plot y-axis (default: None, auto-scaled)
+        res_xlim : tuple or None, optional
+            (xmin, xmax) limits for the residuals plot x-axis (default: None, uses data range)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
+        n_smooth : int, optional
+            Number of points in the smooth model curve (default: 1000)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -6453,7 +6503,7 @@ class GPFitter:
             raise ValueError(f"Missing required parameters/hyperparameters: {missing_params}")
 
         # Use helper function to create the plot
-        self._plot_rv(params_hyperparams, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, save=save, fname=fname, dpi=dpi)
+        self._plot_rv(params_hyperparams, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, n_smooth=n_smooth, save=save, fname=fname, dpi=dpi)
 
     def plot_custom_phase(self, planet_letter: str, params_hyperparams: dict, title: str | None = None, ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "custom_phase.png", dpi: int = 100) -> None:
         """Plot GP phase-folded radial velocity data and model using custom parameter and hyperparameter values.

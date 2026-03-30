@@ -1,26 +1,24 @@
 # ravest
 
-**Ravest is under active development, with lots of new features soon to be released for public use. This website will continue to be populated with new code and examples as they get released, so please check back soon for further updates! If you have any questions or ideas, please don't hesitate to contact me via email.**
-
 ---
 
-**Radial Velocity fitting, simulation and mass precision estimation**
+**Radial Velocity fitting with Bayesian model comparison**
 Features:
 - Model exoplanets and host stars, to simulate RV data for given orbital and instrumental parameters
 - Fit RV data with MCMC to explore posterior distributions for parameters - including Gaussian Processes for stellar activity
+- Bayesian Model Comparison using the Learned Harmonic Mean Estimator [harmonic](https://astro-informatics.github.io/harmonic/)
 - Visualise/animate the star's orbit (coming soon!)
-- Bayesian Model Comparison using [harmonic](https://astro-informatics.github.io/harmonic/) (**coming soon!**)
 
+Check out the tutorial notebooks at the [online documentation](https://ravest.readthedocs.io/) to see examples of all of these!
 
 ## Installation
 
-### CPU-only
+It should be as simple as
 ```bash
 $ pip install ravest
 ```
 
-### GPU/TPU support
-Ravest requires JAX, so you may want to consult [the Jax installation docs](https://docs.jax.dev/en/latest/installation.html) if you want GPU or TPU support (tl;dr: install JAX first according to those instructions, then install Ravest on top).
+JAX is a requirement for `ravest` (and `harmonic`), so you may want to consult [the JAX installation docs](https://docs.jax.dev/en/latest/installation.html) if you want GPU or TPU support (tl;dr: install JAX first according to those instructions, then install `ravest` on top).
 
 ## Usage
 
@@ -29,6 +27,10 @@ For an introduction to modelling planetary and stellar data, see the  [example m
 For an example of how to fit a model to RV data, see the [example fitting notebook](https://ravest.readthedocs.io/en/latest/Examples/example_fitting.html) where we fit some ELODIE data for 51 Peg b.
 
 For an example of how to use a Gaussian Process to mitigate stellar variability, see the [example GP notebook](https://ravest.readthedocs.io/en/latest/Examples/example_gp.html) where we use a quasiperiodic kernel on HARPS data for K2-229.
+
+For an example on using the Learned Harmonic Mean Estimator from `harmonic` to compare two competing RV models by estimating the Bayesian evidence $\mathcal{Z}$ and Bayes Factors, see the [example harmonic notebook](https://ravest.readthedocs.io/en/latest/Examples/example_harmonic.html) where we compare a one-planet and two-planet fit for TOI-544.
+
+If you have any questions, check the [Frequently Asked Questions](https://ravest.readthedocs.io/en/latest/Examples/example_gp.html), raise an issue on Github, or email me and I'll be happy to help.
 
 ## Contributing
 
@@ -46,7 +48,7 @@ Ravest makes use of the following open-source packages:
 - [emcee](https://emcee.readthedocs.io/) for MCMC sampling
 - [corner](https://corner.readthedocs.io/) for visualising posterior distributions
 - [tinygp](https://tinygp.readthedocs.io/) for Gaussian Process modelling, which requires [JAX](https://jax.readthedocs.io/)
-- [harmonic](https://astro-informatics.github.io/harmonic/) for Bayesian evidence estimation
+- [harmonic](https://astro-informatics.github.io/harmonic/) for Bayesian evidence estimation via the Learned Harmonic Mean Estimator
 
 ## License
 
