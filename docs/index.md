@@ -26,6 +26,7 @@ autoapi/index
 :hidden:
 :caption: Project
 
+FAQ.md
 changelog.md
 contributing.md
 conduct.md
