@@ -10,12 +10,16 @@ class Uniform:
     r"""Log of uniform prior distribution, with closed (inclusive) interval [a,b].
 
     The uniform probability distribution is:
+
     .. math::
+
         p(x) = \frac{1}{b - a} \quad \text{for} \quad a \leq x \leq b \\
         0 \quad \text{otherwise}
 
     The log probability is:
+
     .. math::
+
         \log p(x) = -\log{(b - a)} \quad \text{for} \quad a \leq x \leq b \\
         -\inf \quad \text{otherwise}
 
@@ -68,12 +72,16 @@ class EccentricityUniform:
     r"""Log Uniform prior for eccentricity. Uses half-open interval [0, upper).
 
     The uniform probability distribution is:
+
     .. math::
+
         p(x) = \frac{1}{b} \quad \text{for} \quad 0 \leq x < b \\
         0 \quad \text{otherwise}
 
     The log probability is:
+
     .. math::
+
         \log p(x) = -\log{b} \quad \text{for} \quad 0 \leq x < b \\
         -\inf \quad \text{otherwise}
 
@@ -121,11 +129,15 @@ class Normal:
     r"""Log of Normal prior distribution.
 
     The Normal probability distribution is:
+
     .. math::
+
         p(x) = \frac{1}{\sigma\sqrt{2\pi}} \exp\left(-\frac{(x - \mu)^2}{2\sigma^2}\right)
 
     The log probability is:
+
     .. math::
+
         \log p(x) = -\frac{1}{2}\left(\frac{x - \mu}{\sigma}\right)^2 - \frac{1}{2}\log(2\pi\sigma^2)
 
     Parameters
@@ -167,7 +179,9 @@ class TruncatedNormal:
     r"""Log of properly normalized truncated Normal prior distribution.
 
     The truncated Normal probability distribution is:
+
     .. math::
+
         p(x) = \frac{\phi\left(\frac{x - \mu}{\sigma}\right)}{\sigma \left[\Phi\left(\frac{b - \mu}{\sigma}\right) - \Phi\left(\frac{a - \mu}{\sigma}\right)\right]} \quad \text{for} \quad a \leq x \leq b \\
         0 \quad \text{otherwise}
 
@@ -175,7 +189,9 @@ class TruncatedNormal:
     standard normal CDF.
 
     The log probability is:
+
     .. math::
+
         \log p(x) = \log\phi\left(\frac{x - \mu}{\sigma}\right) - \log\sigma - \log\left[\Phi\left(\frac{b - \mu}{\sigma}\right) - \Phi\left(\frac{a - \mu}{\sigma}\right)\right] \quad \text{for} \quad a \leq x \leq b \\
         -\inf \quad \text{otherwise}
 
@@ -237,12 +253,16 @@ class HalfNormal:
     r"""Log of half-Normal prior distribution.
 
     The half-Normal probability distribution is:
+
     .. math::
+
         p(x) = \frac{2}{\sigma\sqrt{2\pi}} \exp\left(-\frac{x^2}{2\sigma^2}\right) \quad \text{for} \quad x \geq 0 \\
         0 \quad \text{otherwise}
 
     The log probability is:
+
     .. math::
+
         \log p(x) = \log(2) - \log(\sigma) - \frac{1}{2}\log(2\pi) - \frac{x^2}{2\sigma^2} \quad \text{for} \quad x \geq 0 \\
         -\inf \quad \text{otherwise}
 
@@ -290,12 +310,16 @@ class Rayleigh:
     r"""Log of Rayleigh prior distribution.
 
     The Rayleigh probability distribution is:
+
     .. math::
+
         p(x) = \frac{x}{\sigma^2} \exp\left(-\frac{x^2}{2\sigma^2}\right) \quad \text{for} \quad x \geq 0 \\
         0 \quad \text{otherwise}
 
     The log probability is:
+
     .. math::
+
         \log p(x) = \log(x) - 2\log(\sigma) - \frac{x^2}{2\sigma^2} \quad \text{for} \quad x \geq 0 \\
         -\inf \quad \text{otherwise}
 
@@ -348,11 +372,15 @@ class VanEylen19Mixture:
     eccentricities, as described in Van Eylen et al. (2019).
 
     The mixture probability distribution is:
+
     .. math::
+
         p(x) = (1-f) \cdot p_{\text{HalfNormal}}(x; \sigma_{\text{normal}}) + f \cdot p_{\text{Rayleigh}}(x; \sigma_{\text{rayleigh}})
 
     The log probability is:
+
     .. math::
+
         \log p(x) = \log\left[(1-f) \cdot p_{\text{HalfNormal}}(x; \sigma_{\text{normal}}) + f \cdot p_{\text{Rayleigh}}(x; \sigma_{\text{rayleigh}})\right]
 
     where:
@@ -419,14 +447,18 @@ class Beta:
     r"""Log of Beta prior distribution, for parameter x where 0 <= x <= 1.
 
     The Beta probability distribution is:
+
     .. math::
+
         p(x) = \frac{x^{a-1}(1-x)^{b-1}}{B(a,b)} \quad \text{for} \quad 0 \leq x \leq 1 \\
         0 \quad \text{otherwise}
 
     where B(a,b) is the beta function.
 
     The log probability is:
+
     .. math::
+
         \log p(x) = (a - 1)\log(x) + (b - 1)\log(1-x) - \log B(a,b) \quad \text{for} \quad 0 \leq x \leq 1 \\
         -\inf \quad \text{otherwise}
 

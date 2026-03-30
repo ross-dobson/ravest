@@ -22,11 +22,11 @@ from ravest.param import Parameterisation
 
 @numba.njit(cache=True)
 def _solve_kepler(Mi: float, e: float) -> tuple[float, float]:
-    """Solve Kepler's equation for a single mean anomaly value.
+    r"""Solve Kepler's equation for a single mean anomaly value.
 
-    Kepler's equation E - e*sin(E) = M must be solved iteratively for the
-    eccentric anomaly E. Uses Halley's method (cubic convergence) with the
-    same tolerance and iteration limits as scipy's newton solver.
+    Kepler's equation :math:`E - e\sin E = M` must be solved iteratively for
+    the eccentric anomaly :math:`E`. Uses Halley's method (cubic convergence)
+    with the same tolerance and iteration limits as scipy's newton solver.
 
     Parameters
     ----------
@@ -72,7 +72,7 @@ def _solve_kepler(Mi: float, e: float) -> tuple[float, float]:
 
 @numba.njit(cache=True)
 def _true_anomaly(cos_E: float, sin_E: float, e: float, sqrt_1me2: float) -> tuple[float, float]:
-    """Compute cos(f) and sin(f) of the true anomaly from the eccentric anomaly.
+    r"""Compute cos(f) and sin(f) of the true anomaly from the eccentric anomaly.
 
     Calculates the true anomaly directly from cos(E) and sin(E) rather than
     via the arctan formula, avoiding a trig call per element.
@@ -86,7 +86,7 @@ def _true_anomaly(cos_E: float, sin_E: float, e: float, sqrt_1me2: float) -> tup
     e : float
         Eccentricity of the orbit (dimensionless).
     sqrt_1me2 : float
-        Precomputed sqrt(1 - e^2).
+        Precomputed :math:`\sqrt{1 - e^2}`.
 
     Returns
     -------
@@ -97,20 +97,24 @@ def _true_anomaly(cos_E: float, sin_E: float, e: float, sqrt_1me2: float) -> tup
 
     Notes
     -----
-    Rather than computing f as an angle via the arctan formula
-    f = 2*arctan(sqrt((1+e)/(1-e)) * tan(E/2)), we obtain cos(f) and sin(f)
-    directly from cos(E) and sin(E):
+    Rather than computing :math:`f` as an angle via the arctan formula
+    :math:`f = 2\arctan\left(\sqrt{\frac{1+e}{1-e}} \tan\frac{E}{2}\right)`,
+    we obtain :math:`\cos f` and :math:`\sin f` directly from :math:`\cos E`
+    and :math:`\sin E`:
 
-        cos(f) = (cos(E) - e) / (1 - e*cos(E))
-        sin(f) = sqrt(1 - e^2) * sin(E) / (1 - e*cos(E))
+    .. math::
 
-    The cos(f) identity is a standard result from the geometry of the
-    auxiliary circle (Perryman, Exoplanet Handbook, eq. 2.6). sin(f)
-    follows from sin^2(f) = 1 - cos^2(f), which simplifies to
-    (1 - e^2)*sin^2(E) / (1 - e*cos(E))^2.
+        \cos f = \frac{\cos E - e}{1 - e\cos E}
 
-    Since cos(E) and sin(E) are already available from the Kepler solver,
-    this avoids any additional trig calls.
+        \sin f = \frac{\sqrt{1 - e^2} \sin E}{1 - e\cos E}
+
+    The :math:`\cos f` identity is a standard result from the geometry of the
+    auxiliary circle (Perryman, Exoplanet Handbook, eq. 2.6). :math:`\sin f`
+    follows from :math:`\sin^2 f = 1 - \cos^2 f`, which simplifies to
+    :math:`(1 - e^2)\sin^2 E / (1 - e\cos E)^2`.
+
+    Since :math:`\cos E` and :math:`\sin E` are already available from the
+    Kepler solver, this avoids any additional trig calls.
     """
     denom = 1.0 - e * cos_E  # common denominator of cos(f) and sin(f)
     cos_f = (cos_E - e) / denom
@@ -121,10 +125,11 @@ def _true_anomaly(cos_E: float, sin_E: float, e: float, sqrt_1me2: float) -> tup
 @numba.njit(cache=True)
 def _radial_velocity_from_f(cos_f: float, sin_f: float, K: float,
                             cos_w: float, sin_w: float, e_cos_w: float) -> float:
-    """Compute radial velocity from the true anomaly of a single observation.
+    r"""Compute radial velocity from the true anomaly of a single observation.
 
-    Uses the trig identity cos(f + w) = cos(f)*cos(w) - sin(f)*sin(w) to
-    avoid computing f explicitly.
+    Uses the trig identity
+    :math:`\cos(f + \omega) = \cos f \cos \omega - \sin f \sin \omega`
+    to avoid computing :math:`f` explicitly.
 
     Parameters
     ----------
@@ -148,10 +153,17 @@ def _radial_velocity_from_f(cos_f: float, sin_f: float, K: float,
 
     Notes
     -----
-    The RV equation is K * [cos(f + w) + e*cos(w)]. Rather than computing
-    the angle f and evaluating cos(f + w), we expand via the addition
-    identity cos(f + w) = cos(f)*cos(w) - sin(f)*sin(w), using cos(f) and
-    sin(f) from _true_anomaly directly. cos(w), sin(w), and e*cos(w) are
+    The RV equation is:
+
+    .. math::
+
+        v_r = K \left[ \cos(f + \omega) + e\cos\omega \right]
+
+    Rather than computing the angle :math:`f` and evaluating
+    :math:`\cos(f + \omega)`, we expand via the addition identity
+    :math:`\cos(f + \omega) = \cos f \cos \omega - \sin f \sin \omega`,
+    using :math:`\cos f` and :math:`\sin f` from ``_true_anomaly`` directly.
+    :math:`\cos\omega`, :math:`\sin\omega`, and :math:`e\cos\omega` are
     constant across all observations and precomputed by the caller.
     """
     # RV = K * [cos(f + w) + e*cos(w)]

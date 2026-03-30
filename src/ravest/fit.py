@@ -1427,10 +1427,14 @@ class Fitter:
             return self.fixed_params_values_dict | free_dict
 
     def calculate_chi2(self, params_dict: Dict[str, float]) -> float:
-        """Calculate chi-squared for given parameter values.
+        r"""Calculate chi-squared for given parameter values.
 
         Uses LogLikelihood to avoid code duplication. Works backwards from
-        log-likelihood: ll = -0.5 * (chi2 + penalty_term)
+        log-likelihood:
+
+        .. math::
+
+            \ell = -\frac{1}{2} \left( \chi^2 + \text{penalty} \right)
 
         Parameters
         ----------
@@ -1440,7 +1444,11 @@ class Fitter:
         Returns
         -------
         float
-            Chi-squared value: sum((data - model)^2 / (error^2 + jitter^2))
+            Chi-squared value:
+
+            .. math::
+
+                \chi^2 = \sum_i \frac{(d_i - m_i)^2}{\sigma_i^2 + \sigma_{\text{jit}}^2}
         """
         # Create LogLikelihood instance to reuse RV model calculation
         ll = LogLikelihood(
@@ -1467,11 +1475,15 @@ class Fitter:
         return chi2
 
     def calculate_aicc(self, params_dict: Dict[str, float]) -> float:
-        """Calculate corrected Akaike Information Criterion (AICc).
+        r"""Calculate corrected Akaike Information Criterion (AICc).
 
-        AICc = 2*k - 2*ln(L) + (2*k^2 + 2*k) / (n - k - 1), where k is the
-        number of free parameters, n is the number of observations, and L is
-        the likelihood. Converges to AIC for large n.
+        .. math::
+
+            \text{AICc} = 2k - 2\ln\mathcal{L} + \frac{2k^2 + 2k}{n - k - 1}
+
+        where :math:`k` is the number of free parameters, :math:`n` is the
+        number of observations, and :math:`\mathcal{L}` is the likelihood.
+        Converges to AIC for large :math:`n`.
 
         Parameters
         ----------
@@ -1491,10 +1503,14 @@ class Fitter:
         return aic + correction
 
     def calculate_bic(self, params_dict: Dict[str, float]) -> float:
-        """Calculate Bayesian Information Criterion (BIC) for given parameters.
+        r"""Calculate Bayesian Information Criterion (BIC) for given parameters.
 
-        BIC = k*ln(n) - 2*ln(L), where k is the number of free parameters,
-        n is the number of observations, and L is the likelihood.
+        .. math::
+
+            \text{BIC} = k \ln n - 2 \ln \mathcal{L}
+
+        where :math:`k` is the number of free parameters, :math:`n` is the
+        number of observations, and :math:`\mathcal{L}` is the likelihood.
 
         Parameters
         ----------
@@ -4999,11 +5015,17 @@ class GPFitter:
         return jnp.dot(alpha, alpha)  # r^T @ K^(-1) @ r = alpha^T @ alpha
 
     def calculate_chi2(self, params_hyperparams_dict: Dict[str, float]) -> float:
-        """Calculate chi-squared for given parameter and hyperparameter values.
+        r"""Calculate chi-squared for given parameter and hyperparameter values.
 
-        For GP models, this calculates chi^2 = r^T K^-1 r, where K is the full
-        covariance matrix including GP kernel and observational uncertainties.
-        This properly accounts for correlated noise structure.
+        For GP models, this calculates:
+
+        .. math::
+
+            \chi^2 = \mathbf{r}^T \mathbf{K}^{-1} \mathbf{r}
+
+        where :math:`\mathbf{K}` is the full covariance matrix including
+        GP kernel and observational uncertainties. This properly accounts
+        for correlated noise structure.
 
         Uses GPLogLikelihood._calculate_mean_model to avoid code duplication.
 
@@ -5015,7 +5037,7 @@ class GPFitter:
         Returns
         -------
         float
-            Chi-squared value: r^T K^-1 r
+            Chi-squared value
         """
         # Create GPLogLikelihood instance to reuse mean model calculation
         gp_ll = GPLogLikelihood(
@@ -5059,11 +5081,15 @@ class GPFitter:
         return float(self._compute_gp_chi2(kernel, gp_ll.jax_time, velerr_jitter_squared, residuals))
 
     def calculate_aicc(self, params_hyperparams_dict: Dict[str, float]) -> float:
-        """Calculate corrected Akaike Information Criterion (AICc).
+        r"""Calculate corrected Akaike Information Criterion (AICc).
 
-        AICc = 2*k - 2*ln(L) + (2*k^2 + 2*k) / (n - k - 1), where k is the
-        number of free parameters and hyperparameters, n is the number of
-        observations, and L is the likelihood. Converges to AIC for large n.
+        .. math::
+
+            \text{AICc} = 2k - 2\ln\mathcal{L} + \frac{2k^2 + 2k}{n - k - 1}
+
+        where :math:`k` is the number of free parameters and hyperparameters,
+        :math:`n` is the number of observations, and :math:`\mathcal{L}` is
+        the likelihood. Converges to AIC for large :math:`n`.
 
         Parameters
         ----------
@@ -5083,10 +5109,15 @@ class GPFitter:
         return aic + correction
 
     def calculate_bic(self, params_hyperparams_dict: Dict[str, float]) -> float:
-        """Calculate Bayesian Information Criterion (BIC) for given parameters and hyperparameters.
+        r"""Calculate Bayesian Information Criterion (BIC) for given parameters and hyperparameters.
 
-        BIC = k*ln(n) - 2*ln(L), where k is the number of free parameters and hyperparameters,
-        n is the number of observations, and L is the likelihood.
+        .. math::
+
+            \text{BIC} = k \ln n - 2 \ln \mathcal{L}
+
+        where :math:`k` is the number of free parameters and hyperparameters,
+        :math:`n` is the number of observations, and :math:`\mathcal{L}` is
+        the likelihood.
 
         Parameters
         ----------
