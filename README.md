@@ -31,7 +31,7 @@ For an example of how to use a Gaussian Process to mitigate stellar variability,
 
 For an example on using the Learned Harmonic Mean Estimator from `harmonic` to compare two competing RV models by estimating the Bayesian evidence $\mathcal{Z}$ and Bayes Factors, see the [example harmonic notebook](https://ravest.readthedocs.io/en/latest/Examples/example_harmonic.html) where we compare a one-planet and two-planet fit for TOI-544.
 
-If you have any questions, check the [Frequently Asked Questions](https://ravest.readthedocs.io/en/latest/Examples/example_gp.html), raise an issue on Github, or email me and I'll be happy to help.
+If you have any questions, check the [Frequently Asked Questions](https://ravest.readthedocs.io/en/latest/FAQ.html), raise an issue on Github, or email me and I'll be happy to help.
 
 ## Contributing
 
