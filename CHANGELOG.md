@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.4.0 (2026-03-02)
+
+### Features
+- Multi-instrument RV fitting: separate gamma offset and jitter per instrument
+- AIC replaced with AICc (small-sample correction)
+- Automated LaTeX parameter labels on all plots (corner, chains, autocorrelation, phase)
+- `param_key_to_latex()` and `param_key_to_unit()` public utilities for custom tables and plots
+- Error handling for legacy single-instrument parameters
+
+### Performance
+- Numba JIT-compiled Kepler solver
+- Vectorised log-likelihood with precomputed constants and integer index arrays
+- Precomputed velerr squared, log(2*pi), and parameter key strings in LogLikelihood
+
+### Fixes
+- Consistent zorder in Fitter/GPFitter plots
+- Fall back to absolute perturbation when generating random walker init positions if value=0
+
+### Tests
+- GPFitter tests added
+- Multi-instrument test cases
+- Warnings if all params fixed
+- Coverage tests ensuring new parameterisations/kernels have label and unit entries
+
+### Docs
+- Restructured RTD sidebar with captioned sections (Tutorials, API, Project)
+- Fixed LaTeX rendering in all docstrings (prior.py, fit.py, model.py)
+- Fixed equation rendering in GP tutorial notebook
+- Updated all example notebooks for multi-instrument support
+- Synced docs/requirements.txt with pyproject.toml
+
+### Build
+- Added numba dependency
+- Updated numpy and other dependencies
+- Updated Poetry
+
 ## v0.3.0 (2026-01-03)
 - Added full Gaussian Process (GP) functionality to handle stellar activity in RV fitting
 - New GP classes: GPKernel, GPLogLikelihood, GPLogPosterior, and GPFitter for GP-based MCMC fitting
