@@ -10,6 +10,7 @@ Examples/example_model.ipynb
 Examples/example_fitting.ipynb
 Examples/K2-24.ipynb
 Examples/example_GP.ipynb
+Examples/example_harmonic.ipynb
 ```
 
 ```{toctree}
