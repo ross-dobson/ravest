@@ -40,7 +40,7 @@ repository = "https://www.github.com/ross-dobson/ravest"
 [tool.poetry]
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^9.0.2"
+pytest = "^9.0.3"
 pytest-cov = "^7.0.0"
 sphinx-autoapi = "^3.6.1"
 sphinx-rtd-theme = "^3.0.2"
