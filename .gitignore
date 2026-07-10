@@ -79,6 +79,9 @@ target/
 # Jupyter Notebook
 .ipynb_checkpoints
 
+# Large generated notebook artifacts (pickled Fitter objects from example runs)
+*.pkl
+
 # IPython
 profile_default/
 ipython_config.py
