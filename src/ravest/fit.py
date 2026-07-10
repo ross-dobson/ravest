@@ -59,6 +59,12 @@ class Fitter:
             The orbital parameterisation to use for fitting. Defines which orbital
             elements are used as free/fixed parameters (e.g., 'Default', 'EccentricityWind').
         """
+        if not isinstance(parameterisation, Parameterisation):
+            raise TypeError(
+                f"parameterisation must be a Parameterisation object, not "
+                f"{type(parameterisation).__name__}. If you passed the name as a string, "
+                f"wrap it, e.g. ravest.param.Parameterisation('...')."
+            )
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
 
@@ -3353,6 +3359,12 @@ class GPFitter:
         gp_kernel : GPKernel
             The Gaussian Process kernel to use for modelling correlated noise in the data.
         """
+        if not isinstance(parameterisation, Parameterisation):
+            raise TypeError(
+                f"parameterisation must be a Parameterisation object, not "
+                f"{type(parameterisation).__name__}. If you passed the name as a string, "
+                f"wrap it, e.g. ravest.param.Parameterisation('...')."
+            )
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
         self.gp_kernel = gp_kernel
