@@ -899,6 +899,34 @@ class TestAdaptiveConvergence:
         chain = fitter.get_samples_np(flat=False)
         assert chain.shape[0] <= 200
 
+    def test_max_steps_smaller_than_interval_raises(self, setup_fitter):
+        """check_convergence with max_steps below the first check interval raises."""
+        fitter, initial_positions = setup_fitter
+        with pytest.raises(ValueError, match="No convergence check would ever run"):
+            fitter.run_mcmc(
+                initial_positions,
+                nwalkers=10,
+                max_steps=50,
+                progress=False,
+                check_convergence=True,
+                convergence_check_interval=100,
+                convergence_check_start=0,
+            )
+
+    def test_convergence_check_start_beyond_max_steps_raises(self, setup_fitter):
+        """check_convergence with convergence_check_start beyond max_steps raises."""
+        fitter, initial_positions = setup_fitter
+        with pytest.raises(ValueError, match="No convergence check would ever run"):
+            fitter.run_mcmc(
+                initial_positions,
+                nwalkers=10,
+                max_steps=100,
+                progress=False,
+                check_convergence=True,
+                convergence_check_interval=50,
+                convergence_check_start=200,
+            )
+
     def test_plot_autocorr_without_convergence_check_raises(self, setup_fitter):
         """Test that plotting without convergence checking raises informative error."""
         fitter, initial_positions = setup_fitter

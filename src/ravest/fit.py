@@ -1081,6 +1081,27 @@ class Fitter:
                     "These arguments will be ignored. Did you forget to set check_convergence=True?"
                 )
 
+        # Guard: if convergence checking is enabled but the first check can never
+        # occur within max_steps, the run would silently behave as fixed-length.
+        if check_convergence:
+            if convergence_check_interval <= 0:
+                raise ValueError(
+                    f"convergence_check_interval must be a positive integer, got {convergence_check_interval}."
+                )
+            # First check fires at the smallest multiple of the interval that is
+            # at least convergence_check_start (and at least one interval in).
+            n_intervals = max(1, -(-convergence_check_start // convergence_check_interval))
+            first_check_iteration = n_intervals * convergence_check_interval
+            if first_check_iteration > max_steps:
+                raise ValueError(
+                    f"check_convergence=True but the first convergence check would occur at "
+                    f"iteration {first_check_iteration} (first multiple of convergence_check_interval="
+                    f"{convergence_check_interval} at or after convergence_check_start="
+                    f"{convergence_check_start}), which exceeds max_steps={max_steps}. No convergence "
+                    f"check would ever run. Increase max_steps, or reduce convergence_check_interval "
+                    f"and/or convergence_check_start."
+                )
+
         # Run MCMC with or without convergence checking
         if not check_convergence:
             # Fixed-length mode - run for exactly max_steps
@@ -4639,6 +4660,27 @@ class GPFitter:
                 logging.warning(
                     "Convergence checking arguments provided but check_convergence=False. "
                     "These arguments will be ignored. Did you forget to set check_convergence=True?"
+                )
+
+        # Guard: if convergence checking is enabled but the first check can never
+        # occur within max_steps, the run would silently behave as fixed-length.
+        if check_convergence:
+            if convergence_check_interval <= 0:
+                raise ValueError(
+                    f"convergence_check_interval must be a positive integer, got {convergence_check_interval}."
+                )
+            # First check fires at the smallest multiple of the interval that is
+            # at least convergence_check_start (and at least one interval in).
+            n_intervals = max(1, -(-convergence_check_start // convergence_check_interval))
+            first_check_iteration = n_intervals * convergence_check_interval
+            if first_check_iteration > max_steps:
+                raise ValueError(
+                    f"check_convergence=True but the first convergence check would occur at "
+                    f"iteration {first_check_iteration} (first multiple of convergence_check_interval="
+                    f"{convergence_check_interval} at or after convergence_check_start="
+                    f"{convergence_check_start}), which exceeds max_steps={max_steps}. No convergence "
+                    f"check would ever run. Increase max_steps, or reduce convergence_check_interval "
+                    f"and/or convergence_check_start."
                 )
 
         # Run MCMC with or without convergence checking
