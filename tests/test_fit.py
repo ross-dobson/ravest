@@ -102,6 +102,11 @@ class TestFitter:
         assert fitter.params == {}
         assert fitter.priors == {}
 
+    def test_fitter_init_rejects_string_parameterisation(self) -> None:
+        """Passing the parameterisation name as a string (not a Parameterisation) raises."""
+        with pytest.raises(TypeError, match="parameterisation must be a Parameterisation object"):
+            Fitter(["b"], "P K e w Tc")
+
     def test_add_data_valid(self, test_data) -> None:
         """Test adding valid data."""
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
@@ -899,6 +904,34 @@ class TestAdaptiveConvergence:
         chain = fitter.get_samples_np(flat=False)
         assert chain.shape[0] <= 200
 
+    def test_max_steps_smaller_than_interval_raises(self, setup_fitter):
+        """check_convergence with max_steps below the first check interval raises."""
+        fitter, initial_positions = setup_fitter
+        with pytest.raises(ValueError, match="No convergence check would ever run"):
+            fitter.run_mcmc(
+                initial_positions,
+                nwalkers=10,
+                max_steps=50,
+                progress=False,
+                check_convergence=True,
+                convergence_check_interval=100,
+                convergence_check_start=0,
+            )
+
+    def test_convergence_check_start_beyond_max_steps_raises(self, setup_fitter):
+        """check_convergence with convergence_check_start beyond max_steps raises."""
+        fitter, initial_positions = setup_fitter
+        with pytest.raises(ValueError, match="No convergence check would ever run"):
+            fitter.run_mcmc(
+                initial_positions,
+                nwalkers=10,
+                max_steps=100,
+                progress=False,
+                check_convergence=True,
+                convergence_check_interval=50,
+                convergence_check_start=200,
+            )
+
     def test_plot_autocorr_without_convergence_check_raises(self, setup_fitter):
         """Test that plotting without convergence checking raises informative error."""
         fitter, initial_positions = setup_fitter
@@ -1501,6 +1534,12 @@ class TestGPFitter:
         assert fitter.priors == {}
         assert fitter.hyperparams == {}
         assert fitter.hyperpriors == {}
+
+    def test_gpfitter_init_rejects_string_parameterisation(self) -> None:
+        """Passing the parameterisation name as a string (not a Parameterisation) raises."""
+        gp_kernel = GPKernel("Quasiperiodic")
+        with pytest.raises(TypeError, match="parameterisation must be a Parameterisation object"):
+            GPFitter(["b"], "P K e w Tc", gp_kernel)
 
     def test_add_data_valid(self, test_gp_data) -> None:
         """Test adding valid data to GPFitter."""

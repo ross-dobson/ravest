@@ -426,6 +426,23 @@ class Parameterisation:
             raise ValueError(f"parameterisation {self.parameterisation} not recognised")
 
 
+def _instrument_subscript_latex(inst: str) -> str:
+    r"""Format an instrument name as the body of a LaTeX math subscript.
+
+    Instrument names may carry a numeric suffix (e.g. ``HARPS_15``, used when
+    data is split at a known instrument change). Wrapping the whole name in
+    ``\rm`` puts the ``_15`` inside one roman group, so matplotlib mathtext only
+    subscripts the first digit. Splitting on the first underscore and using
+    ``\mathrm{...}`` with an explicit nested subscript renders the full suffix.
+
+    Examples: ``HARPS`` -> ``\mathrm{HARPS}``; ``HARPS_15`` -> ``\mathrm{HARPS}_{15}``.
+    """
+    base, _, suffix = inst.partition("_")
+    if suffix:
+        return r"\mathrm{{{}}}_{{{}}}".format(base, suffix)
+    return r"\mathrm{{{}}}".format(base)
+
+
 def param_key_to_latex(key: str) -> str:
     """Convert a parameter key to a LaTeX-formatted label for plotting.
 
@@ -485,10 +502,10 @@ def param_key_to_latex(key: str) -> str:
     # Instrument parameters: jit_<instrument> or g_<instrument>
     if key.startswith("jit_"):
         inst = key[4:]
-        return r"$\sigma_{{\rm {}}}$".format(inst)
+        return r"$\sigma_{{{}}}$".format(_instrument_subscript_latex(inst))
     if key.startswith("g_"):
         inst = key[2:]
-        return r"$\gamma_{{\rm {}}}$".format(inst)
+        return r"$\gamma_{{{}}}$".format(_instrument_subscript_latex(inst))
 
     # Orbital parameters with optional planet suffix (e.g. P_b, secosw_c)
     for base in sorted(_BASE_LATEX.keys(), key=len, reverse=True):
