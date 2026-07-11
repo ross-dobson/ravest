@@ -102,6 +102,11 @@ class TestFitter:
         assert fitter.params == {}
         assert fitter.priors == {}
 
+    def test_fitter_init_rejects_string_parameterisation(self) -> None:
+        """Passing the parameterisation name as a string (not a Parameterisation) raises."""
+        with pytest.raises(TypeError, match="parameterisation must be a Parameterisation object"):
+            Fitter(["b"], "P K e w Tc")
+
     def test_add_data_valid(self, test_data) -> None:
         """Test adding valid data."""
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
@@ -1529,6 +1534,12 @@ class TestGPFitter:
         assert fitter.priors == {}
         assert fitter.hyperparams == {}
         assert fitter.hyperpriors == {}
+
+    def test_gpfitter_init_rejects_string_parameterisation(self) -> None:
+        """Passing the parameterisation name as a string (not a Parameterisation) raises."""
+        gp_kernel = GPKernel("Quasiperiodic")
+        with pytest.raises(TypeError, match="parameterisation must be a Parameterisation object"):
+            GPFitter(["b"], "P K e w Tc", gp_kernel)
 
     def test_add_data_valid(self, test_gp_data) -> None:
         """Test adding valid data to GPFitter."""
