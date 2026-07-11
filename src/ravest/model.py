@@ -721,7 +721,7 @@ class Star:
 
         # Panel 1: Observed data with complete system model overlay
         axs[0].set_title("Stellar radial velocity")
-        axs[0].set_ylabel("Radial Velocity [m/s]")
+        axs[0].set_ylabel("Radial Velocity [m s$^{-1}$]")
         axs[0].set_xlabel("Time [days]")
         axs[0].axhline(y=0, color="k", alpha=0.25, linestyle="--", zorder=1)
 
@@ -742,7 +742,7 @@ class Star:
         # Panel 2: Observed minus calculated (O-C) residuals
         axs[1].set_title("Observed-Calculated")
         axs[1].set_xlabel("Time [days]")
-        axs[1].set_ylabel("Residual [m/s]")
+        axs[1].set_ylabel("Residual [m s$^{-1}$]")
         axs[1].axhline(y=0, color="k", linestyle="-")
         for inst in unique_instruments:
             mask = (instrument == inst)

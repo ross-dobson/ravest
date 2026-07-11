@@ -1845,7 +1845,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def _plot_rv(self, params: Dict[str, float], title: str = "RV Model", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "rv_plot.png", dpi: int = 100) -> None:
+    def _plot_rv(self, params: Dict[str, float], title: str = "RV Model", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "rv_plot.png", dpi: int = 100) -> None:
         """Helper function to plot RV model with given parameters.
 
         Parameters
@@ -1855,11 +1855,11 @@ class Fitter:
         title : str, optional
             Plot title (default: "RV Model"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main RV plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main RV plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Time [days]"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
         xlim : tuple or None, optional
             (xmin, xmax) limits for the main RV plot x-axis (default: None, uses data range)
         ylim : tuple or None, optional
@@ -1931,6 +1931,7 @@ class Fitter:
         # Create figure with subplots
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 5),
                                       gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
+        fig.align_ylabels([ax1, ax2])
 
         # Main RV plot - plot data by instrument with different colours
         colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
@@ -1939,7 +1940,7 @@ class Fitter:
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
             ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=self.velerr[mask],
-                        marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        marker=".", markerfacecolor="white", color=inst_colors[inst], ecolor=inst_colors[inst],
                         linestyle="None", markersize=8, zorder=4, label=inst)
             # Jitter extension (faded, no label)
             ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=velerr_with_jit[mask],
@@ -1967,7 +1968,7 @@ class Fitter:
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
             ax2.errorbar(self.time[mask], residuals[mask], yerr=self.velerr[mask],
-                        marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        marker=".", markerfacecolor="white", color=inst_colors[inst], ecolor=inst_colors[inst],
                         linestyle="None", markersize=8, zorder=4)
             ax2.errorbar(self.time[mask], residuals[mask], yerr=velerr_with_jit[mask],
                         marker="None", ecolor=inst_colors[inst], linestyle="None",
@@ -2000,7 +2001,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def _plot_phase(self, planet_letter: str, params: Dict[str, float], title: str = None, ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "phase_plot.png", dpi: int = 100) -> None:
+    def _plot_phase(self, planet_letter: str, params: Dict[str, float], title: str = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "phase_plot.png", dpi: int = 100, n_smooth: int = 1000) -> None:
         """Helper function to plot phase-folded RV model for a single planet with given parameters.
 
         Parameters
@@ -2012,11 +2013,15 @@ class Fitter:
         title : str, optional
             Plot title (default: f"Planet {planet_letter} Phase Plot"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main phase plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Orbital phase"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main phase plot y-axis (default: None, auto-scaled)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -2026,11 +2031,6 @@ class Fitter:
         """
         if title is None:
             title = f"Planet {planet_letter} Phase Plot"
-
-        # get smooth linear time curve for plotting
-        _tmin, _tmax = self.time.min(), self.time.max()
-        _trange = _tmax - _tmin
-        tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
 
         # Calculate per-instrument jitter for error bars
         velerr_with_jit = np.zeros_like(self.velerr)
@@ -2055,6 +2055,11 @@ class Fitter:
             planet_params = {par: params[f"{par}_{planet_letter}"] for par in self.parameterisation.pars}
             default_params = self.parameterisation.convert_pars_to_default_parameterisation(planet_params)
             Tc = self.parameterisation.convert_tp_to_tc(default_params["Tp"], P, default_params["e"], default_params["w"])
+
+        # Smooth model curve spanning exactly one orbital period centred on Tc,
+        # so the phase-folded curve fills the full [-0.5, 0.5] range regardless
+        # of the data's phase coverage.
+        tsmooth = np.linspace(Tc - 0.5 * P, Tc + 0.5 * P, n_smooth)
 
         # Calculate phase-folded time arrays (in units of orbital phase)
         t_fold_sorted, inds = ravest.model.fold_time_series(self.time, P, Tc)
@@ -2101,6 +2106,7 @@ class Fitter:
         # Create figure with subplots (main plot + residuals)
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 5),
                                       gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
+        fig.align_ylabels([ax1, ax2])
 
         # Set up per-instrument colours
         colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
@@ -2110,14 +2116,14 @@ class Fitter:
         for inst in self.unique_instruments:
             mask = (instrument_sorted == inst)
             ax1.errorbar(t_fold_sorted[mask], data_minus_others_sorted[mask], yerr=verr_sorted[mask],
-                        marker=".", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        marker=".", markerfacecolor="white", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
                         markersize=8, zorder=4, label=inst)
             # Jitter extension (faded, no label)
             ax1.errorbar(t_fold_sorted[mask], data_minus_others_sorted[mask], yerr=velerr_with_jit_sorted[mask],
                         marker="None", linestyle="None", ecolor=inst_colors[inst], alpha=0.5, zorder=3)
 
         # Plot phase-folded model for this planet
-        ax1.plot(tsmooth_fold_sorted, planet_rv_sorted, label="Model", color="black", zorder=2)
+        ax1.plot(tsmooth_fold_sorted, planet_rv_sorted, label="Planet Model", color="black", zorder=2)
         ax1.set_xlim(-0.5, 0.5)
         ax1.xaxis.set_major_locator(MultipleLocator(0.25))  # Set x-ticks every 0.25
         if ylabel_main:
@@ -2145,7 +2151,7 @@ class Fitter:
         for inst in self.unique_instruments:
             mask = (instrument_sorted == inst)
             ax2.errorbar(t_fold_sorted[mask], residuals_sorted[mask], yerr=verr_sorted[mask],
-                        marker=".", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        marker=".", markerfacecolor="white", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
                         markersize=8, zorder=4)
             ax2.errorbar(t_fold_sorted[mask], residuals_sorted[mask], yerr=velerr_with_jit_sorted[mask],
                         marker="None", linestyle="None", ecolor=inst_colors[inst], alpha=0.5, zorder=3)
@@ -2156,6 +2162,10 @@ class Fitter:
         # Set symmetric y-limits for residuals
         max_abs_residual = np.max(np.abs(residuals_sorted + velerr_with_jit_sorted))
         ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
+        if ylim is not None:
+            ax1.set_ylim(ylim)
+        if res_ylim is not None:
+            ax2.set_ylim(res_ylim)
 
         if xlabel:
             ax2.set_xlabel(xlabel)
@@ -2175,7 +2185,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_posterior_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = "Posterior RV", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "posterior_rv.png", dpi: int = 100) -> None:
+    def plot_posterior_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = "Posterior RV", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_rv.png", dpi: int = 100) -> None:
         """Plot the posterior RV model with uncertainty bands from MCMC samples.
 
         Calculates RV model predictions for each MCMC sample, then plots the median
@@ -2195,11 +2205,19 @@ class Fitter:
         title : str or None, optional
             Title for the main RV plot (default: "Posterior RV"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main RV plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main RV plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Time [days]"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
+        xlim : tuple or None, optional
+            (xmin, xmax) limits for the main RV plot x-axis (default: None, uses data range)
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main RV plot y-axis (default: None, auto-scaled)
+        res_xlim : tuple or None, optional
+            (xmin, xmax) limits for the residuals plot x-axis (default: None, uses data range)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
         save : bool, optional
             Save the plot to path `fname` (default: False)
         fname : str, optional
@@ -2250,6 +2268,7 @@ class Fitter:
 
         # Create figure with subplots
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 5), gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
+        fig.align_ylabels([ax1, ax2])
 
         # Main RV plot - plot data by instrument with different colours
         colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
@@ -2258,7 +2277,7 @@ class Fitter:
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
             ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=self.velerr[mask],
-                        marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        marker=".", markerfacecolor="white", color=inst_colors[inst], ecolor=inst_colors[inst],
                         linestyle="None", markersize=8, zorder=4, label=inst)
             # Jitter extension (faded, no label)
             ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=velerr_with_jit[mask],
@@ -2270,7 +2289,7 @@ class Fitter:
         if show_CI:
             ax1.fill_between(tsmooth, rv_percentiles_smooth[0], rv_percentiles_smooth[2], color="tab:gray", alpha=0.3, edgecolor="none", label="68.3% CI", zorder=1)
 
-        ax1.set_xlim(tsmooth[0], tsmooth[-1])
+        ax1.set_xlim(xlim if xlim is not None else (tsmooth[0], tsmooth[-1]))
         if ylabel_main:
             ax1.set_ylabel(ylabel_main)
         if title:
@@ -2288,17 +2307,21 @@ class Fitter:
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
             ax2.errorbar(self.time[mask], residuals[mask], yerr=self.velerr[mask],
-                        marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        marker=".", markerfacecolor="white", color=inst_colors[inst], ecolor=inst_colors[inst],
                         linestyle="None", markersize=8, zorder=4)
             ax2.errorbar(self.time[mask], residuals[mask], yerr=velerr_with_jit[mask],
                         marker="None", ecolor=inst_colors[inst], linestyle="None",
                         alpha=0.5, zorder=3)
         ax2.axhline(0, color="k", linestyle="--", zorder=2)
-        ax2.set_xlim(tsmooth[0], tsmooth[-1])
+        ax2.set_xlim(res_xlim if res_xlim is not None else (xlim if xlim is not None else (tsmooth[0], tsmooth[-1])))
 
         # Set symmetric y-limits for residuals plot, so 0 is in centre
         max_abs_residual = np.max(np.abs(residuals + velerr_with_jit))
         ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
+        if ylim is not None:
+            ax1.set_ylim(ylim)
+        if res_ylim is not None:
+            ax2.set_ylim(res_ylim)
 
         if xlabel:
             ax2.set_xlabel(xlabel)
@@ -2318,7 +2341,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_posterior_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = None, ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "posterior_phase.png", dpi: int = 100) -> None:
+    def plot_posterior_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_phase.png", dpi: int = 100, n_smooth: int = 1000) -> None:
         """Plot phase-folded RV model with uncertainty bands from MCMC samples.
 
         Shows the phase-folded planetary signal with uncertainty bands calculated
@@ -2339,28 +2362,29 @@ class Fitter:
         title : str or None, optional
             Title for the main phase plot (default: "Posterior Phase Plot - Planet {planet_letter}"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main phase plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Orbital phase"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main phase plot y-axis (default: None, auto-scaled)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
         save : bool, optional
             Save the plot to path `fname` (default: False)
         fname : str, optional
             The path to save the plot to (default: "posterior_phase.png")
         dpi : int, optional
             The dpi to save the image at (default: 100)
+        n_smooth : int, optional
+            Number of points in the one-period smooth model curve (default: 1000).
         """
         # Get period (handle both free and fixed cases)
         samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
 
         # Combine with fixed parameters
         params = samples_dict | self.fixed_params_values_dict
-
-        # Create smooth time array (same approach as _plot_rv)
-        _tmin, _tmax = self.time.min(), self.time.max()
-        _trange = _tmax - _tmin
-        tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
 
         # Calculate per-instrument jitter for error bars
         velerr_with_jit = np.zeros_like(self.velerr)
@@ -2388,6 +2412,11 @@ class Fitter:
         # just for the folding, take the median value of the P and Tc samples
         Tc_med = np.median(_Tc)
         P_med = np.median(_P)
+
+        # Smooth model curve spanning exactly one orbital period centred on Tc,
+        # so the phase-folded curve fills the full [-0.5, 0.5] range regardless
+        # of the data's phase coverage.
+        tsmooth = np.linspace(Tc_med - 0.5 * P_med, Tc_med + 0.5 * P_med, n_smooth)
 
         # Phase fold both data and smooth times
         t_fold, inds = ravest.model.fold_time_series(self.time, P_med, Tc_med)
@@ -2434,6 +2463,7 @@ class Fitter:
         # Create figure with subplots (main plot + residuals)
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 5), sharex=True,
                                       gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
+        fig.align_ylabels([ax1, ax2])
 
         # Set up per-instrument colours
         colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
@@ -2444,7 +2474,7 @@ class Fitter:
         for inst in self.unique_instruments:
             mask = (instrument_sorted == inst)
             ax1.errorbar(t_fold[mask], data_minus_others[inds][mask], yerr=self.velerr[inds][mask],
-                        marker=".", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        marker=".", markerfacecolor="white", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
                         markersize=8, zorder=4, label=inst)
             # Jitter extension (faded, no label)
             ax1.errorbar(t_fold[mask], data_minus_others[inds][mask], yerr=velerr_with_jit[inds][mask],
@@ -2452,7 +2482,7 @@ class Fitter:
 
         # Plot planet model with uncertainty, sorted by phase
         ax1.plot(tsmooth_fold_sorted, rv_planet_smooth_percs[1][smooth_inds],
-                linestyle="-", color="black", zorder=2, label="Model")
+                linestyle="-", color="black", zorder=2, label="Planet Model")
         if show_CI:
             ax1.fill_between(tsmooth_fold_sorted, rv_planet_smooth_percs[0][smooth_inds],
                             rv_planet_smooth_percs[2][smooth_inds], color="tab:gray", alpha=0.3, edgecolor="none", label="68.3% CI", zorder=1)
@@ -2478,7 +2508,7 @@ class Fitter:
         for inst in self.unique_instruments:
             mask = (instrument_sorted == inst)
             ax2.errorbar(t_fold[mask], residuals[inds][mask], yerr=self.velerr[inds][mask],
-                        marker=".", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        marker=".", markerfacecolor="white", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
                         markersize=8, zorder=4)
             ax2.errorbar(t_fold[mask], residuals[inds][mask], yerr=velerr_with_jit[inds][mask],
                         marker="None", linestyle="None", ecolor=inst_colors[inst], alpha=0.5, zorder=3)
@@ -2489,6 +2519,10 @@ class Fitter:
         # Set symmetric y-limits for residuals
         max_abs_residual = np.max(np.abs(residuals[inds] + velerr_with_jit[inds]))
         ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
+        if ylim is not None:
+            ax1.set_ylim(ylim)
+        if res_ylim is not None:
+            ax2.set_ylim(res_ylim)
 
         if xlabel:
             ax2.set_xlabel(xlabel)
@@ -2736,7 +2770,7 @@ class Fitter:
 
         return total_rv
 
-    def plot_MAP_rv(self, map_result: scipy.optimize.OptimizeResult, title: str | None = "MAP RV", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "MAP_rv.png", dpi: int = 100) -> None:
+    def plot_MAP_rv(self, map_result: scipy.optimize.OptimizeResult, title: str | None = "MAP RV", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "MAP_rv.png", dpi: int = 100) -> None:
         """Plot radial velocity data and model using MAP parameter estimates.
 
         Parameters
@@ -2746,11 +2780,19 @@ class Fitter:
         title : str or None, optional
             Plot title (default: "MAP RV"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main RV plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main RV plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Time [days]"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
+        xlim : tuple or None, optional
+            (xmin, xmax) limits for the main RV plot x-axis (default: None, uses data range)
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main RV plot y-axis (default: None, auto-scaled)
+        res_xlim : tuple or None, optional
+            (xmin, xmax) limits for the residuals plot x-axis (default: None, uses data range)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -2765,9 +2807,9 @@ class Fitter:
         all_params = self.fixed_params_values_dict | map_params
 
         # Use helper function to create the plot
-        self._plot_rv(all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, save=save, fname=fname, dpi=dpi)
+        self._plot_rv(all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
-    def plot_MAP_phase(self, planet_letter: str, map_result: scipy.optimize.OptimizeResult, title: str | None = None, ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "MAP_phase.png", dpi: int = 100) -> None:
+    def plot_MAP_phase(self, planet_letter: str, map_result: scipy.optimize.OptimizeResult, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "MAP_phase.png", dpi: int = 100) -> None:
         """Plot phase-folded radial velocity data and model using MAP parameter estimates.
 
         Parameters
@@ -2779,11 +2821,15 @@ class Fitter:
         title : str or None, optional
             Plot title (default: f"MAP Phase Plot - Planet {planet_letter}"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main phase plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Orbital phase"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main phase plot y-axis (default: None, auto-scaled)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -2802,9 +2848,9 @@ class Fitter:
             title = f"MAP Phase Plot - Planet {planet_letter}"
 
         # Use helper function to create the plot
-        self._plot_phase(planet_letter, all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, save=save, fname=fname, dpi=dpi)
+        self._plot_phase(planet_letter, all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
-    def plot_custom_rv(self, params: dict, title: str | None = "Custom RV Plot", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "custom_rv.png", dpi: int = 100) -> None:
+    def plot_custom_rv(self, params: dict, title: str | None = "Custom RV Plot", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "custom_rv.png", dpi: int = 100) -> None:
         """Plot radial velocity data and model using custom parameter values.
 
         Allows plotting with arbitrary parameter values for exploring parameter space
@@ -2819,11 +2865,11 @@ class Fitter:
         title : str or None, optional
             Plot title (default: "Custom RV Plot"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main RV plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main RV plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Time [days]"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
         xlim : tuple or None, optional
             (xmin, xmax) limits for the main RV plot x-axis (default: None, uses data range)
         ylim : tuple or None, optional
@@ -2859,7 +2905,7 @@ class Fitter:
         # Use helper function to create the plot
         self._plot_rv(params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, n_smooth=n_smooth, save=save, fname=fname, dpi=dpi)
 
-    def plot_custom_phase(self, planet_letter: str, params: dict, title: str | None = None, ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "custom_phase.png", dpi: int = 100) -> None:
+    def plot_custom_phase(self, planet_letter: str, params: dict, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "custom_phase.png", dpi: int = 100) -> None:
         """Plot phase-folded radial velocity data and model using custom parameter values.
 
         Allows plotting phase-folded data with arbitrary parameter values for exploring
@@ -2876,11 +2922,15 @@ class Fitter:
         title : str or None, optional
             Plot title (default: f"Custom Phase Plot - Planet {planet_letter}"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main phase plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Orbital phase"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main phase plot y-axis (default: None, auto-scaled)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -2908,9 +2958,9 @@ class Fitter:
             title = f"Custom Phase Plot - Planet {planet_letter}"
 
         # Use helper function to create the plot
-        self._plot_phase(planet_letter, params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, save=save, fname=fname, dpi=dpi)
+        self._plot_phase(planet_letter, params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
-    def plot_best_sample_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, title: str | None = "Best Sample RV Plot", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "best_sample_rv.png", dpi: int = 100) -> None:
+    def plot_best_sample_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, title: str | None = "Best Sample RV Plot", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "best_sample_rv.png", dpi: int = 100) -> None:
         """Plot radial velocity data and model using parameter values from the MCMC sample with highest log probability.
 
         This is useful for comparing with plot_MAP_rv() to diagnose potential issues with
@@ -2928,11 +2978,19 @@ class Fitter:
         title : str or None, optional
             Title for the main RV plot (default: "Best Sample RV Plot"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main RV plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main RV plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Time [days]"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
+        xlim : tuple or None, optional
+            (xmin, xmax) limits for the main RV plot x-axis (default: None, uses data range)
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main RV plot y-axis (default: None, auto-scaled)
+        res_xlim : tuple or None, optional
+            (xmin, xmax) limits for the residuals plot x-axis (default: None, uses data range)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -2947,9 +3005,9 @@ class Fitter:
         all_params = self.fixed_params_values_dict | best_sample_params
 
         # Use helper function to create the plot
-        self._plot_rv(all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, save=save, fname=fname, dpi=dpi)
+        self._plot_rv(all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
-    def plot_best_sample_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, title: str | None = None, ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "best_sample_phase.png", dpi: int = 100) -> None:
+    def plot_best_sample_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "best_sample_phase.png", dpi: int = 100) -> None:
         """Plot phase-folded radial velocity data and model using parameter values from the MCMC sample with highest log probability.
 
         This is useful for comparing with plot_MAP_phase() to diagnose potential issues with
@@ -2969,11 +3027,15 @@ class Fitter:
         title : str or None, optional
             Title for the main phase plot (default: "Best Sample Phase Plot - Planet {planet_letter}"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main phase plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Orbital phase"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main phase plot y-axis (default: None, auto-scaled)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -2993,7 +3055,7 @@ class Fitter:
 
         # Use helper function to create the plot
         self._plot_phase(planet_letter, all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals,
-                        save=save, fname=fname, dpi=dpi)
+                        ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
 class LogPosterior:
     """Log posterior probability for MCMC sampling.
@@ -5528,7 +5590,7 @@ class GPFitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def _plot_rv(self, params_hyperparams: Dict[str, float], title: str = "RV Model", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "rv_plot.png", dpi: int = 100) -> None:
+    def _plot_rv(self, params_hyperparams: Dict[str, float], title: str = "RV Model", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "rv_plot.png", dpi: int = 100) -> None:
         """Helper function to plot RV model with given parameters.
 
         For GP fitting, this plots both the mean model (planets + trend)
@@ -5543,11 +5605,11 @@ class GPFitter:
         title : str, optional
             Plot title (default: "RV Model"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main RV plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main RV plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Time [days]"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
         xlim : tuple or None, optional
             (xmin, xmax) limits for the main RV plot x-axis (default: None, uses data range)
         ylim : tuple or None, optional
@@ -5658,6 +5720,7 @@ class GPFitter:
         # Create figure with subplots
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 5),
                                       gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
+        fig.align_ylabels([ax1, ax2])
 
         # Set up per-instrument colours
         colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
@@ -5667,7 +5730,7 @@ class GPFitter:
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
             ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=self.velerr[mask],
-                        marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        marker=".", markerfacecolor="white", color=inst_colors[inst], ecolor=inst_colors[inst],
                         linestyle="None", markersize=8, zorder=6, label=inst)
             # Jitter extension (faded, no label)
             ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=velerr_with_jit[mask],
@@ -5709,7 +5772,7 @@ class GPFitter:
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
             ax2.errorbar(self.time[mask], residuals[mask], yerr=self.velerr[mask],
-                        marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        marker=".", markerfacecolor="white", color=inst_colors[inst], ecolor=inst_colors[inst],
                         linestyle="None", markersize=8, zorder=6)
             ax2.errorbar(self.time[mask], residuals[mask], yerr=velerr_with_jit[mask],
                         marker="None", ecolor=inst_colors[inst], linestyle="None",
@@ -5743,7 +5806,7 @@ class GPFitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def _plot_phase(self, planet_letter: str, params_hyperparams: Dict[str, float], title: str = None, ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "phase_plot.png", dpi: int = 100) -> None:
+    def _plot_phase(self, planet_letter: str, params_hyperparams: Dict[str, float], title: str = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "phase_plot.png", dpi: int = 100, n_smooth: int = 1000) -> None:
         """Helper function to plot phase-folded RV model for a single planet with given parameters.
 
         For GP fitting, this handles the challenge that the GP component cannot be
@@ -5760,11 +5823,15 @@ class GPFitter:
         title : str, optional
             Plot title (default: f"Planet {planet_letter} Phase Plot"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main phase plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Orbital phase"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main phase plot y-axis (default: None, auto-scaled)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -5774,11 +5841,6 @@ class GPFitter:
         """
         if title is None:
             title = f"Planet {planet_letter} Phase Plot"
-
-        # get smooth linear time curve for plotting
-        _tmin, _tmax = self.time.min(), self.time.max()
-        _trange = _tmax - _tmin
-        tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
 
         # Calculate per-instrument jitter for error bars
         velerr_with_jit = np.zeros_like(self.velerr)
@@ -5804,10 +5866,10 @@ class GPFitter:
             default_params = self.parameterisation.convert_pars_to_default_parameterisation(planet_params)
             Tc = self.parameterisation.convert_tp_to_tc(default_params["Tp"], P, default_params["e"], default_params["w"])
 
-        # Create smooth time curve for plotting the model
-        _tmin, _tmax = self.time.min(), self.time.max()
-        _trange = _tmax - _tmin
-        tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
+        # Smooth model curve spanning exactly one orbital period centred on Tc,
+        # so the phase-folded curve fills the full [-0.5, 0.5] range regardless
+        # of the data's phase coverage.
+        tsmooth = np.linspace(Tc - 0.5 * P, Tc + 0.5 * P, n_smooth)
 
         # Phase fold both data and smooth times
         t_fold_sorted, inds = ravest.model.fold_time_series(self.time, P, Tc)
@@ -5875,6 +5937,7 @@ class GPFitter:
         # Create figure with subplots (main plot + residuals)
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 5),
                                       gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
+        fig.align_ylabels([ax1, ax2])
 
         # Set up per-instrument colours
         colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
@@ -5884,7 +5947,7 @@ class GPFitter:
         for inst in self.unique_instruments:
             mask = (instrument_sorted == inst)
             ax1.errorbar(t_fold_sorted[mask], data_minus_others_obs_sorted[mask], yerr=verr_sorted[mask],
-                        marker=".", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        marker=".", markerfacecolor="white", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
                         markersize=8, zorder=4, label=inst)
             # Jitter extension (faded, no label)
             ax1.errorbar(t_fold_sorted[mask], data_minus_others_obs_sorted[mask], yerr=velerr_with_jit_sorted[mask],
@@ -5921,7 +5984,7 @@ class GPFitter:
         for inst in self.unique_instruments:
             mask = (instrument_sorted == inst)
             ax2.errorbar(t_fold_sorted[mask], residuals_sorted[mask], yerr=verr_sorted[mask],
-                        marker=".", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        marker=".", markerfacecolor="white", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
                         markersize=8, zorder=4)
             ax2.errorbar(t_fold_sorted[mask], residuals_sorted[mask], yerr=velerr_with_jit_sorted[mask],
                         marker="None", linestyle="None", ecolor=inst_colors[inst], alpha=0.5, zorder=3)
@@ -5932,6 +5995,10 @@ class GPFitter:
         # # Set symmetric y-limits for residuals
         # max_abs_residual = np.max(np.abs(residuals + velerr_with_jit))
         # ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
+        if ylim is not None:
+            ax1.set_ylim(ylim)
+        if res_ylim is not None:
+            ax2.set_ylim(res_ylim)
 
         if xlabel:
             ax2.set_xlabel(xlabel)
@@ -5951,7 +6018,7 @@ class GPFitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_posterior_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = "Posterior predictions (with GP)", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "posterior_rv.png", dpi: int = 100, n_smooth: int = 1000) -> None:
+    def plot_posterior_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = "Posterior predictions (with GP)", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_rv.png", dpi: int = 100, n_smooth: int = 1000) -> None:
         """Plot the posterior GP RV model with uncertainty bands from MCMC samples.
 
         Calculates RV model predictions for each MCMC sample, then plots the median
@@ -5971,11 +6038,19 @@ class GPFitter:
         title : str or None, optional
             Title for the main RV plot (default: "Posterior predictions (with GP)"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main RV plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main RV plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Time [days]"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
+        xlim : tuple or None, optional
+            (xmin, xmax) limits for the main RV plot x-axis (default: None, uses data range)
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main RV plot y-axis (default: None, auto-scaled)
+        res_xlim : tuple or None, optional
+            (xmin, xmax) limits for the residuals plot x-axis (default: None, uses data range)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
         save : bool, optional
             Save the plot to path `fname` (default: False)
         fname : str, optional
@@ -6090,6 +6165,7 @@ class GPFitter:
 
         # Create figure with subplots (same layout as Fitter)
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 5), gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
+        fig.align_ylabels([ax1, ax2])
 
         # Set up per-instrument colours
         colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
@@ -6099,7 +6175,7 @@ class GPFitter:
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
             ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=self.velerr[mask],
-                        marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        marker=".", markerfacecolor="white", color=inst_colors[inst], ecolor=inst_colors[inst],
                         linestyle="None", markersize=8, zorder=4, label=inst)
             # Jitter extension (faded, no label)
             ax1.errorbar(self.time[mask], vel_corrected[mask], yerr=velerr_with_jit[mask],
@@ -6111,7 +6187,7 @@ class GPFitter:
         if show_CI:
             ax1.fill_between(tsmooth, rv_percentiles_smooth[0], rv_percentiles_smooth[2], color="tab:gray", alpha=0.3, edgecolor="none", label="68.3% CI", zorder=1)
 
-        ax1.set_xlim(tsmooth[0], tsmooth[-1])
+        ax1.set_xlim(xlim if xlim is not None else (tsmooth[0], tsmooth[-1]))
         if ylabel_main:
             ax1.set_ylabel(ylabel_main)
         if title:
@@ -6129,17 +6205,21 @@ class GPFitter:
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
             ax2.errorbar(self.time[mask], residuals[mask], yerr=self.velerr[mask],
-                        marker=".", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        marker=".", markerfacecolor="white", color=inst_colors[inst], ecolor=inst_colors[inst],
                         linestyle="None", markersize=8, zorder=4)
             ax2.errorbar(self.time[mask], residuals[mask], yerr=velerr_with_jit[mask],
                         marker="None", ecolor=inst_colors[inst], linestyle="None",
                         alpha=0.5, zorder=3)
         ax2.axhline(0, color="k", linestyle="--", zorder=2)
-        ax2.set_xlim(tsmooth[0], tsmooth[-1])
+        ax2.set_xlim(res_xlim if res_xlim is not None else (xlim if xlim is not None else (tsmooth[0], tsmooth[-1])))
 
         # Set symmetric y-limits for residuals plot
         max_abs_residual = np.max(np.abs(residuals + velerr_with_jit))
         ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
+        if ylim is not None:
+            ax1.set_ylim(ylim)
+        if res_ylim is not None:
+            ax2.set_ylim(res_ylim)
 
         if xlabel:
             ax2.set_xlabel(xlabel)
@@ -6159,7 +6239,7 @@ class GPFitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_posterior_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = None, ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "posterior_phase.png", dpi: int = 100, n_smooth: int = 50) -> None:
+    def plot_posterior_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_phase.png", dpi: int = 100, n_smooth: int = 500) -> None:
         """Plot phase-folded GP RV model with uncertainty bands from MCMC samples.
 
         Calculates phase-folded planetary signal with uncertainty bands calculated
@@ -6181,11 +6261,15 @@ class GPFitter:
         title : str or None, optional
             Title for the main phase plot (default: "Posterior Phase Plot (with GP) - Planet {planet_letter}"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main phase plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Orbital phase"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main phase plot y-axis (default: None, auto-scaled)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
         save : bool, optional
             Save the plot to path `fname` (default: False)
         fname : str, optional
@@ -6193,10 +6277,11 @@ class GPFitter:
         dpi : int, optional
             The dpi to save the image at (default: 100)
         n_smooth : int, optional
-            Number of points in smooth time grid for plotting model curves (default: 50).
+            Number of points in the one-period smooth model curve (default: 500).
             Reduce for faster plotting, increase for smoother curves.
         """
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 5), gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
+        fig.align_ylabels([ax1, ax2])
 
         # Get samples for free parameters/hyperparameters and combine with fixed values
         samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
@@ -6206,11 +6291,6 @@ class GPFitter:
         # Report number of effective samples
         n_samples = len(samples_dict[list(samples_dict.keys())[0]])
         print(f"Processing {n_samples} effective samples (after discard_start={discard_start}, discard_end={discard_end}, thin={thin})")
-
-        # Create smooth time array for plotting the model
-        _tmin, _tmax = self.time.min(), self.time.max()
-        _trange = _tmax - _tmin
-        tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, n_smooth)
 
         # Get per-instrument jitter for error bars (use median from samples)
         velerr_with_jit = np.zeros_like(self.velerr)
@@ -6248,6 +6328,11 @@ class GPFitter:
         # just for the folding, take the median value of the P and Tc samples
         Tc = np.median(_Tc)
         P = np.median(_P)
+
+        # Smooth model curve spanning exactly one orbital period centred on Tc,
+        # so the phase-folded curve fills the full [-0.5, 0.5] range regardless
+        # of the data's phase coverage.
+        tsmooth = np.linspace(Tc - 0.5 * P, Tc + 0.5 * P, n_smooth)
 
         # Phase fold both data and smooth times
         t_fold_sorted, inds = ravest.model.fold_time_series(self.time, P, Tc)
@@ -6351,7 +6436,7 @@ class GPFitter:
         for inst in self.unique_instruments:
             mask = (instrument_sorted == inst)
             ax1.errorbar(t_fold_sorted[mask], data_minus_others_folded[mask], yerr=verr_sorted[mask],
-                        marker=".", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        marker=".", markerfacecolor="white", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
                         markersize=8, zorder=4, label=inst)
             # 9) overplot the errorbars with jitter (faded, no label)
             ax1.errorbar(t_fold_sorted[mask], data_minus_others_folded[mask], yerr=velerr_with_jit_sorted[mask],
@@ -6376,7 +6461,7 @@ class GPFitter:
         for inst in self.unique_instruments:
             mask = (instrument_sorted == inst)
             ax2.errorbar(t_fold_sorted[mask], residuals_sorted[mask], yerr=verr_sorted[mask],
-                        marker=".", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
+                        marker=".", markerfacecolor="white", linestyle="None", color=inst_colors[inst], ecolor=inst_colors[inst],
                         markersize=8, zorder=4)
             ax2.errorbar(t_fold_sorted[mask], residuals_sorted[mask], yerr=velerr_with_jit_sorted[mask],
                         marker="None", linestyle="None", ecolor=inst_colors[inst], alpha=0.5, zorder=3)
@@ -6401,6 +6486,10 @@ class GPFitter:
         # Set symmetric y-limits for residuals plot
         max_abs_residual = np.max(np.abs(residuals_sorted + velerr_with_jit_sorted))
         ax2.set_ylim(-max_abs_residual * 1.1, max_abs_residual * 1.1)
+        if ylim is not None:
+            ax1.set_ylim(ylim)
+        if res_ylim is not None:
+            ax2.set_ylim(res_ylim)
 
         if xlabel:
             ax2.set_xlabel(xlabel)
@@ -6420,7 +6509,7 @@ class GPFitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_MAP_rv(self, map_result: scipy.optimize.OptimizeResult, title: str | None = "MAP RV (with GP)", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "MAP_rv.png", dpi: int = 100) -> None:
+    def plot_MAP_rv(self, map_result: scipy.optimize.OptimizeResult, title: str | None = "MAP RV (with GP)", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "MAP_rv.png", dpi: int = 100) -> None:
         """Plot the MAP RV model.
 
         Uses the Maximum A Posteriori (MAP) parameter estimates to plot the
@@ -6433,11 +6522,19 @@ class GPFitter:
         title : str or None, optional
             Plot title (default: "MAP RV (with GP)"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main RV plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main RV plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Time [days]"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
+        xlim : tuple or None, optional
+            (xmin, xmax) limits for the main RV plot x-axis (default: None, uses data range)
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main RV plot y-axis (default: None, auto-scaled)
+        res_xlim : tuple or None, optional
+            (xmin, xmax) limits for the residuals plot x-axis (default: None, uses data range)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -6454,9 +6551,9 @@ class GPFitter:
         all_params = map_params_and_hyperparams | self.fixed_params_values_dict | self.fixed_hyperparams_values_dict
 
         # Use helper function to create the plot
-        self._plot_rv(all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, save=save, fname=fname, dpi=dpi)
+        self._plot_rv(all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
-    def plot_MAP_phase(self, planet_letter: str, map_result: scipy.optimize.OptimizeResult, title: str | None = None, ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "MAP_phase.png", dpi: int = 100) -> None:
+    def plot_MAP_phase(self, planet_letter: str, map_result: scipy.optimize.OptimizeResult, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "MAP_phase.png", dpi: int = 100) -> None:
         """Plot the MAP phase model.
 
         Uses the Maximum A Posteriori (MAP) parameter estimates to plot the
@@ -6472,11 +6569,15 @@ class GPFitter:
         title : str or None, optional
             Plot title (default: f"MAP Phase Plot (with GP) - Planet {planet_letter}"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main phase plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Orbital phase"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main phase plot y-axis (default: None, auto-scaled)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -6497,9 +6598,9 @@ class GPFitter:
             title = f"MAP Phase Plot (with GP) - Planet {planet_letter}"
 
         # Use helper function to create the plot
-        self._plot_phase(planet_letter, all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, save=save, fname=fname, dpi=dpi)
+        self._plot_phase(planet_letter, all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
-    def plot_custom_rv(self, params_hyperparams: dict, title: str | None = "Custom GP RV Plot", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "custom_rv.png", dpi: int = 100) -> None:
+    def plot_custom_rv(self, params_hyperparams: dict, title: str | None = "Custom GP RV Plot", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "custom_rv.png", dpi: int = 100) -> None:
         """Plot GP radial velocity data and model using custom parameter and hyperparameter values.
 
         Allows plotting with arbitrary parameter and hyperparameter values for exploring
@@ -6516,11 +6617,11 @@ class GPFitter:
         title : str or None, optional
             Plot title (default: "Custom GP RV Plot"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main RV plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main RV plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Time [days]"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
         xlim : tuple or None, optional
             (xmin, xmax) limits for the main RV plot x-axis (default: None, uses data range)
         ylim : tuple or None, optional
@@ -6559,7 +6660,7 @@ class GPFitter:
         # Use helper function to create the plot
         self._plot_rv(params_hyperparams, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, n_smooth=n_smooth, save=save, fname=fname, dpi=dpi)
 
-    def plot_custom_phase(self, planet_letter: str, params_hyperparams: dict, title: str | None = None, ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "custom_phase.png", dpi: int = 100) -> None:
+    def plot_custom_phase(self, planet_letter: str, params_hyperparams: dict, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "custom_phase.png", dpi: int = 100) -> None:
         """Plot GP phase-folded radial velocity data and model using custom parameter and hyperparameter values.
 
         Allows plotting phase-folded data with arbitrary parameter and hyperparameter values
@@ -6578,11 +6679,15 @@ class GPFitter:
         title : str or None, optional
             Plot title (default: f"Custom GP Phase Plot - Planet {planet_letter}"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main phase plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Orbital phase"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main phase plot y-axis (default: None, auto-scaled)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -6613,9 +6718,9 @@ class GPFitter:
             title = f"Custom GP Phase Plot - Planet {planet_letter}"
 
         # Use helper function to create the plot
-        self._plot_phase(planet_letter, params_hyperparams, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, save=save, fname=fname, dpi=dpi)
+        self._plot_phase(planet_letter, params_hyperparams, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
-    def plot_best_sample_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, title: str | None = "Best Sample RV Plot (with GP)", ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "best_sample_rv.png", dpi: int = 100) -> None:
+    def plot_best_sample_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, title: str | None = "Best Sample RV Plot (with GP)", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "best_sample_rv.png", dpi: int = 100) -> None:
         """Plot radial velocity data and model using parameter and hyperparameter values from the MCMC sample with highest log probability.
 
         This is useful for comparing with plot_MAP_rv() to diagnose potential issues with
@@ -6633,11 +6738,19 @@ class GPFitter:
         title : str or None, optional
             Title for the main RV plot (default: "Best Sample RV Plot (with GP)"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main RV plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main RV plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Time [days]"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
+        xlim : tuple or None, optional
+            (xmin, xmax) limits for the main RV plot x-axis (default: None, uses data range)
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main RV plot y-axis (default: None, auto-scaled)
+        res_xlim : tuple or None, optional
+            (xmin, xmax) limits for the residuals plot x-axis (default: None, uses data range)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -6652,9 +6765,9 @@ class GPFitter:
         all_params = best_sample_params_hyperparams | self.fixed_params_values_dict | self.fixed_hyperparams_values_dict
 
         # Use helper function to create the plot
-        self._plot_rv(all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, save=save, fname=fname, dpi=dpi)
+        self._plot_rv(all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
-    def plot_best_sample_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, title: str | None = None, ylabel_main: str | None = "Radial velocity [m/s]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m/s]", save: bool = False, fname: str = "best_sample_phase.png", dpi: int = 100) -> None:
+    def plot_best_sample_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "best_sample_phase.png", dpi: int = 100) -> None:
         """Plot phase-folded radial velocity data and model using parameter and hyperparameter values from the MCMC sample with highest log probability.
 
         This is useful for comparing with plot_MAP_phase() to diagnose potential issues with
@@ -6674,11 +6787,15 @@ class GPFitter:
         title : str or None, optional
             Title for the main phase plot (default: "Best Sample Phase Plot (with GP) - Planet {planet_letter}"). Set to None or "" to skip.
         ylabel_main : str or None, optional
-            Y-axis label for main phase plot (default: "Radial velocity [m/s]"). Set to None or "" to skip.
+            Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
             X-axis label for residuals plot (default: "Orbital phase"). Set to None or "" to skip.
         ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m/s]"). Set to None or "" to skip.
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main phase plot y-axis (default: None, auto-scaled)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -6698,7 +6815,7 @@ class GPFitter:
 
         # Use helper function to create the plot
         self._plot_phase(planet_letter, all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals,
-                        save=save, fname=fname, dpi=dpi)
+                        ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
     def calculate_rv_planet_from_samples(self, planet_letter: str, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1, progress: bool = True) -> np.ndarray:
         """Calculate planetary RV for each MCMC sample.
