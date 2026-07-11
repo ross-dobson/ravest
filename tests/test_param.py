@@ -449,9 +449,10 @@ class TestParamKeyToLatex:
         assert param_key_to_latex(key) == expected
 
     @pytest.mark.parametrize("key, expected", [
-        ("jit_HARPS", r"$\sigma_{\rm HARPS}$"),
-        ("jit_HARPS_15", r"$\sigma_{\rm HARPS_15}$"),
-        ("g_ESPRESSO", r"$\gamma_{\rm ESPRESSO}$"),
+        ("jit_HARPS", r"$\sigma_{\mathrm{HARPS}}$"),
+        ("jit_HARPS_15", r"$\sigma_{\mathrm{HARPS}_{15}}$"),
+        ("g_ESPRESSO", r"$\gamma_{\mathrm{ESPRESSO}}$"),
+        ("g_HARPS_15", r"$\gamma_{\mathrm{HARPS}_{15}}$"),
     ])
     def test_instrument_params(self, key, expected) -> None:
         """Test jitter and gamma instrument parameters."""
