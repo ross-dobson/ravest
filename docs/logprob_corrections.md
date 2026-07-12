@@ -1,183 +1,125 @@
 # Log-posterior corrections for the (secosw, sesinw) parameterisation
 
-## Overview
+## You don't need to do anything
 
-When fitting radial velocity data in the transformed parameterisation
+Ravest applies these corrections **automatically**. They are computed once when
+the fit is set up (from your parameterisation, priors, and which parameters are
+free) and added inside the log-posterior during sampling. There is no knob to
+set and nothing to remember.
 
-```
-u = secosw = sqrt(e) * cos(w)
-v = sesinw = sqrt(e) * sin(w)
-```
+They also have **no effect on parameter inference**. The corrections are
+constants, so they cancel in the sampler's acceptance ratio - Ravest uses
+emcee's affine-invariant stretch move, in which any constant factor in the prior
+cancels identically, just as it does in a Metropolis-Hastings ratio. If you only
+care about parameter estimates and their uncertainties, you can ignore this page
+entirely.
 
-rather than sampling `(e, w)` directly, the log-posterior needs constant
-corrections so that Bayesian evidence (via nested sampling or the Learned
-Harmonic Mean Estimator, LHME, e.g. through the `harmonic` library) is
-coordinate-invariant. These corrections are constants, so they cancel in the
-Metropolis-Hastings acceptance ratio and have **no effect on MCMC parameter
-inference** - they only matter when computing an absolute evidence value.
+The corrections matter in exactly one situation: **Bayesian model comparison**,
+where you use the posterior chains to estimate an evidence `ln(Z)` (for example
+with the Learned Harmonic Mean Estimator, LHME, via the `harmonic` library). The
+evidence is an integral of the likelihood against the prior, so the prior must be
+correctly normalised in the space you actually sample in - otherwise the evidence
+for that model is systematically biased and comparisons against other models are
+unfair. Ravest handles this for you.
 
-The inverse transform is `e = u^2 + v^2`, `w = atan2(v, u)`. The physical
-constraint `0 <= e < 1` is equivalent to the unit disc `u^2 + v^2 < 1`.
+For the full derivation, see Appendix B of Dobson et al. (in prep.); this page is
+a practical summary.
 
-## Per-planet classification
+## The one choice that is yours
 
-Ravest classifies **each planet independently**, then sums the per-planet
-contributions. This matters for multi-planet systems where different planets
-may have priors defined in different coordinate systems (e.g. planet b's
-priors on `(u, v)`, planet c's priors on `(e, w)`) - each planet's correction
-depends only on its own parameterisation and prior choice, not on any other
-planet's.
+When you sample in the `(secosw, sesinw)` parameterisation, define your
+eccentricity belief as a prior on **`e`** (Case 3 below), using one of Ravest's
+eccentricity priors (`HalfNormal`, `Rayleigh`, `VanEylen19Mixture`, `Beta`,
+`EccentricityUniform`, `TruncatedNormal`). The only prior on `(secosw, sesinw)`
+directly that Ravest can normalise is `Uniform(-1, 1)` on both (Case 2); any
+other prior on `(secosw, sesinw)` raises `NotImplementedError`, because its
+renormalisation over the unit disc has no closed form in general. A separable,
+rotationally-symmetric belief on `(secosw, sesinw)` can (probably) always be
+re-expressed as a prior on `e` , yet you can still sample in `(secosw,sesinw)`
+to speed up MCMC converge and avoid the Lucy--Sweeney bias.
 
-### CASE_1: default parameterisation, or transformed with this planet's secosw/sesinw fixed
+## Background
 
-No transformation is in effect for this planet (either the whole fit uses
-the default `(e, w)` parameterisation, or this planet's `secosw`/`sesinw` are
-fixed rather than sampled). Contribution: `0`.
-
-### CASE_2: transformed, free secosw/sesinw, priors on (u, v)
-
-The sampler proposes `u` and `v` directly, and the priors are defined on `u`
-and `v` too - no Jacobian is needed since sampling and prior space coincide.
-However, the physical validity check truncates `(u, v)` to the unit disc.
-
-With `Uniform(-1, 1)` priors on both `u` and `v`, the joint prior density is
-`1/4` over the square `[-1,1] x [-1,1]` (area 4). Truncated to the unit disc
-(area `pi`), the prior integrates to `pi/4` instead of `1`. Renormalising
-requires multiplying by `4/pi`, i.e. adding `log(4/pi)` (~0.2416) in log
-space:
+In the transformed parameterisation
 
 ```
-log_posterior = log_likelihood + log_prior_u(u) + log_prior_v(v) + log(4/pi)
+u = "secosw" = sqrt(e) * cos(w)
+v = "sesinw" = sqrt(e) * sin(w)
 ```
 
-Ravest only supports this case for `Uniform(-1, 1)` priors on both `u` and
-`v`. Any other prior shape on `(u, v)` would require computing
+the inverse transform is `e = u^2 + v^2`, `w = atan2(v, u)`, and the physical
+constraint that `0 <= e < 1` is exactly the unit disc formed by `u^2 + v^2 < 1`.
+
+Ravest classifies **each planet independently** and sums the per-planet
+corrections. This matters for multi-planet systems, where different planets can
+have priors in different coordinate systems (e.g. planet b on `(u, v)`, planet c
+on `(e, w)`); each planet's correction depends only on its own choice.
+
+## The three cases for sampling eccentricity as a free parameter
+
+| Case | Sampling | Eccentricity prior | Correction (per planet) |
+|------|----------|--------------------|-------------------------|
+| 1 | `(e, w)` | any | `0` |
+| 2 | `(u, v)`, priors on `(u, v)` | `Uniform(-1, 1)` on both | `+log(4/pi) ~= +0.242` |
+| 3 | `(u, v)`, priors on `(e, w)` | any properly normalised prior on `e` | `+log(2) ~= +0.693` |
+
+**Case 1** needs no correction: sampling and prior space coincide, and the prior
+on `e` is already normalised over `[0, 1)` (provided you are using a proper prior...)
+
+**Case 2** arises because `Uniform(-1, 1)` on each of `u` and `v` has joint
+density `1/4` over the square `[-1, 1]^2` (area 4), but the physical validity
+check `u^2 + v^2 < 1` truncates the support to the unit disc (area `pi`).
+The prior then integrates to `pi/4` rather than `1`, so renormalising adds the 'missing'
+`log(4/pi)` to the log-posterior to ensure all priors are normalised properly.
+
+**Case 3** arises because the sampler proposes `(u, v)` but the prior is defined
+on `(e, w)`, so evaluating it is a change of variables. The Jacobian determinant
+of the `(u, v)` -> `(e, w)` mapping is the constant `2`, giving `+log(2)`. Being
+purely geometric, it is independent of the prior shape - the same `+log(2)`
+applies whether the prior on `e` is `Uniform`, `HalfNormal`, `Rayleigh`,
+`VanEylen19Mixture`, `Beta`, or anything else, provided it is properly normalised
+and truncated to `[0, 1)`.
+
+## Multi-planet systems
+
+Because classification is per-planet, the total correction to the log-prior
+(and therefore log-posterior) is the sum of the per-planet contributions.
+For a two-planet fit where planet b has `Uniform(-1, 1)` priors on
+`(secosw_b, sesinw_b)` (Case 2) and planet c has a `HalfNormal` on `e_c` with
+`Uniform(-pi, pi)` on `w_c` (Case 3):
 
 ```
-correction = -log( integral over u^2+v^2<1 of p_u(u) * p_v(v) du dv )
+total correction = log(4/pi) + log(2) ~= 0.242 + 0.693 = 0.935
 ```
 
-which has no closed form in general. **Ravest hard-raises
-`NotImplementedError`** if it encounters such a prior, directing the user to
-place their eccentricity belief on `e` instead (Case 3) - a separable,
-rotationally-symmetric prior on `(u, v)` is always re-expressible as a prior
-on `e` (e.g. iid Gaussians on `u` and `v` are exactly a `Rayleigh` prior on
-`e`, which Ravest ships directly), so this is not a loss of expressiveness.
+Classifying the system as a whole rather than per planet would apply the wrong
+constant (or the right one to the wrong number of planets), so Ravest always
+classifies each planet independently and sums.
 
-### CASE_3: transformed, free secosw/sesinw, priors on (e, w)
+## The ecosw/esinw parameterisation is disabled
 
-The sampler proposes `u` and `v`, but the priors are defined on `e` and `w`.
-Evaluating the priors requires converting `e = u^2 + v^2`, `w = atan2(v, u)`,
-which is a change of variables and therefore needs a Jacobian correction:
+The `ecosw`/`esinw` parameterisation (`e cos w`, `e sin w`) is not available
+(removed from `ALLOWED_PARAMETERISATIONS`). Its Jacobian is `1/e`, which depends
+on the sample value and so cannot be precomputed as a constant correction - it
+would need a per-sample evaluation during sampling, outside the scope of this
+scheme. This is precisely why most people sample in `secosw`/`sesinw`, whose
+Jacobian is the constant `2` (and avoids inducing an accidental prior on `e`.)
 
-```
-J = | de/du   de/dv |   =   | 2u     2v  |
-    | dw/du   dw/dv |       | -v/e   u/e |
+I really can't think of a reason you would want to sample in `ecosw/esinw` rather
+than `secosw/sesinw` -- if you want a prior to incentivise lower values of `e`,
+just fit in `secosw/sesinw` and use something like a `HalfNormal` prior on `e`
+instead.
 
-det(J) = (2u)(u/e) - (2v)(-v/e) = 2(u^2 + v^2)/e = 2e/e = 2
-```
+## Implementation and validation
 
-So `|d(e,w)/d(u,v)| = 2`, giving a correction of `+log(2)` (~0.6931):
+The corrections live in `LogPosterior` (and mirrored in `GPLogPosterior`) in
+`src/ravest/fit.py`: `_compute_logprob_corrections` classifies each planet and
+sums the contributions at construction time, and `log_probability` adds the
+stored total. The Jacobian value comes from
+`Parameterisation.log_jacobian_determinant` in `src/ravest/param.py`. The
+corrections depend only on the parameterisation and priors, not the likelihood,
+so `GPFitter` uses the same values.
 
-```
-log_posterior = log_likelihood + log_prior_e(e(u,v)) + log_prior_w(w(u,v)) + log(2)
-```
-
-No renormalisation is needed here: the prior on `e` handles its own support
-(it returns `-inf` for `e >= 1`), so there is no external truncation, and the
-Jacobian is a purely geometric property of the coordinate mapping -
-independent of the prior shape. The same `+log(2)` applies whether the prior
-on `e` is `Uniform`, `HalfNormal`, `Rayleigh`, `VanEylen19Mixture`, `Beta`, or
-any other properly normalised distribution.
-
-### Sanity check
-
-With uniform priors (`e ~ Uniform(0,1)`, `w ~ Uniform(-pi, pi)`), the
-effective log-prior density inside the supported region is:
-
-- CASE_1: `log(1) + log(1/(2*pi)) = -log(2*pi)`
-- CASE_2: `log(1/4) + log(4/pi) = -log(pi)`
-- CASE_3: `log(1) + log(1/(2*pi)) + log(2) = -log(pi)`
-
-CASE_2 and CASE_3 agree with each other (as they must - both express the
-same physical prior on eccentricity, just in different coordinates). They
-differ from CASE_1 by `log(2)`, which is expected since CASE_1 lives in a
-different coordinate system.
-
-## Worked example: mixed two-planet system
-
-Consider a two-planet fit in the `(u, v)` parameterisation where planet b's
-eccentricity prior is `Uniform(-1, 1)` on both `secosw_b`/`sesinw_b` (CASE_2),
-and planet c's eccentricity prior is a `HalfNormal` on `e_c` with
-`Uniform(-pi, pi)` on `w_c` (CASE_3):
-
-```
-total correction = log(4/pi) + log(2) ~= 0.2416 + 0.6931 = 0.9347
-```
-
-A classifier that inspects the *whole system's* free parameters and priors
-in one pass (rather than per planet) cannot represent this: it would
-misclassify the system as globally CASE_2 or globally CASE_3 and apply the
-wrong per-planet constant (or the right constant to the wrong number of
-planets), producing a systematic ln(Z) error of ~0.45 for this two-planet
-example - far outside typical MCMC/LHME noise (~0.01). Classifying each
-planet independently and summing avoids this.
-
-## Implementation
-
-- `Parameterisation.log_jacobian_determinant()` (`src/ravest/param.py`)
-  returns `log(2)` for the `secosw`/`sesinw` parameterisation, `0.0`
-  otherwise.
-- `LogPosterior._classify_planet_case(letter)` classifies a single planet
-  into `CASE_1`/`CASE_2`/`CASE_3` (or raises `NotImplementedError` for
-  unsupported `(u, v)` priors).
-- `LogPosterior._compute_logprob_corrections()` loops over all planets,
-  classifies each, and sums the Jacobian and prior-renormalisation
-  contributions. These are computed once at construction time (they depend
-  only on the parameterisation, priors, and free/fixed status - all fixed at
-  construction) and stored as `_logprob_jacobian_correction`,
-  `_logprob_prior_renorm_correction`, and a per-planet
-  `_logprob_correction_breakdown` dict.
-- `LogPosterior.log_probability` adds both stored corrections to
-  `log_likelihood + log_prior` before returning.
-- `GPLogPosterior` mirrors `LogPosterior` exactly: the same
-  `_classify_planet_case`/`_compute_logprob_corrections` methods, and
-  `GPLogPosterior.log_probability` adds the same two stored corrections to
-  `log_likelihood + log_prior + log_hyperprior` before returning. The
-  corrections depend only on the parameterisation and priors, not the
-  likelihood, so no GP-specific logic is needed.
-
-## ecosw/esinw retirement
-
-The `ecosw`/`esinw` parameterisation (`e cos w`, `e sin w`) has been disabled
-(removed from `ALLOWED_PARAMETERISATIONS`). Its Jacobian is
-`|d(e,w)/d(ecosw,esinw)| = 1/e`, which depends on the sample value and cannot
-be precomputed as a constant correction - exactly why the field moved to
-`secosw`/`sesinw` (whose Jacobian is the constant `2`) in the first place.
-Re-enabling it would require a per-sample Jacobian evaluation, which is
-outside the scope of this correction scheme.
-
-## Empirical validation
-
-The theory above was validated empirically (MCMC + `harmonic`/LHME evidence
-estimation on the K2-24 system) for each case in isolation, and for the
-mixed-case regression this fix addresses:
-
-- Case 3 vs Case 1 (uniform prior on e): evidence agrees within MCMC noise
-  once the `log(2)` correction is applied.
-- Case 2 vs Case 1 (Uniform(-1,1) priors on secosw/sesinw): evidence agrees
-  within MCMC noise once the `log(4/pi)` correction is applied.
-- Case 3 with a HalfNormal prior on e: confirms the Jacobian correction is
-  independent of the prior shape.
-- **Mixed two-planet case** (planet b Case 2, planet c Case 3, same fit):
-  per-planet classification and summation recovers the correct combined
-  correction (`log(4/pi) + log(2)`), and the resulting evidence agrees with a
-  reference fit sampled entirely in `(e, w)`.
-
-## GPFitter
-
-`GPFitter`/`GPLogPosterior` mirror `Fitter`/`LogPosterior` structurally, and
-apply the same per-planet corrections (see `tests/test_logprob_corrections_gp.py`
-for the mirrored unit-level coverage, including the mixed-case regression).
-The correction values are unaffected by the likelihood function (GP or
-otherwise), since they depend only on the parameterisation and priors.
+The corrections were validated against `harmonic`/LHME evidence estimates on the
+K2-24 system for each case in isolation and for the mixed two-planet case; details
+to be released as part of a paper featuring Ravest soon.
