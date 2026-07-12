@@ -1,3 +1,5 @@
+import warnings
+
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -1061,6 +1063,28 @@ class TestRVCalculations:
         fitter.priors = test_simple_priors
         return fitter
 
+    @pytest.fixture
+    def setup_fitter_two_planets(self, test_data):
+        """Two-planet fitter (b and c) for freeze_params planet-letter tests."""
+        fitter = Fitter(["b", "c"], Parameterisation("P K e w Tc"))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+        fitter.params = {
+            "P_b": Parameter(2.0, "d", fixed=True), "K_b": Parameter(5.0, "m/s", fixed=False),
+            "e_b": Parameter(0.0, "", fixed=True), "w_b": Parameter(np.pi/2, "rad", fixed=True),
+            "Tc_b": Parameter(0.0, "d", fixed=True),
+            "P_c": Parameter(8.0, "d", fixed=True), "K_c": Parameter(3.0, "m/s", fixed=False),
+            "e_c": Parameter(0.0, "", fixed=True), "w_c": Parameter(np.pi/2, "rad", fixed=True),
+            "Tc_c": Parameter(1.0, "d", fixed=True),
+            "g_HARPS": Parameter(0.0, "m/s", fixed=True), "gd": Parameter(0.0, "m/s/day", fixed=True),
+            "gdd": Parameter(0.0, "m/s/day^2", fixed=True), "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
+        }
+        fitter.priors = {
+            "K_b": ravest.prior.Uniform(0, 20), "K_c": ravest.prior.Uniform(0, 20),
+            "jit_HARPS": ravest.prior.Uniform(0, 5),
+        }
+        return fitter
+
     def test_calculate_rv_planet_custom(self, setup_fitter_for_rv):
         """Test custom planet RV against hand-calculated circular orbit values.
 
@@ -1216,6 +1240,181 @@ class TestRVCalculations:
         assert trend_samples.ndim == 2
         assert trend_samples.shape[1] == len(times)
         assert np.all(np.isfinite(trend_samples))
+
+    def _run_short_mcmc(self, fitter):
+        """Run a short MCMC on the fitter (helper for freeze_params tests)."""
+        map_result = fitter.find_map_estimate()
+        initial_positions = fitter.generate_initial_walker_positions_from_map(map_result, nwalkers=10)
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=50, progress=False)
+
+    def test_resolve_freeze_params_none(self, setup_fitter_for_rv):
+        """None passes straight through as None (no freezing)."""
+        fitter = setup_fitter_for_rv
+        assert fitter._resolve_freeze_params(None) is None
+
+    def test_resolve_freeze_params_explicit_values(self, setup_fitter_for_rv):
+        """Explicit float values are returned unchanged (as floats)."""
+        fitter = setup_fitter_for_rv
+        resolved = fitter._resolve_freeze_params({"P_b": 2.0, "Tc_b": 0.5})
+        assert resolved == {"P_b": 2.0, "Tc_b": 0.5}
+        assert all(isinstance(v, float) for v in resolved.values())
+
+    def test_resolve_freeze_params_none_value_uses_median(self, setup_fitter_for_rv):
+        """A None value resolves to the parameter's posterior median."""
+        fitter = setup_fitter_for_rv
+        self._run_short_mcmc(fitter)
+
+        # K_b is the only free planet parameter in this fixture
+        resolved = fitter._resolve_freeze_params({"K_b": None}, discard_start=10, thin=5)
+        samples_dict = fitter.get_samples_dict(discard_start=10, thin=5)
+        expected = float(np.median(samples_dict["K_b"]))
+        assert resolved["K_b"] == pytest.approx(expected)
+
+    def test_resolve_freeze_params_unknown_key_raises(self, setup_fitter_for_rv):
+        """An unrecognised key raises ValueError."""
+        fitter = setup_fitter_for_rv
+        with pytest.raises(ValueError, match="Unknown freeze_params key"):
+            fitter._resolve_freeze_params({"P_c": None})
+
+    def test_resolve_freeze_params_rejects_non_planet_params(self, setup_fitter_for_rv):
+        """Trend and instrument parameters cannot be frozen (planet params only)."""
+        fitter = setup_fitter_for_rv
+        for key in ("jit_HARPS", "g_HARPS", "gd", "gdd"):
+            with pytest.raises(ValueError, match="Unknown freeze_params key"):
+                fitter._resolve_freeze_params({key: None})
+
+    def test_resolve_freeze_params_wrong_planet_warns(self, setup_fitter_two_planets):
+        """Freezing a parameter for a planet other than planet_letter warns."""
+        fitter = setup_fitter_two_planets
+        # Plotting 'b' but freezing K_c (planet c, and free -> no fixed warning)
+        with pytest.warns(UserWarning, match="different planet"):
+            resolved = fitter._resolve_freeze_params({"K_c": 3.0}, planet_letter="b")
+        # Still applied (not banned)
+        assert resolved == {"K_c": 3.0}
+
+    def test_resolve_freeze_params_correct_planet_no_warn(self, setup_fitter_two_planets):
+        """Freezing a free parameter of the target planet does not warn."""
+        fitter = setup_fitter_two_planets
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # any warning becomes an error
+            fitter._resolve_freeze_params({"K_b": 5.0}, planet_letter="b")
+
+    def test_resolve_freeze_params_no_planet_letter_no_wrong_planet_warn(self, setup_fitter_two_planets):
+        """Without planet_letter, no cross-planet warning is emitted."""
+        fitter = setup_fitter_two_planets
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")
+            fitter._resolve_freeze_params({"K_c": 3.0})  # K_c free, no planet_letter
+        assert not [w for w in record if "different planet" in str(w.message)]
+
+    def test_plot_posterior_phase_freeze_wrong_planet_warns_once(self, setup_fitter_two_planets):
+        """Plotting one planet but freezing another's parameter warns exactly once."""
+        import matplotlib
+        matplotlib.use('Agg')
+
+        fitter = setup_fitter_two_planets
+        self._run_short_mcmc(fitter)
+
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")  # worst case: no de-duplication
+            # Plot planet 'b' but freeze K_c (planet c, free)
+            fitter.plot_posterior_phase('b', discard_start=10, thin=5, freeze_params={"K_c": None})
+        wrong_planet = [w for w in record if "different planet" in str(w.message)]
+        assert len(wrong_planet) == 1
+
+    def test_resolve_freeze_params_fixed_param_warns(self, setup_fitter_for_rv):
+        """Freezing a parameter that is already fixed warns (but is allowed)."""
+        fitter = setup_fitter_for_rv
+        # P_b is fixed in this fixture; freezing it should warn.
+        with pytest.warns(UserWarning, match="already fixed"):
+            resolved = fitter._resolve_freeze_params({"P_b": 9.9})
+        # ...and still resolve to the requested value (not banned).
+        assert resolved == {"P_b": 9.9}
+
+    def test_resolve_freeze_params_free_param_no_warn(self, setup_fitter_for_rv):
+        """Freezing a free parameter does not warn."""
+        fitter = setup_fitter_for_rv
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # any warning becomes an error
+            fitter._resolve_freeze_params({"K_b": 5.0})
+
+    def test_plot_posterior_phase_freeze_fixed_warns_once(self, setup_fitter_for_rv):
+        """A fixed-parameter freeze warns exactly once across the whole plot."""
+        import matplotlib
+        matplotlib.use('Agg')
+
+        fitter = setup_fitter_for_rv
+        self._run_short_mcmc(fitter)
+
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")  # worst case: no de-duplication
+            fitter.plot_posterior_phase('b', discard_start=10, thin=5, freeze_params={"P_b": None, "Tc_b": None})
+        fixed_warnings = [w for w in record if "already fixed" in str(w.message)]
+        assert len(fixed_warnings) == 1
+
+    def test_calculate_rv_planet_from_samples_freeze_constant(self, setup_fitter_for_rv):
+        """Freezing all planet parameters makes every sample's RV identical."""
+        fitter = setup_fitter_for_rv
+        self._run_short_mcmc(fitter)
+
+        times = np.array([0.0, 0.5, 1.0, 1.5])
+        frozen = {"P_b": 2.0, "K_b": 5.0, "e_b": 0.0, "w_b": np.pi / 2, "Tc_b": 0.0}
+
+        rv_samples = fitter.calculate_rv_planet_from_samples('b', times, discard_start=10, thin=5, freeze_params=frozen)
+
+        # With every planet parameter frozen, the planet RV no longer depends on
+        # the sample, so all rows are identical and match a single custom calc.
+        assert np.allclose(rv_samples, rv_samples[0:1], atol=1e-12)
+        params = fitter.build_params_dict(fitter.free_params_values) | frozen
+        expected = fitter.calculate_rv_planet_custom('b', times, params)
+        np.testing.assert_allclose(rv_samples[0], expected, atol=1e-12)
+
+    def test_calculate_rv_planet_from_samples_freeze_none_matches_median(self, setup_fitter_for_rv):
+        """Freezing at None gives the same result as freezing at the median value."""
+        fitter = setup_fitter_for_rv
+        self._run_short_mcmc(fitter)
+
+        times = np.array([0.0, 0.5, 1.0])
+        # K_b is the only free planet parameter in this fixture
+        samples_dict = fitter.get_samples_dict(discard_start=10, thin=5)
+        k_med = float(np.median(samples_dict["K_b"]))
+
+        rv_none = fitter.calculate_rv_planet_from_samples('b', times, discard_start=10, thin=5, freeze_params={"K_b": None})
+        rv_val = fitter.calculate_rv_planet_from_samples('b', times, discard_start=10, thin=5, freeze_params={"K_b": k_med})
+        np.testing.assert_allclose(rv_none, rv_val, atol=1e-12)
+
+    def test_calculate_rv_planet_from_samples_no_freeze_unchanged(self, setup_fitter_for_rv):
+        """Default (freeze_params=None) is unchanged from the original behaviour."""
+        fitter = setup_fitter_for_rv
+        self._run_short_mcmc(fitter)
+
+        times = np.array([0.0, 1.0, 2.0])
+        rv_default = fitter.calculate_rv_planet_from_samples('b', times, discard_start=10, thin=5)
+        rv_none = fitter.calculate_rv_planet_from_samples('b', times, discard_start=10, thin=5, freeze_params=None)
+        np.testing.assert_array_equal(rv_default, rv_none)
+
+    def test_plot_posterior_phase_freeze_params(self, setup_fitter_for_rv):
+        """plot_posterior_phase runs with freeze_params (median and explicit)."""
+        import matplotlib
+        matplotlib.use('Agg')
+
+        fitter = setup_fitter_for_rv
+        self._run_short_mcmc(fitter)
+
+        # None -> median, and explicit float, both accepted
+        fitter.plot_posterior_phase('b', discard_start=10, thin=5, freeze_params={"P_b": None, "Tc_b": None})
+        fitter.plot_posterior_phase('b', discard_start=10, thin=5, freeze_params={"P_b": 2.0, "Tc_b": 0.0})
+
+    def test_plot_posterior_phase_freeze_params_unknown_key_raises(self, setup_fitter_for_rv):
+        """plot_posterior_phase rejects an unknown freeze_params key."""
+        import matplotlib
+        matplotlib.use('Agg')
+
+        fitter = setup_fitter_for_rv
+        self._run_short_mcmc(fitter)
+
+        with pytest.raises(ValueError, match="Unknown freeze_params key"):
+            fitter.plot_posterior_phase('b', discard_start=10, thin=5, freeze_params={"Xyz_b": None})
 
     def test_calculate_rv_total_from_samples(self, setup_fitter_for_rv):
         """Test calculating total RV from MCMC samples."""

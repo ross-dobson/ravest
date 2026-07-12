@@ -2342,7 +2342,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_posterior_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_phase.png", dpi: int = 100, n_smooth: int = 1000) -> None:
+    def plot_posterior_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_phase.png", dpi: int = 100, n_smooth: int = 1000, freeze_params: dict[str, float | None] | None = None) -> None:
         """Plot phase-folded RV model with uncertainty bands from MCMC samples.
 
         Shows the phase-folded planetary signal with uncertainty bands calculated
@@ -2380,7 +2380,33 @@ class Fitter:
             The dpi to save the image at (default: 100)
         n_smooth : int, optional
             Number of points in the one-period smooth model curve (default: 1000).
+        freeze_params : dict[str, float or None] or None, optional
+            Freeze named planet parameters to fixed values during the
+            per-sample RV calculation (default: None, no freezing). Keys are
+            full planet-parameter names (e.g. ``"P_c"``, ``"Tc_c"``); a value
+            of ``None`` freezes the parameter at its posterior median, while a
+            float freezes it at that exact value. Freezing P and Tc makes every
+            sample fold identically, giving a crisp median model line, CI band
+            and residuals when a period has large posterior uncertainty (which
+            otherwise smears the folded model). This can often happen for
+            non-transiting planets, especially if sampling in Tp not Tc. Note
+            that the RV data are always folded around the median of time and
+            period; this argument only affects the planetary phase-folded RV
+            curve and CI shaded band.
+
+            Only planet parameters of the active parameterisation can be frozen,
+            not trend or instrument parameters (``gd``, ``gdd``, ``g_*``,
+            ``jit_*``). Keys should normally be for ``planet_letter``; freezing
+            a parameter for a different planet warns (though it still applies
+            when removing that planet's signal). Freezing a parameter that is
+            already fixed (not free) also warns (although you can freeze at a
+            different value from the value the parameter was fixed at during
+            fitting).
         """
+        # Resolve any frozen parameter values (None -> posterior median) up front,
+        # so the fold reference and the per-sample RV calls stay consistent.
+        resolved_freeze = self._resolve_freeze_params(freeze_params, discard_start=discard_start, discard_end=discard_end, thin=thin, planet_letter=planet_letter)
+
         # Get period (handle both free and fixed cases)
         samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
 
@@ -2398,19 +2424,30 @@ class Fitter:
                 jit_med = self.fixed_params_values_dict[jit_key]
             velerr_with_jit[mask] = np.sqrt(self.velerr[mask]**2 + jit_med**2)
 
+        # Per-planet parameter samples for the target planet, with any frozen
+        # values substituted in. A frozen parameter replaces its sample array
+        # with the fixed scalar, so the fold reference below matches the
+        # (frozen) per-sample model curve and data folds identically.
+        planet_params = {par: params[f"{par}_{planet_letter}"] for par in self.parameterisation.pars}
+        if resolved_freeze:
+            for par in self.parameterisation.pars:
+                key = f"{par}_{planet_letter}"
+                if key in resolved_freeze:
+                    planet_params[par] = resolved_freeze[key]
+
         # Get period value
-        _P = params[f'P_{planet_letter}']
+        _P = planet_params["P"]
 
         # Get (or calculate) Tc for this planet for folding around
         if "Tc" in self.parameterisation.pars:
-            _Tc = params[f"Tc_{planet_letter}"]
+            _Tc = planet_params["Tc"]
         else:
             # Fall back to default parameterisation conversion (as it has P, e, w and Tp, so we can definitely get Tc)
-            planet_params = {par: params[f"{par}_{planet_letter}"] for par in self.parameterisation.pars}
             default_params = self.parameterisation.convert_pars_to_default_parameterisation(planet_params)
             _Tc = self.parameterisation.convert_tp_to_tc(default_params["Tp"], _P, default_params["e"], default_params["w"])
 
         # just for the folding, take the median value of the P and Tc samples
+        # (a frozen parameter is a scalar, so np.median returns it unchanged)
         Tc_med = np.median(_Tc)
         P_med = np.median(_P)
 
@@ -2425,15 +2462,18 @@ class Fitter:
 
 
         # Calculate RV components from MCMC samples (matrix of n_samples x n_obs, or n_samples x n_smooth)
-        rv_planet_data = self.calculate_rv_planet_from_samples(planet_letter, self.time, discard_start, discard_end, thin)
-        rv_planet_smooth = self.calculate_rv_planet_from_samples(planet_letter, tsmooth, discard_start, discard_end, thin)
+        # freeze_params is resolved (and any fixed-parameter warning emitted) once
+        # above; pass the resolved dict straight to the worker so the repeated
+        # per-planet calls here don't re-validate or re-warn.
+        rv_planet_data = self._calculate_rv_planet_from_samples(planet_letter, self.time, discard_start, discard_end, thin, resolved_freeze=resolved_freeze)
+        rv_planet_smooth = self._calculate_rv_planet_from_samples(planet_letter, tsmooth, discard_start, discard_end, thin, resolved_freeze=resolved_freeze)
         rv_trend_data = self.calculate_rv_trend_from_samples(self.time, discard_start, discard_end, thin)
 
         # Calculate RV contributions from all OTHER planets (not the target planet)
         rv_other_planets_data = np.zeros_like(rv_trend_data)
         for other_letter in self.planet_letters:
             if other_letter != planet_letter:
-                rv_other_planet = self.calculate_rv_planet_from_samples(other_letter, self.time, discard_start, discard_end, thin)
+                rv_other_planet = self._calculate_rv_planet_from_samples(other_letter, self.time, discard_start, discard_end, thin, resolved_freeze=resolved_freeze)
                 rv_other_planets_data += rv_other_planet
 
         # Combine all non-target contributions (other planets + trend)
@@ -2543,7 +2583,111 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def calculate_rv_planet_from_samples(self, planet_letter: str, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1, progress: bool = False) -> np.ndarray:
+    def _resolve_freeze_params(self, freeze_params: dict[str, float | None] | None, discard_start: int = 0, discard_end: int = 0, thin: int = 1, planet_letter: str | None = None) -> dict[str, float] | None:
+        """Validate and resolve a ``freeze_params`` mapping for phase plotting.
+
+        Parameters
+        ----------
+        freeze_params : dict[str, float or None] or None
+            Mapping of full planet-parameter names (e.g. ``"P_c"``, ``"Tc_c"``)
+            to the value to freeze them at. A value of ``None`` freezes the
+            parameter at its posterior median, computed from the requested
+            samples (a fixed parameter resolves to its fixed value). If
+            ``None``, this method returns ``None``.
+        discard_start : int, optional
+            Discard the first ``discard_start`` steps from the chain (default: 0).
+            Only used to compute medians for any ``None``-valued entries.
+        discard_end : int, optional
+            Discard the last ``discard_end`` steps from the chain (default: 0).
+            Only used to compute medians for any ``None``-valued entries.
+        thin : int, optional
+            Use only every ``thin`` steps from the chain (default: 1).
+            Only used to compute medians for any ``None``-valued entries.
+        planet_letter : str or None, optional
+            The planet the freeze is being applied for (default: None). If
+            given, a key whose planet letter differs from ``planet_letter``
+            warns, since freezing usually targets the plotted planet.
+
+        Returns
+        -------
+        dict[str, float] or None
+            Mapping with every value resolved to a float, or ``None`` if
+            ``freeze_params`` was ``None``.
+
+        Raises
+        ------
+        ValueError
+            If a key is not a recognised planet parameter of the active
+            parameterisation.
+
+        Warns
+        -----
+        UserWarning
+            If a key names a parameter that is already fixed (not free), or (when
+            ``planet_letter`` is given) a parameter for a different planet.
+            Neither is forbidden, but both usually mean the wrong key was passed.
+        """
+        if freeze_params is None:
+            return None
+
+        valid_names = {f"{par}_{letter}" for par in self.parameterisation.pars for letter in self.planet_letters}
+        unknown = set(freeze_params) - valid_names
+        if unknown:
+            raise ValueError(
+                f"Unknown freeze_params key(s): {sorted(unknown)}. Keys must be "
+                f"planet parameters of the active parameterisation, i.e. one of "
+                f"{sorted(valid_names)}."
+            )
+
+        # Warn if a key targets a planet other than the one being plotted: the
+        # phase plot is for a single planet, so freezing another planet's
+        # parameter almost always means the wrong planet letter was passed. Not
+        # forbidden (it still applies when removing that planet's signal).
+        if planet_letter is not None:
+            wrong_planet = [key for key in freeze_params if key.rsplit("_", 1)[-1] != planet_letter]
+            if wrong_planet:
+                warnings.warn(
+                    f"freeze_params names parameter(s) for a different planet than "
+                    f"'{planet_letter}': {sorted(wrong_planet)}. Freezing is intended "
+                    f"for the target planet's parameters (typically P and Tc); check "
+                    f"the planet letter.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
+        # Freezing only matters for parameters that vary across samples. Freezing
+        # a parameter that is already fixed has no de-smearing effect, so it most
+        # likely signals a wrong parameter name or a misunderstanding of what
+        # freezing does. It is not forbidden (freezing a fixed parameter to a
+        # different value is still allowed), but warn loudly.
+        fixed_frozen = [key for key in freeze_params if key not in self.free_params_names]
+        if fixed_frozen:
+            warnings.warn(
+                f"freeze_params names parameter(s) that are already fixed, not free: "
+                f"{sorted(fixed_frozen)}. Freezing only affects parameters that vary "
+                f"across posterior samples, so this has no de-smearing effect "
+                f"(a None value just resolves to the fixed value). Did you mean a "
+                f"free parameter, or pass the wrong name?",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        resolved: dict[str, float] = {}
+        samples_dict = None  # only loaded if a None value needs a median
+        for key, value in freeze_params.items():
+            if value is None:
+                if samples_dict is None:
+                    samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
+                if key in samples_dict:
+                    resolved[key] = float(np.median(samples_dict[key]))
+                else:
+                    # Fixed parameter: its "median" is just its fixed value.
+                    resolved[key] = float(self.fixed_params_values_dict[key])
+            else:
+                resolved[key] = float(value)
+        return resolved
+
+    def calculate_rv_planet_from_samples(self, planet_letter: str, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1, progress: bool = False, freeze_params: dict[str, float | None] | None = None) -> np.ndarray:
         """Calculate planetary RV for each MCMC sample.
 
         This calculates RV(params_i) for each MCMC sample i, preserving
@@ -2564,11 +2708,30 @@ class Fitter:
             Use every Nth sample (default: 1)
         progress : bool, optional
             Show progress bar (default: False)
+        freeze_params : dict[str, float or None] or None, optional
+            Mapping of full planet-parameter names (e.g. ``"P_c"``, ``"Tc_c"``)
+            to a value that overrides that parameter in every sample. A value
+            of ``None`` freezes the parameter at its posterior median. Used to
+            de-smear phase plots when a period has large posterior uncertainty;
+            see `plot_posterior_phase` (default: None, no freezing).
 
         Returns
         -------
         np.ndarray
             Shape (n_samples, len(times)) - RV for each sample
+        """
+        resolved_freeze = self._resolve_freeze_params(freeze_params, discard_start=discard_start, discard_end=discard_end, thin=thin, planet_letter=planet_letter)
+        return self._calculate_rv_planet_from_samples(planet_letter, times, discard_start=discard_start, discard_end=discard_end, thin=thin, progress=progress, resolved_freeze=resolved_freeze)
+
+    def _calculate_rv_planet_from_samples(self, planet_letter: str, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1, progress: bool = False, resolved_freeze: dict[str, float] | None = None) -> np.ndarray:
+        """Per-sample planet RV, applying an already-resolved freeze override.
+
+        Internal worker for `calculate_rv_planet_from_samples`. ``resolved_freeze``
+        must already be validated and resolved to concrete floats (see
+        `_resolve_freeze_params`); it is applied verbatim to each sample's params
+        without further validation or warnings, so callers that have already
+        resolved once (e.g. `plot_posterior_phase`) do not trigger duplicate
+        warnings.
         """
         samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         planet_rvs = np.zeros((len(samples), len(times)))
@@ -2577,6 +2740,10 @@ class Fitter:
         for i, row in iterator:
             # Build complete params dict for this sample
             params = self.build_params_dict(row)
+
+            # Substitute any frozen parameter values for this sample
+            if resolved_freeze:
+                params.update(resolved_freeze)
 
             # Use custom method
             planet_rvs[i, :] = self.calculate_rv_planet_custom(planet_letter, times, params)
