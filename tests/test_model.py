@@ -451,20 +451,6 @@ def test_star_str_without_trend() -> None:
 class TestPlanetParameterisations:
     """Test Planet creation with different parameterisations."""
 
-    def test_planet_ecosw_esinw_tp(self) -> None:
-        """Test Planet with ecosw/esinw/Tp parameterisation."""
-        e, w = 0.3, 0.5
-        ecosw = e * np.cos(w)
-        esinw = e * np.sin(w)
-        planet = Planet(letter="b", parameterisation=Parameterisation("P K ecosw esinw Tp"),
-                        params={"P": 10.0, "K": 5.0, "ecosw": ecosw, "esinw": esinw, "Tp": 0.0})
-
-        # Should successfully compute RV
-        t = np.array([0.0, 2.5, 5.0])
-        rv = planet.radial_velocity(t)
-        assert np.all(np.isfinite(rv))
-        assert len(rv) == 3
-
     def test_planet_secosw_sesinw_tc(self) -> None:
         """Test Planet with secosw/sesinw/Tc parameterisation."""
         e, w = 0.2, 0.3
@@ -486,12 +472,6 @@ class TestPlanetParameterisations:
         planet_default = Planet(letter="b", parameterisation=Parameterisation("P K e w Tp"),
                                 params={"P": P, "K": K, "e": e, "w": w, "Tp": tp})
 
-        # ecosw/esinw parameterisation
-        ecosw = e * np.cos(w)
-        esinw = e * np.sin(w)
-        planet_ecosw = Planet(letter="b", parameterisation=Parameterisation("P K ecosw esinw Tp"),
-                              params={"P": P, "K": K, "ecosw": ecosw, "esinw": esinw, "Tp": tp})
-
         # secosw/sesinw parameterisation
         secosw = np.sqrt(e) * np.cos(w)
         sesinw = np.sqrt(e) * np.sin(w)
@@ -500,10 +480,8 @@ class TestPlanetParameterisations:
 
         t = np.linspace(0, 20, 100)
         rv_default = planet_default.radial_velocity(t)
-        rv_ecosw = planet_ecosw.radial_velocity(t)
         rv_secosw = planet_secosw.radial_velocity(t)
 
-        np.testing.assert_allclose(rv_ecosw, rv_default, atol=1e-10)
         np.testing.assert_allclose(rv_secosw, rv_default, atol=1e-10)
 
 

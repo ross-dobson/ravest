@@ -33,6 +33,7 @@ import ravest.model
 from ravest.gp import GPKernel
 from ravest.model import _njit_kepler_rv
 from ravest.param import Parameter, Parameterisation, param_key_to_latex
+from ravest.prior import Uniform
 
 # Enable 64-bit precision for better numerical accuracy
 jax.config.update("jax_enable_x64", True)
@@ -3129,6 +3130,105 @@ class LogPosterior:
         )
         self.log_prior = LogPrior(self.priors)
 
+        (
+            self._logprob_jacobian_correction,
+            self._logprob_prior_renorm_correction,
+            self._logprob_correction_breakdown,
+        ) = self._compute_logprob_corrections()
+
+    def _classify_planet_case(self, letter: str) -> str:
+        """Classify a single planet's log-posterior correction case.
+
+        Parameters
+        ----------
+        letter : str
+            Single-character planet identifier.
+
+        Returns
+        -------
+        str
+            One of "CASE_1", "CASE_2", "CASE_3".
+
+        Raises
+        ------
+        NotImplementedError
+            If the planet has a prior on (secosw, sesinw) that is not both
+            Uniform(-1, 1) - such priors are unsupported; express the
+            eccentricity belief on (e, w) instead.
+        RuntimeError
+            If neither a (secosw, sesinw) nor an (e, w) prior pair is found
+            for this planet (should be unreachable given prior validation).
+        """
+        if self.parameterisation.log_jacobian_determinant() == 0.0:
+            return "CASE_1"
+
+        if f"secosw_{letter}" not in self.free_params_names:
+            # secosw/sesinw are fixed for this planet (coupling enforced at
+            # Fitter._validate_parameter_coupling)
+            return "CASE_1"
+
+        secosw_key, sesinw_key = f"secosw_{letter}", f"sesinw_{letter}"
+        e_key, w_key = f"e_{letter}", f"w_{letter}"
+
+        if secosw_key in self.priors and sesinw_key in self.priors:
+            secosw_prior = self.priors[secosw_key]
+            sesinw_prior = self.priors[sesinw_key]
+            if (
+                isinstance(secosw_prior, Uniform)
+                and isinstance(sesinw_prior, Uniform)
+                and secosw_prior.lower == -1
+                and secosw_prior.upper == 1
+                and sesinw_prior.lower == -1
+                and sesinw_prior.upper == 1
+            ):
+                return "CASE_2"
+            raise NotImplementedError(
+                f"Unsupported priors on (secosw_{letter}, sesinw_{letter}): "
+                f"{secosw_prior!r}, {sesinw_prior!r}. Only Uniform(-1, 1) priors "
+                "on (secosw, sesinw) are supported for evidence-correct log-posterior "
+                "corrections. A separable, rotationally-symmetric belief about "
+                "eccentricity can always be re-expressed as a prior on e instead - "
+                f"place priors on (e_{letter}, w_{letter}) using one of Ravest's "
+                "eccentricity priors (HalfNormal, Rayleigh, VanEylen19Mixture, Beta, "
+                "EccentricityUniform, TruncatedNormal)."
+            )
+        elif e_key in self.priors and w_key in self.priors:
+            return "CASE_3"
+        else:
+            raise RuntimeError(
+                f"Could not classify log-posterior correction case for planet "
+                f"'{letter}': no priors found on either (secosw, sesinw) or (e, w)."
+            )
+
+    def _compute_logprob_corrections(self) -> tuple[float, float, dict[str, dict]]:
+        """Compute per-planet log-posterior corrections, summed across planets.
+
+        Returns
+        -------
+        tuple[float, float, dict[str, dict]]
+            Total log-Jacobian correction, total log-prior-renormalisation
+            correction, and a per-planet breakdown of case/contributions.
+        """
+        log_jac = self.parameterisation.log_jacobian_determinant()
+        total_jacobian = 0.0
+        total_renorm = 0.0
+        breakdown: dict[str, dict] = {}
+
+        for letter in self.planet_letters:
+            case = self._classify_planet_case(letter)
+            jacobian = log_jac if case == "CASE_3" else 0.0
+            renorm = np.log(4.0 / np.pi) if case == "CASE_2" else 0.0
+
+            total_jacobian += jacobian
+            total_renorm += renorm
+            breakdown[letter] = {"case": case, "jacobian": jacobian, "renorm": renorm}
+            logging.info(
+                f"Planet {letter}: log-posterior correction case {case} "
+                f"(jacobian={jacobian}, renorm={renorm})"
+            )
+
+        return total_jacobian, total_renorm, breakdown
+
     def _convert_params_for_prior_evaluation(self, free_params_dict: dict[str, float]) -> Dict[str, float]:
         """Convert free parameters for prior evaluation if needed.
 
@@ -3217,8 +3317,14 @@ class LogPosterior:
         # Calculate log-likelihood with all parameters
         ll = self.log_likelihood(_all_params_for_ll)
 
-        # Return combined log-posterior (log-likelihood + log-prior)
+        # Return combined log-posterior (log-likelihood + log-prior), plus the
+        # constant per-planet Jacobian/prior-renormalisation corrections needed
+        # for evidence-correct (u, v) parameterisation sampling. These are
+        # constants so they cancel in the MCMC acceptance ratio and only
+        # matter for Bayesian evidence estimation (e.g. via harmonic/LHME).
         logprob = ll + lp
+        logprob += self._logprob_jacobian_correction
+        logprob += self._logprob_prior_renorm_correction
         return logprob
 
     def _negative_log_probability_for_MAP(self, free_params_vals: list[float]) -> float:

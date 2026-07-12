@@ -27,6 +27,7 @@ autoapi/index
 :caption: Project
 
 FAQ.md
+logprob_corrections.md
 changelog.md
 contributing.md
 conduct.md

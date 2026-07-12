@@ -4,8 +4,8 @@ import numpy as np
 
 ALLOWED_PARAMETERISATIONS = ["P K e w Tp",   # default - the one used in Keplerian RV equation
                              "P K e w Tc",
-                             "P K ecosw esinw Tp",
-                             "P K ecosw esinw Tc",
+                             # "P K ecosw esinw Tp",  # DISABLED, LIKELY TO BE REMOVED
+                             # "P K ecosw esinw Tc",  # DISABLED, LIKELY TO BE REMOVED
                              "P K secosw sesinw Tp",
                              "P K secosw sesinw Tc"]
 
@@ -424,6 +424,15 @@ class Parameterisation:
 
         else:
             raise ValueError(f"parameterisation {self.parameterisation} not recognised")
+
+    def log_jacobian_determinant(self) -> float:
+        """Log absolute Jacobian determinant |d(e,w)/d(u,v)| for this parameterisation.
+
+        Returns log(2) for the secosw/sesinw parameterisation, else 0.0.
+        """
+        if "secosw" in self.parameterisation:
+            return np.log(2)
+        return 0.0
 
 
 def _instrument_subscript_latex(inst: str) -> str:
