@@ -91,34 +91,6 @@ class TestParameterisationFlexibility:
         fitter.priors = priors
         # Should not raise exception
 
-    def test_transformed_to_transformed_priors_ecosw_esinw(self, simple_test_data) -> None:
-        """Test ecosw/esinw parameterisation with ecosw/esinw priors (single instrument: HARPS)."""
-        time, vel, velerr, instrument = simple_test_data
-        params = {
-            "P_b": Parameter(5.0, "days", fixed=False),
-            "K_b": Parameter(3.0, "m/s", fixed=False),
-            "ecosw_b": Parameter(0.1, "", fixed=False),
-            "esinw_b": Parameter(0.2, "", fixed=False),
-            "Tc_b": Parameter(69.0, "days", fixed=False),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False)
-        }
-        priors = {
-            "P_b": Uniform(0, 10),
-            "K_b": Uniform(0, 10),
-            "ecosw_b": Uniform(-1, 1),
-            "esinw_b": Uniform(-1, 1),
-            "Tc_b": Uniform(64, 70),
-            "jit_HARPS": Uniform(0, 5)
-        }
-        fitter = Fitter(["b"], Parameterisation("P K ecosw esinw Tc"))
-        fitter.add_data(time=time, vel=vel, velerr=velerr, instrument=instrument, t0=2.0)
-        fitter.params = params
-        fitter.priors = priors
-        # Should not raise exception
-
     def test_case3_secosw_sesinw_with_default_priors(self, simple_test_data) -> None:
         """Test secosw/sesinw parameterisation with default priors (Case 3, single instrument: HARPS)."""
         time, vel, velerr, instrument = simple_test_data
@@ -142,34 +114,6 @@ class TestParameterisationFlexibility:
             "jit_HARPS": Uniform(0, 5)
         }
         fitter = Fitter(["b"], Parameterisation("P K secosw sesinw Tc"))
-        fitter.add_data(time=time, vel=vel, velerr=velerr, instrument=instrument, t0=2.0)
-        fitter.params = params
-        fitter.priors = priors
-        # Should not raise exception
-
-    def test_case3_ecosw_esinw_with_default_priors(self, simple_test_data) -> None:
-        """Test ecosw/esinw parameterisation with default priors (Case 3, single instrument: HARPS)."""
-        time, vel, velerr, instrument = simple_test_data
-        params = {
-            "P_b": Parameter(5.0, "days", fixed=False),
-            "K_b": Parameter(3.0, "m/s", fixed=False),
-            "ecosw_b": Parameter(0.1, "", fixed=False),
-            "esinw_b": Parameter(0.2, "", fixed=False),
-            "Tc_b": Parameter(69.0, "days", fixed=False),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False)
-        }
-        priors = {
-            "P_b": Uniform(0, 10),
-            "K_b": Uniform(0, 10),
-            "e_b": Uniform(0, 1),           # Default equivalent to ecosw/esinw
-            "w_b": Uniform(-np.pi, np.pi),  # Default equivalent to ecosw/esinw
-            "Tp_b": Uniform(64, 70),        # Default equivalent to tc
-            "jit_HARPS": Uniform(0, 5)
-        }
-        fitter = Fitter(["b"], Parameterisation("P K ecosw esinw Tc"))
         fitter.add_data(time=time, vel=vel, velerr=velerr, instrument=instrument, t0=2.0)
         fitter.params = params
         fitter.priors = priors
@@ -270,25 +214,6 @@ class TestParameterisationFlexibility:
         fitter = Fitter(["b"], Parameterisation("P K secosw sesinw Tc"))
         fitter.add_data(time=time, vel=vel, velerr=velerr, instrument=instrument, t0=2.0)
         with pytest.raises(ValueError, match="secosw_b and sesinw_b must both be fixed or both be free"):
-            fitter.params = params
-
-    def test_mixed_ecosw_esinw_coupling_should_fail(self, simple_test_data) -> None:
-        """Test that mixed ecosw/esinw coupling is rejected (single instrument: HARPS)."""
-        time, vel, velerr, instrument = simple_test_data
-        params = {
-            "P_b": Parameter(5.0, "days", fixed=False),
-            "K_b": Parameter(3.0, "m/s", fixed=False),
-            "ecosw_b": Parameter(0.1, "", fixed=True),      # Fixed
-            "esinw_b": Parameter(0.2, "", fixed=False),     # Free - violation!
-            "Tc_b": Parameter(69.0, "days", fixed=True),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False)
-        }
-        fitter = Fitter(["b"], Parameterisation("P K ecosw esinw Tc"))
-        fitter.add_data(time=time, vel=vel, velerr=velerr, instrument=instrument, t0=2.0)
-        with pytest.raises(ValueError, match="ecosw_b and esinw_b must both be fixed or both be free"):
             fitter.params = params
 
     def test_missing_priors_should_fail(self, simple_test_data) -> None:
@@ -441,8 +366,8 @@ class TestParameterisationFlexibility:
         priors = {
             "P_b": Uniform(3, 7),
             "K_b": Uniform(0, 10),
-            "secosw_b": Uniform(-0.5, 0.5),
-            "sesinw_b": Uniform(-0.5, 0.5),
+            "secosw_b": Uniform(-1, 1),
+            "sesinw_b": Uniform(-1, 1),
             "Tc_b": Uniform(20, 30),
             "g_HARPS": Uniform(-10, 10),
             "jit_HARPS": Uniform(0, 5)

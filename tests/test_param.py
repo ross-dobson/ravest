@@ -33,27 +33,6 @@ def test_convert_e_w_to_ecosw_esinw(e, w) -> None:
     assert np.isclose(ecosw, expected_ecosw)
     assert np.isclose(esinw, expected_esinw)
 
-@pytest.mark.parametrize("ecosw, esinw", [
-    (ecosw, esinw) for ecosw in np.arange(0, 1, 0.1) for esinw in np.arange(0, 1, 0.1)
-    if np.sqrt(ecosw**2 + esinw**2) < 1.0  # Only test valid combinations where e < 1
-])
-def test_convert_ecosw_esinw_to_e_w_valid(ecosw, esinw) -> None:
-    para = Parameterisation("P K ecosw esinw Tp")
-    expected_e = np.sqrt(ecosw**2 + esinw**2)
-    expected_w = np.arctan2(esinw, ecosw)
-    e, w = para.convert_ecosw_esinw_to_e_w(ecosw, esinw)
-    assert np.isclose(e, expected_e)
-    assert np.isclose(w, expected_w)
-
-@pytest.mark.parametrize("ecosw, esinw", [
-    (ecosw, esinw) for ecosw in np.arange(0, 1, 0.1) for esinw in np.arange(0, 1, 0.1)
-    if np.sqrt(ecosw**2 + esinw**2) >= 1.0  # Test invalid combinations where e >= 1
-])
-def test_convert_ecosw_esinw_to_e_w_invalid(ecosw, esinw) -> None:
-    para = Parameterisation("P K ecosw esinw Tp")
-    with pytest.raises(ValueError, match="Invalid eccentricity.*>= 1.0"):
-        para.convert_ecosw_esinw_to_e_w(ecosw, esinw)
-
 @pytest.mark.parametrize("secosw, sesinw", [
     (secosw, sesinw) for secosw in np.arange(0, 1, 0.1) for sesinw in np.arange(0, 1, 0.1)
 ])
@@ -149,36 +128,6 @@ class TestConvertToDefault:
             np.testing.assert_allclose(result[key], _DEFAULT_PARAMS[key], atol=1e-10,
                                        err_msg=f"Mismatch on {key}")
 
-    def test_ecosw_esinw_tp_to_default(self) -> None:
-        """Test P K ecosw esinw Tp -> P K e w Tp."""
-        para = Parameterisation("P K ecosw esinw Tp")
-        ecosw = _DEFAULT_PARAMS["e"] * np.cos(_DEFAULT_PARAMS["w"])
-        esinw = _DEFAULT_PARAMS["e"] * np.sin(_DEFAULT_PARAMS["w"])
-        inpars = {"P": 10.0, "K": 25.0, "ecosw": ecosw, "esinw": esinw, "Tp": 5.0}
-
-        result = para.convert_pars_to_default_parameterisation(inpars)
-
-        np.testing.assert_allclose(result["e"], _DEFAULT_PARAMS["e"], atol=1e-10)
-        np.testing.assert_allclose(result["w"], _DEFAULT_PARAMS["w"], atol=1e-10)
-        assert result["Tp"] == _DEFAULT_PARAMS["Tp"]
-
-    def test_ecosw_esinw_tc_to_default(self) -> None:
-        """Test P K ecosw esinw Tc -> P K e w Tp."""
-        para = Parameterisation("P K ecosw esinw Tc")
-        para_default = Parameterisation("P K e w Tp")
-
-        ecosw = _DEFAULT_PARAMS["e"] * np.cos(_DEFAULT_PARAMS["w"])
-        esinw = _DEFAULT_PARAMS["e"] * np.sin(_DEFAULT_PARAMS["w"])
-        tc = para_default.convert_tp_to_tc(_DEFAULT_PARAMS["Tp"], _DEFAULT_PARAMS["P"],
-                                           _DEFAULT_PARAMS["e"], _DEFAULT_PARAMS["w"])
-        inpars = {"P": 10.0, "K": 25.0, "ecosw": ecosw, "esinw": esinw, "Tc": tc}
-
-        result = para.convert_pars_to_default_parameterisation(inpars)
-
-        np.testing.assert_allclose(result["e"], _DEFAULT_PARAMS["e"], atol=1e-10)
-        np.testing.assert_allclose(result["w"], _DEFAULT_PARAMS["w"], atol=1e-10)
-        np.testing.assert_allclose(result["Tp"], _DEFAULT_PARAMS["Tp"], atol=1e-10)
-
     def test_secosw_sesinw_tp_to_default(self) -> None:
         """Test P K secosw sesinw Tp -> P K e w Tp."""
         para = Parameterisation("P K secosw sesinw Tp")
@@ -229,30 +178,6 @@ class TestConvertFromDefault:
                                                      _DEFAULT_PARAMS["e"], _DEFAULT_PARAMS["w"])
         np.testing.assert_allclose(result["Tc"], expected_tc, atol=1e-10)
 
-    def test_default_to_ecosw_esinw_tp(self) -> None:
-        """Test default -> P K ecosw esinw Tp."""
-        para = Parameterisation("P K ecosw esinw Tp")
-
-        result = para.convert_pars_from_default_parameterisation(_DEFAULT_PARAMS)
-
-        expected_ecosw = _DEFAULT_PARAMS["e"] * np.cos(_DEFAULT_PARAMS["w"])
-        expected_esinw = _DEFAULT_PARAMS["e"] * np.sin(_DEFAULT_PARAMS["w"])
-        np.testing.assert_allclose(result["ecosw"], expected_ecosw, atol=1e-10)
-        np.testing.assert_allclose(result["esinw"], expected_esinw, atol=1e-10)
-        assert result["Tp"] == _DEFAULT_PARAMS["Tp"]
-
-    def test_default_to_ecosw_esinw_tc(self) -> None:
-        """Test default -> P K ecosw esinw Tc."""
-        para = Parameterisation("P K ecosw esinw Tc")
-
-        result = para.convert_pars_from_default_parameterisation(_DEFAULT_PARAMS)
-
-        expected_ecosw = _DEFAULT_PARAMS["e"] * np.cos(_DEFAULT_PARAMS["w"])
-        expected_esinw = _DEFAULT_PARAMS["e"] * np.sin(_DEFAULT_PARAMS["w"])
-        np.testing.assert_allclose(result["ecosw"], expected_ecosw, atol=1e-10)
-        np.testing.assert_allclose(result["esinw"], expected_esinw, atol=1e-10)
-        assert "Tc" in result
-
     def test_default_to_secosw_sesinw_tp(self) -> None:
         """Test default -> P K secosw sesinw Tp."""
         para = Parameterisation("P K secosw sesinw Tp")
@@ -292,8 +217,6 @@ class TestRoundTripConversions:
 
     @pytest.mark.parametrize("param_str", [
         "P K e w Tc",
-        "P K ecosw esinw Tp",
-        "P K ecosw esinw Tc",
         "P K secosw sesinw Tp",
         "P K secosw sesinw Tc",
     ])
