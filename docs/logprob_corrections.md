@@ -140,6 +140,12 @@ planet independently and summing avoids this.
   `_logprob_correction_breakdown` dict.
 - `LogPosterior.log_probability` adds both stored corrections to
   `log_likelihood + log_prior` before returning.
+- `GPLogPosterior` mirrors `LogPosterior` exactly: the same
+  `_classify_planet_case`/`_compute_logprob_corrections` methods, and
+  `GPLogPosterior.log_probability` adds the same two stored corrections to
+  `log_likelihood + log_prior + log_hyperprior` before returning. The
+  corrections depend only on the parameterisation and priors, not the
+  likelihood, so no GP-specific logic is needed.
 
 ## ecosw/esinw retirement
 
@@ -164,15 +170,14 @@ mixed-case regression this fix addresses:
 - Case 3 with a HalfNormal prior on e: confirms the Jacobian correction is
   independent of the prior shape.
 - **Mixed two-planet case** (planet b Case 2, planet c Case 3, same fit):
-  `docs/Examples/test_mixed_case_corrections.ipynb` checks that per-planet
-  classification and summation recovers the correct combined correction
-  (`log(4/pi) + log(2)`) and that the resulting evidence agrees with a
+  per-planet classification and summation recovers the correct combined
+  correction (`log(4/pi) + log(2)`), and the resulting evidence agrees with a
   reference fit sampled entirely in `(e, w)`.
 
-## Scope: GPFitter
+## GPFitter
 
-`GPFitter`/`GPLogPosterior` mirror `Fitter`/`LogPosterior` structurally but do
-not yet apply these corrections. Porting the fix there is deferred to a
-follow-up branch to keep this change reviewable. The correction values are
-unaffected by the likelihood function (GP or otherwise), since they depend
-only on the parameterisation and priors.
+`GPFitter`/`GPLogPosterior` mirror `Fitter`/`LogPosterior` structurally, and
+apply the same per-planet corrections (see `tests/test_logprob_corrections_gp.py`
+for the mirrored unit-level coverage, including the mixed-case regression).
+The correction values are unaffected by the likelihood function (GP or
+otherwise), since they depend only on the parameterisation and priors.
