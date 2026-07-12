@@ -2406,6 +2406,69 @@ class TestGPRVCalculations:
         assert gp_samples.shape[1] == len(times)
         assert np.all(np.isfinite(gp_samples))
 
+    def _run_short_gp_mcmc(self, fitter):
+        """Run a short MCMC on the GPFitter (helper for freeze_params tests)."""
+        nwalkers = 14
+        map_result = fitter.find_map_estimate()
+        initial_positions = fitter.generate_initial_walker_positions_from_map(map_result, nwalkers=nwalkers)
+        fitter.run_mcmc(initial_positions, nwalkers=nwalkers, max_steps=50, progress=False)
+
+    def test_resolve_freeze_params_none(self, setup_gpfitter_for_rv):
+        """None passes straight through as None (no freezing)."""
+        fitter = setup_gpfitter_for_rv
+        assert fitter._resolve_freeze_params(None) is None
+
+    def test_resolve_freeze_params_unknown_key_raises(self, setup_gpfitter_for_rv):
+        """An unrecognised key raises ValueError."""
+        fitter = setup_gpfitter_for_rv
+        with pytest.raises(ValueError, match="Unknown freeze_params key"):
+            fitter._resolve_freeze_params({"P_c": None})
+
+    def test_resolve_freeze_params_rejects_non_planet_params(self, setup_gpfitter_for_rv):
+        """Trend, instrument and GP hyperparameters cannot be frozen."""
+        fitter = setup_gpfitter_for_rv
+        for key in ("jit_HARPS", "g_HARPS", "gd", "gp_amp", "gp_period"):
+            with pytest.raises(ValueError, match="Unknown freeze_params key"):
+                fitter._resolve_freeze_params({key: None})
+
+    def test_resolve_freeze_params_fixed_param_warns(self, setup_gpfitter_for_rv):
+        """Freezing a parameter that is already fixed warns (but is allowed)."""
+        fitter = setup_gpfitter_for_rv
+        with pytest.warns(UserWarning, match="already fixed"):
+            resolved = fitter._resolve_freeze_params({"P_b": 9.9})
+        assert resolved == {"P_b": 9.9}
+
+    def test_calculate_rv_planet_from_samples_freeze_constant(self, setup_gpfitter_for_rv):
+        """Freezing all planet parameters makes every sample's RV identical."""
+        fitter = setup_gpfitter_for_rv
+        self._run_short_gp_mcmc(fitter)
+
+        times = np.array([0.0, 0.5, 1.0, 1.5])
+        frozen = {"P_b": 2.0, "K_b": 5.0, "e_b": 0.0, "w_b": np.pi / 2, "Tc_b": 0.0}
+
+        rv_samples = fitter.calculate_rv_planet_from_samples('b', times, discard_start=10, thin=5, progress=False, freeze_params=frozen)
+
+        # With every planet parameter frozen, the planet RV no longer depends on
+        # the sample, so all rows are identical and match a single custom calc.
+        assert np.allclose(rv_samples, rv_samples[0:1], atol=1e-12)
+        params = fitter.build_params_dict(
+            list(fitter.free_params_values) + list(fitter.free_hyperparams_values)
+        ) | frozen
+        expected = fitter.calculate_rv_planet_custom('b', times, params)
+        np.testing.assert_allclose(rv_samples[0], expected, atol=1e-12)
+
+    def test_plot_posterior_phase_freeze_params(self, setup_gpfitter_for_rv):
+        """GPFitter.plot_posterior_phase runs with freeze_params (median and explicit)."""
+        import matplotlib
+        matplotlib.use('Agg')
+
+        fitter = setup_gpfitter_for_rv
+        self._run_short_gp_mcmc(fitter)
+
+        # None -> median, and explicit float, both accepted
+        fitter.plot_posterior_phase('b', discard_start=10, thin=5, n_smooth=50, freeze_params={"P_b": None, "Tc_b": None})
+        fitter.plot_posterior_phase('b', discard_start=10, thin=5, n_smooth=50, freeze_params={"P_b": 2.0, "Tc_b": 0.0})
+
 
 class TestGPFitterIntegration:
     """Integration tests for complete GPFitter workflow."""
