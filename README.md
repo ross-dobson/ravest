@@ -1,8 +1,12 @@
 # ravest
 
----
-
 **Radial Velocity fitting with Bayesian model comparison**
+
+[![GitHub](https://img.shields.io/badge/GitHub-ross--dobson%2Fravest-181717?logo=github)](https://github.com/ross-dobson/ravest)
+[![PyPI version](https://img.shields.io/pypi/v/ravest.svg)](https://pypi.org/project/ravest/)
+[![CI/CD](https://github.com/ross-dobson/ravest/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/ross-dobson/ravest/actions/workflows/ci-cd.yml)
+[![Documentation Status](https://readthedocs.org/projects/ravest/badge/?version=latest)](https://ravest.readthedocs.io/en/latest/?badge=latest)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 Features:
 - Model exoplanets and host stars, to simulate RV data for given orbital and instrumental parameters
@@ -11,6 +15,9 @@ Features:
 - Visualise/animate the star's orbit (coming soon!)
 
 Check out the tutorial notebooks at the [online documentation](https://ravest.readthedocs.io/) to see examples of how to do all of these!
+
+GitHub: [github.com/ross-dobson/ravest](https://github.com/ross-dobson/ravest)
+
 
 ## Installation
 
