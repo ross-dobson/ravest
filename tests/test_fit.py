@@ -1255,7 +1255,8 @@ class TestRVCalculations:
     def test_resolve_freeze_params_explicit_values(self, setup_fitter_for_rv):
         """Explicit float values are returned unchanged (as floats)."""
         fitter = setup_fitter_for_rv
-        resolved = fitter._resolve_freeze_params({"P_b": 2.0, "Tc_b": 0.5})
+        with pytest.warns(UserWarning, match="already fixed, not free"):
+            resolved = fitter._resolve_freeze_params({"P_b": 2.0, "Tc_b": 0.5})
         assert resolved == {"P_b": 2.0, "Tc_b": 0.5}
         assert all(isinstance(v, float) for v in resolved.values())
 
@@ -1360,7 +1361,8 @@ class TestRVCalculations:
         times = np.array([0.0, 0.5, 1.0, 1.5])
         frozen = {"P_b": 2.0, "K_b": 5.0, "e_b": 0.0, "w_b": np.pi / 2, "Tc_b": 0.0}
 
-        rv_samples = fitter.calculate_rv_planet_from_samples('b', times, discard_start=10, thin=5, freeze_params=frozen)
+        with pytest.warns(UserWarning, match="already fixed, not free"):
+            rv_samples = fitter.calculate_rv_planet_from_samples('b', times, discard_start=10, thin=5, freeze_params=frozen)
 
         # With every planet parameter frozen, the planet RV no longer depends on
         # the sample, so all rows are identical and match a single custom calc.
@@ -1402,8 +1404,10 @@ class TestRVCalculations:
         self._run_short_mcmc(fitter)
 
         # None -> median, and explicit float, both accepted
-        fitter.plot_posterior_phase('b', discard_start=10, thin=5, freeze_params={"P_b": None, "Tc_b": None})
-        fitter.plot_posterior_phase('b', discard_start=10, thin=5, freeze_params={"P_b": 2.0, "Tc_b": 0.0})
+        with pytest.warns(UserWarning, match="already fixed, not free"):
+            fitter.plot_posterior_phase('b', discard_start=10, thin=5, freeze_params={"P_b": None, "Tc_b": None})
+        with pytest.warns(UserWarning, match="already fixed, not free"):
+            fitter.plot_posterior_phase('b', discard_start=10, thin=5, freeze_params={"P_b": 2.0, "Tc_b": 0.0})
 
     def test_plot_posterior_phase_freeze_params_unknown_key_raises(self, setup_fitter_for_rv):
         """plot_posterior_phase rejects an unknown freeze_params key."""
@@ -2446,7 +2450,8 @@ class TestGPRVCalculations:
         times = np.array([0.0, 0.5, 1.0, 1.5])
         frozen = {"P_b": 2.0, "K_b": 5.0, "e_b": 0.0, "w_b": np.pi / 2, "Tc_b": 0.0}
 
-        rv_samples = fitter.calculate_rv_planet_from_samples('b', times, discard_start=10, thin=5, progress=False, freeze_params=frozen)
+        with pytest.warns(UserWarning, match="already fixed, not free"):
+            rv_samples = fitter.calculate_rv_planet_from_samples('b', times, discard_start=10, thin=5, progress=False, freeze_params=frozen)
 
         # With every planet parameter frozen, the planet RV no longer depends on
         # the sample, so all rows are identical and match a single custom calc.
@@ -2466,8 +2471,10 @@ class TestGPRVCalculations:
         self._run_short_gp_mcmc(fitter)
 
         # None -> median, and explicit float, both accepted
-        fitter.plot_posterior_phase('b', discard_start=10, thin=5, n_smooth=50, freeze_params={"P_b": None, "Tc_b": None})
-        fitter.plot_posterior_phase('b', discard_start=10, thin=5, n_smooth=50, freeze_params={"P_b": 2.0, "Tc_b": 0.0})
+        with pytest.warns(UserWarning, match="already fixed, not free"):
+            fitter.plot_posterior_phase('b', discard_start=10, thin=5, n_smooth=50, freeze_params={"P_b": None, "Tc_b": None})
+        with pytest.warns(UserWarning, match="already fixed, not free"):
+            fitter.plot_posterior_phase('b', discard_start=10, thin=5, n_smooth=50, freeze_params={"P_b": 2.0, "Tc_b": 0.0})
 
 
 class TestGPFitterIntegration:
