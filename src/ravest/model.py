@@ -518,14 +518,6 @@ class Star:
         The name of the star system.
     mass : `float`
         The mass of the star (solar masses)
-
-    Attributes
-    ----------
-    planets : `dict`
-        The dict storing the `Planet` objects, the key is the `planet.letter`
-        attribute.
-    num_planets : int
-        The number of `Planet` objects stored in the `Star` object.
     """
 
     def __init__(self, name: str, mass: float) -> None:
