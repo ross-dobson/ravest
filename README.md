@@ -5,6 +5,7 @@
 [![GitHub](https://img.shields.io/badge/GitHub-ross--dobson%2Fravest-181717?logo=github)](https://github.com/ross-dobson/ravest)
 [![PyPI version](https://img.shields.io/pypi/v/ravest.svg)](https://pypi.org/project/ravest/)
 [![CI/CD](https://github.com/ross-dobson/ravest/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/ross-dobson/ravest/actions/workflows/ci-cd.yml)
+[![codecov](https://codecov.io/gh/ross-dobson/ravest/branch/main/graph/badge.svg)](https://codecov.io/gh/ross-dobson/ravest)
 [![Documentation Status](https://readthedocs.org/projects/ravest/badge/?version=latest)](https://ravest.readthedocs.io/en/latest/?badge=latest)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
