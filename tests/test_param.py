@@ -325,47 +325,47 @@ class TestParamKeyToLatex:
         ("P", r"$P$"),
         ("K", r"$K$"),
         ("e", r"$e$"),
-        ("w", r"$\omega$"),
+        ("w", r"$\omega_\star$"),
     ])
     def test_basic_params(self, key, expected) -> None:
         """Test basic orbital parameter keys."""
         assert param_key_to_latex(key) == expected
 
     @pytest.mark.parametrize("key, expected", [
-        ("P_b", r"$P_b$"),
-        ("K_c", r"$K_c$"),
-        ("e_b", r"$e_b$"),
-        ("w_c", r"$\omega_c$"),
+        ("P_b", r"$P_{\mathrm{b}}$"),
+        ("K_c", r"$K_{\mathrm{c}}$"),
+        ("e_b", r"$e_{\mathrm{b}}$"),
+        ("w_c", r"$\omega_{\star,\mathrm{c}}$"),
     ])
     def test_planet_suffix(self, key, expected) -> None:
         """Test orbital parameters with planet suffixes."""
         assert param_key_to_latex(key) == expected
 
     @pytest.mark.parametrize("key, expected", [
-        ("Tc", r"$T_{\rm c}$"),
-        ("Tp", r"$T_{\rm p}$"),
-        ("Tc_b", r"$T_{{\rm c},b}$"),
-        ("Tp_c", r"$T_{{\rm p},c}$"),
+        ("Tc", r"$T_{\mathrm{C}}$"),
+        ("Tp", r"$T_{\mathrm{P}}$"),
+        ("Tc_b", r"$T_{\mathrm{C,b}}$"),
+        ("Tp_c", r"$T_{\mathrm{P,c}}$"),
     ])
     def test_time_params(self, key, expected) -> None:
         """Test Tc and Tp with and without planet suffix."""
         assert param_key_to_latex(key) == expected
 
     @pytest.mark.parametrize("key, expected", [
-        ("secosw_b", r"$\sqrt{e}\cos\omega_b$"),
-        ("sesinw_b", r"$\sqrt{e}\sin\omega_b$"),
-        ("secosw", r"$\sqrt{e}\cos\omega$"),
-        ("sesinw", r"$\sqrt{e}\sin\omega$"),
+        ("secosw_b", r"$\sqrt{e}\cos\omega_{\star,\mathrm{b}}$"),
+        ("sesinw_b", r"$\sqrt{e}\sin\omega_{\star,\mathrm{b}}$"),
+        ("secosw", r"$\sqrt{e}\cos\omega_\star$"),
+        ("sesinw", r"$\sqrt{e}\sin\omega_\star$"),
     ])
     def test_sqrt_parameterisation(self, key, expected) -> None:
         """Test sqrt(e)cos(w) and sqrt(e)sin(w) parameterisation."""
         assert param_key_to_latex(key) == expected
 
     @pytest.mark.parametrize("key, expected", [
-        ("ecosw_b", r"$e\cos\omega_b$"),
-        ("esinw_b", r"$e\sin\omega_b$"),
-        ("ecosw", r"$e\cos\omega$"),
-        ("esinw", r"$e\sin\omega$"),
+        ("ecosw_b", r"$e\cos\omega_{\star,\mathrm{b}}$"),
+        ("esinw_b", r"$e\sin\omega_{\star,\mathrm{b}}$"),
+        ("ecosw", r"$e\cos\omega_\star$"),
+        ("esinw", r"$e\sin\omega_\star$"),
     ])
     def test_ecosw_esinw_parameterisation(self, key, expected) -> None:
         """Test e*cos(w) and e*sin(w) parameterisation."""
@@ -387,10 +387,10 @@ class TestParamKeyToLatex:
         assert param_key_to_latex("gdd") == r"$\ddot{\gamma}$"
 
     @pytest.mark.parametrize("key, expected", [
-        ("gp_amp", r"$A$"),
-        ("gp_period", r"$P_{\rm GP}$"),
-        ("gp_lambda_e", r"$\lambda_e$"),
-        ("gp_lambda_p", r"$\lambda_p$"),
+        ("gp_amp", r"$A_{\mathrm{GP}}$"),
+        ("gp_period", r"$P_{\mathrm{GP}}$"),
+        ("gp_lambda_e", r"$\lambda_{\mathrm{e}}$"),
+        ("gp_lambda_p", r"$\lambda_{\mathrm{p}}$"),
     ])
     def test_gp_hyperparams(self, key, expected) -> None:
         """Test GP kernel hyperparameters."""
