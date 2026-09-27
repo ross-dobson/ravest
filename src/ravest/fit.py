@@ -603,6 +603,47 @@ class Fitter:
         # Return the scipy OptimizeResult object so that user can inspect fully if needed
         return map_results
 
+    def _validate_free_params_have_priors(self) -> dict[str, list[str]]:
+        """Check that every free parameter is constrained by a prior.
+
+        A free parameter is constrained if it has a prior of its own, or if priors
+        were given on all of its default-parameterisation equivalents (e.g. priors on
+        ``e_b`` and ``w_b`` while fitting ``secosw_b`` and ``sesinw_b``, or on ``Tp_b``
+        while fitting ``Tc_b``). The priors setter checks this when priors are
+        assigned, but re-assigning ``params`` afterwards can free a parameter that has
+        no prior, so it is checked again before fitting.
+
+        Returns
+        -------
+        dict[str, list[str]]
+            The free parameters constrained only through their default-parameterisation
+            equivalents, mapped to the names of those equivalents.
+
+        Raises
+        ------
+        ValueError
+            If any free parameter has no prior in either parameterisation.
+        """
+        via_equivalents = {}
+        missing = []
+        for param_name in self.free_params_names:
+            if param_name in self.priors:
+                continue
+            equivalents = self._get_default_parameterisation_equivalent_free_param_name(param_name)
+            if equivalents and all(equiv in self.priors for equiv in equivalents):
+                via_equivalents[param_name] = equivalents
+            else:
+                missing.append(param_name)
+
+        if missing:
+            raise ValueError(
+                f"No prior for free parameter(s) {missing}, either on the parameter itself "
+                f"or on its default-parameterisation equivalents. "
+                f"Set a prior for every free parameter before fitting."
+            )
+
+        return via_equivalents
+
     def generate_initial_walker_positions_random(self, nwalkers: int, verbose: bool = False, max_attempts: int = 1000) -> np.ndarray:
         """Generate random initial walker positions that satisfy priors and are astrophysically valid.
 
@@ -629,8 +670,32 @@ class Fitter:
         Raises
         ------
         ValueError
-            If a prior type is not supported for walker generation or if unable
-            to generate valid positions after max_attempts
+            If a free parameter has no prior, if a prior type is not supported for
+            walker generation, or if unable to generate valid positions after
+            max_attempts
+
+        Notes
+        -----
+        Each free parameter is drawn from its own prior. Bounded priors are drawn
+        uniformly across their bounds; unbounded priors are drawn at one prior
+        width:
+
+        - ``Uniform`` -> ``U(lower, upper)``
+        - ``TruncatedNormal`` -> ``U(lower, upper)``
+        - ``Beta`` -> ``U(0, 1)``
+        - ``EccentricityUniform`` -> ``U(0, upper)``
+        - ``Normal`` -> ``N(mean, std)``
+        - ``HalfNormal`` -> ``|N(0, std)|``
+
+        A free parameter whose prior was given on its default-parameterisation
+        equivalents (priors on ``e``/``w`` while fitting ``secosw``/``sesinw`` or
+        ``ecosw``/``esinw``, or on ``Tp`` while fitting ``Tc``) has no prior of its own
+        to draw from. It is instead started from a ball around its current value, with
+        spread ``0.1 * |value| + 0.01``. A free parameter with no prior in either
+        parameterisation raises a ``ValueError``.
+
+        Every candidate position is checked for astrophysical validity and for a finite
+        log-prior, and is redrawn up to ``max_attempts`` times if either check fails.
 
         Examples
         --------
@@ -647,6 +712,15 @@ class Fitter:
 
         if verbose:
             print("Free parameters:", self.free_params_names)
+
+        # Checked once, before the walker loop, rather than on every draw.
+        via_equivalents = self._validate_free_params_have_priors()
+        for param_name, equivalents in via_equivalents.items():
+            logging.debug(
+                f"{param_name} has no prior of its own; its prior was given on "
+                f"{equivalents} in the default parameterisation. Initialising it with a "
+                f"ball around its current value."
+            )
 
         mcmc_init = []
 
@@ -700,8 +774,15 @@ class Fitter:
                             raise ValueError(f"Unsupported prior type for walker generation: {type(prior)}")
 
                     else:
-                        # No direct prior for this parameter (this happens if fitting in a transformed parameterisation, but prior is in Default)
-                        # Instead use current value + small perturbation
+                        # No prior of its own: the prior was given on the default-parameterisation
+                        # equivalents (e.g. e/w while fitting secosw/sesinw). Start from a ball
+                        # around the current value.
+                        #
+                        # The ball is deliberate. Drawing e and w from their priors and converting
+                        # them to secosw/sesinw looks more faithful to the prior, but was tested
+                        # and made sampling worse, leaving stranded walkers far more often. Each
+                        # starting position is still checked against the e/w priors below, so a
+                        # region they exclude is still rejected.
                         centre_val = self.params[param_name].value
                         # Add small random perturbation (10% of current value + small fixed amount for near-zero values)
                         perturbation = np.random.normal(0, abs(centre_val) * 0.1 + 0.01)
@@ -4390,6 +4471,47 @@ class GPFitter:
         # Return the scipy OptimizeResult object so that user can inspect fully if needed
         return map_results
 
+    def _validate_free_params_have_priors(self) -> dict[str, list[str]]:
+        """Check that every free parameter is constrained by a prior.
+
+        A free parameter is constrained if it has a prior of its own, or if priors
+        were given on all of its default-parameterisation equivalents (e.g. priors on
+        ``e_b`` and ``w_b`` while fitting ``secosw_b`` and ``sesinw_b``, or on ``Tp_b``
+        while fitting ``Tc_b``). The priors setter checks this when priors are
+        assigned, but re-assigning ``params`` afterwards can free a parameter that has
+        no prior, so it is checked again before fitting.
+
+        Returns
+        -------
+        dict[str, list[str]]
+            The free parameters constrained only through their default-parameterisation
+            equivalents, mapped to the names of those equivalents.
+
+        Raises
+        ------
+        ValueError
+            If any free parameter has no prior in either parameterisation.
+        """
+        via_equivalents = {}
+        missing = []
+        for param_name in self.free_params_names:
+            if param_name in self.priors:
+                continue
+            equivalents = self._get_default_parameterisation_equivalent_free_param_name(param_name)
+            if equivalents and all(equiv in self.priors for equiv in equivalents):
+                via_equivalents[param_name] = equivalents
+            else:
+                missing.append(param_name)
+
+        if missing:
+            raise ValueError(
+                f"No prior for free parameter(s) {missing}, either on the parameter itself "
+                f"or on its default-parameterisation equivalents. "
+                f"Set a prior for every free parameter before fitting."
+            )
+
+        return via_equivalents
+
     def generate_initial_walker_positions_random(self, nwalkers: int, verbose: bool = False, max_attempts: int = 1000) -> np.ndarray:
         """Generate random initial walker positions that satisfy priors and are astrophysically valid.
 
@@ -4416,8 +4538,35 @@ class GPFitter:
         Raises
         ------
         ValueError
-            If a prior type is not supported for walker generation or if unable
-            to generate valid positions after max_attempts
+            If a free parameter has no prior, if a prior type is not supported for
+            walker generation, or if unable to generate valid positions after
+            max_attempts
+
+        Notes
+        -----
+        Each free parameter is drawn from its own prior. Bounded priors are drawn
+        uniformly across their bounds; unbounded priors are drawn at one prior
+        width:
+
+        - ``Uniform`` -> ``U(lower, upper)``
+        - ``TruncatedNormal`` -> ``U(lower, upper)``
+        - ``Beta`` -> ``U(0, 1)``
+        - ``EccentricityUniform`` -> ``U(0, upper)``
+        - ``Normal`` -> ``N(mean, std)``
+        - ``HalfNormal`` -> ``|N(0, std)|``
+
+        Free hyperparameters are drawn from their hyperpriors by the same rules. Every
+        free hyperparameter must have a hyperprior.
+
+        A free parameter whose prior was given on its default-parameterisation
+        equivalents (priors on ``e``/``w`` while fitting ``secosw``/``sesinw`` or
+        ``ecosw``/``esinw``, or on ``Tp`` while fitting ``Tc``) has no prior of its own
+        to draw from. It is instead started from a ball around its current value, with
+        spread ``0.1 * |value| + 0.01``. A free parameter with no prior in either
+        parameterisation raises a ``ValueError``.
+
+        Every candidate position is checked for astrophysical validity and for a finite
+        log-prior, and is redrawn up to ``max_attempts`` times if either check fails.
 
         Examples
         --------
@@ -4435,6 +4584,15 @@ class GPFitter:
         if verbose:
             print("Free parameters:", self.free_params_names)
             print("Free hyperparameters:", self.free_hyperparams_names)
+
+        # Checked once, before the walker loop, rather than on every draw.
+        via_equivalents = self._validate_free_params_have_priors()
+        for param_name, equivalents in via_equivalents.items():
+            logging.debug(
+                f"{param_name} has no prior of its own; its prior was given on "
+                f"{equivalents} in the default parameterisation. Initialising it with a "
+                f"ball around its current value."
+            )
 
         param_init = []
         hyperparam_init = []
@@ -4497,8 +4655,15 @@ class GPFitter:
                             raise ValueError(f"Unsupported prior type for walker generation: {type(prior)}")
 
                     else:
-                        # No direct prior for this parameter (this happens if fitting in transformed parameterisation, but prior given in default)
-                        # use current value + small perturbation
+                        # No prior of its own: the prior was given on the default-parameterisation
+                        # equivalents (e.g. e/w while fitting secosw/sesinw). Start from a ball
+                        # around the current value.
+                        #
+                        # The ball is deliberate. Drawing e and w from their priors and converting
+                        # them to secosw/sesinw looks more faithful to the prior, but was tested
+                        # and made sampling worse, leaving stranded walkers far more often. Each
+                        # starting position is still checked against the e/w priors below, so a
+                        # region they exclude is still rejected.
                         centre_val = self.params[param_name].value
                         # Add small random perturbation (10% of current value + small fixed amount for near-zero values)
                         perturbation = np.random.normal(0, abs(centre_val) * 0.1 + 0.01)

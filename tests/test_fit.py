@@ -1,3 +1,4 @@
+import logging
 import warnings
 
 import jax.numpy as jnp
@@ -2647,7 +2648,8 @@ class TestWalkerInitialisationWidths:
         time, vel, velerr, instrument = test_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
         fitter.params = params
-        fitter.priors = priors
+        if priors is not None:
+            fitter.priors = priors
         return fitter
 
     @staticmethod
@@ -2771,3 +2773,185 @@ class TestWalkerInitialisationWidths:
         columns = fitter.free_params_names + fitter.free_hyperparams_names
         lambda_p = positions[:, columns.index("gp_lambda_p")]
         assert np.all((lambda_p >= 0.0) & (lambda_p <= 1.0))
+
+    @staticmethod
+    def _transformed_params():
+        return {
+            "P_b": Parameter(2.0, "d", fixed=True),
+            "K_b": Parameter(5.0, "m/s", fixed=False),
+            "secosw_b": Parameter(0.0177, "", fixed=False),
+            "sesinw_b": Parameter(0.0767, "", fixed=False),
+            "Tc_b": Parameter(0.0, "d", fixed=True),
+            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
+            "gd": Parameter(0.0, "m/s/day", fixed=True),
+            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
+            "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
+        }
+
+    @staticmethod
+    def _transformed_priors():
+        return {
+            "K_b": ravest.prior.Uniform(0, 20),
+            "jit_HARPS": ravest.prior.Uniform(0, 5),
+            "e_b": ravest.prior.Uniform(0, 0.9),
+            "w_b": ravest.prior.Uniform(0, 2 * np.pi),
+        }
+
+    def test_transformed_parameterisation_does_not_warn(self, test_data, caplog) -> None:
+        """Priors given on e/w while fitting secosw/sesinw is expected, not warned about.
+
+        This is the normal path for every eccentric fit, so it must neither raise nor
+        warn. It is logged at DEBUG level only.
+        """
+        fitter = self._make_fitter(
+            test_data, self._transformed_params(), self._transformed_priors(),
+            parameterisation="P K secosw sesinw Tc",
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            fitter.generate_initial_walker_positions_random(nwalkers=8)
+
+        warnings_logged = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert warnings_logged == []
+        debug_messages = " ".join(r.message for r in caplog.records)
+        assert "secosw_b" in debug_messages and "e_b" in debug_messages
+
+    def test_transformed_parameterisation_still_draws_the_ball(self, test_data) -> None:
+        """Making the secosw/sesinw case explicit did not change its numbers.
+
+        Drawing secosw/sesinw from the e/w priors instead was tested and made sampling
+        worse, so the ball is deliberate and must stay put.
+        """
+        fitter = self._make_fitter(
+            test_data, self._transformed_params(), self._transformed_priors(),
+            parameterisation="P K secosw sesinw Tc",
+        )
+
+        np.random.seed(self.SEED)
+        positions = fitter.generate_initial_walker_positions_random(self.NWALKERS)
+
+        for name in ("secosw_b", "sesinw_b"):
+            centre = fitter.params[name].value
+            column = positions[:, fitter.free_params_names.index(name)]
+            expected_spread = abs(centre) * 0.1 + 0.01
+            assert abs(np.mean(column) - centre) < 0.5 * expected_spread
+            assert self.LO <= np.std(column, ddof=1) / expected_spread <= self.HI
+
+    def test_parameter_with_no_prior_anywhere_raises(self, test_data) -> None:
+        """Free parameters with no prior in either parameterisation raise, naming them.
+
+        Route: priors never set at all.
+        """
+        fitter = self._make_fitter(test_data, self._unbounded_prior_params(), None)
+
+        with pytest.raises(ValueError, match="No prior for free parameter") as excinfo:
+            fitter.generate_initial_walker_positions_random(nwalkers=8)
+
+        assert "K_b" in str(excinfo.value)
+        assert "jit_HARPS" in str(excinfo.value)
+
+    def test_parameter_freed_after_priors_set_raises(self, test_data) -> None:
+        """A parameter freed after priors were assigned raises, naming only it.
+
+        Route: priors set and validated for the free parameters at the time, then
+        params re-assigned with another parameter free. The params setter does not
+        re-check priors, so this must be caught before fitting.
+        """
+        params = self._unbounded_prior_params()
+        params["jit_HARPS"] = Parameter(1.0, "m/s", fixed=True)
+        fitter = self._make_fitter(
+            test_data, params, {"K_b": ravest.prior.Uniform(0, 100)},
+        )
+        fitter.params = self._unbounded_prior_params()  # jit_HARPS now free
+
+        with pytest.raises(ValueError, match="No prior for free parameter") as excinfo:
+            fitter.generate_initial_walker_positions_random(nwalkers=8)
+
+        assert "jit_HARPS" in str(excinfo.value)
+        assert "K_b" not in str(excinfo.value)
+
+    def _gp_transformed_fitter(self, test_gp_data, test_gp_hyperparams,
+                               test_gp_hyperpriors, priors):
+        """GPFitter fitting secosw/sesinw, for the GPFitter copy of the no-prior cases.
+
+        GPFitter is not a subclass of Fitter, so its initialiser is a separate copy
+        and needs its own coverage.
+        """
+        fitter = GPFitter(["b"], Parameterisation("P K secosw sesinw Tc"),
+                          GPKernel("Quasiperiodic"))
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+        fitter.params = self._transformed_params()
+        fitter.hyperparams = test_gp_hyperparams
+        fitter.priors = priors
+        fitter.hyperpriors = test_gp_hyperpriors
+        return fitter
+
+    def test_gpfitter_transformed_parameterisation_does_not_warn(
+        self, test_gp_data, test_gp_hyperparams, test_gp_hyperpriors, caplog
+    ) -> None:
+        """GPFitter treats priors on e/w while fitting secosw/sesinw as expected too."""
+        fitter = self._gp_transformed_fitter(
+            test_gp_data, test_gp_hyperparams, test_gp_hyperpriors,
+            self._transformed_priors(),
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            np.random.seed(self.SEED)
+            positions = fitter.generate_initial_walker_positions_random(nwalkers=8)
+
+        assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+        debug_messages = " ".join(r.message for r in caplog.records)
+        assert "secosw_b" in debug_messages and "e_b" in debug_messages
+
+        centre = fitter.params["secosw_b"].value
+        column = positions[:, fitter.free_params_names.index("secosw_b")]
+        assert np.all(np.abs(column - centre) < 5 * (abs(centre) * 0.1 + 0.01))
+
+    def test_gpfitter_parameter_with_no_prior_anywhere_raises(
+        self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
+        test_gp_hyperpriors
+    ) -> None:
+        """GPFitter raises for free parameters with no prior, naming them.
+
+        Route: priors never set at all.
+        """
+        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"),
+                          GPKernel("Quasiperiodic"))
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+        fitter.params = test_gp_circular_params
+        fitter.hyperparams = test_gp_hyperparams
+        fitter.hyperpriors = test_gp_hyperpriors
+
+        with pytest.raises(ValueError, match="No prior for free parameter") as excinfo:
+            fitter.generate_initial_walker_positions_random(nwalkers=8)
+
+        assert "K_b" in str(excinfo.value)
+        assert "jit_HARPS" in str(excinfo.value)
+
+    def test_gpfitter_parameter_freed_after_priors_set_raises(
+        self, test_gp_data, test_gp_hyperparams, test_gp_hyperpriors
+    ) -> None:
+        """GPFitter raises for a parameter freed after priors were assigned.
+
+        Route: priors set for the free parameters at the time, then params
+        re-assigned with another parameter free.
+        """
+        params = self._unbounded_prior_params()
+        params["jit_HARPS"] = Parameter(1.0, "m/s", fixed=True)
+        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"),
+                          GPKernel("Quasiperiodic"))
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+        fitter.params = params
+        fitter.hyperparams = test_gp_hyperparams
+        fitter.priors = {"K_b": ravest.prior.Uniform(0, 100)}
+        fitter.hyperpriors = test_gp_hyperpriors
+        fitter.params = self._unbounded_prior_params()  # jit_HARPS now free
+
+        with pytest.raises(ValueError, match="No prior for free parameter") as excinfo:
+            fitter.generate_initial_walker_positions_random(nwalkers=8)
+
+        assert "jit_HARPS" in str(excinfo.value)
+        assert "K_b" not in str(excinfo.value)
