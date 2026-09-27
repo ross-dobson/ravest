@@ -31,8 +31,6 @@ JAX is a requirement for `ravest` (and `harmonic`), so you may want to consult [
 
 ## Usage
 
-For an introduction to modelling planetary and stellar data, see the  [example modelling notebook](https://ravest.readthedocs.io/en/latest/Examples/example_model.html) for `ravest.model`.
-
 For an example of how to fit a model to RV data, see the [example fitting notebook](https://ravest.readthedocs.io/en/latest/Examples/example_fitting.html) where we fit some ELODIE data for 51 Peg b.
 
 For an example of how to use a Gaussian Process to mitigate stellar variability, see the [example GP notebook](https://ravest.readthedocs.io/en/latest/Examples/example_gp.html) where we use a quasiperiodic kernel on HARPS data for K2-229.
@@ -40,6 +38,12 @@ For an example of how to use a Gaussian Process to mitigate stellar variability,
 For an example on using the Learned Harmonic Mean Estimator from `harmonic` to compare two competing RV models by estimating the Bayesian evidence $\mathcal{Z}$ and Bayes Factors, see the [example harmonic notebook](https://ravest.readthedocs.io/en/latest/Examples/example_harmonic.html) where we compare a one-planet and two-planet fit for TOI-544.
 
 If you have any questions, check the [Frequently Asked Questions](https://ravest.readthedocs.io/en/latest/FAQ.html), raise an issue on Github, or email me and I'll be happy to help.
+
+## Citing ravest
+
+If you use `ravest` in your research, or want to read more about how it works, please cite [Dobson et al. (2026)](https://ui.adsabs.harvard.edu/abs/2026MNRAS.551g1343D/abstract).
+
+If you use the Bayesian evidence functionality, please also cite `harmonic`: see [its GitHub repository](https://github.com/astro-informatics/harmonic) for the relevant papers to cite, starting with [McEwen et al. (2021)](https://ui.adsabs.harvard.edu/abs/2021arXiv211112720M/abstract).
 
 ## Contributing
 
