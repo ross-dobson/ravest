@@ -2630,3 +2630,35 @@ class TestGPFitterIntegration:
         assert len(fitter.params) == 14  # 5*2 planets + 4 system
         assert len(fitter.free_params_names) == 3  # K_b, K_c, jit_HARPS
         assert fitter.ndim == 7  # 3 free params + 4 free hyperparams
+
+
+class TestWalkerInitialisationWidths:
+    """Tests for how generate_initial_walker_positions_random draws each prior type."""
+
+    def test_beta_hyperprior_draws_inside_its_support(
+        self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
+        test_gp_priors, test_gp_hyperpriors
+    ) -> None:
+        """A Beta hyperprior draws from [0, 1], not from its shape parameters.
+
+        Beta.a and Beta.b are shape parameters, not bounds. Drawing uniform(a, b)
+        put every walker outside the support, so every draw scored -inf and walker
+        generation exhausted max_attempts and raised.
+        """
+        gp_kernel = GPKernel("Quasiperiodic")
+        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+        fitter.params = test_gp_circular_params
+        fitter.hyperparams = test_gp_hyperparams
+        fitter.priors = test_gp_priors
+
+        hyperpriors = dict(test_gp_hyperpriors)
+        hyperpriors["gp_lambda_p"] = ravest.prior.Beta(2.0, 5.0)
+        fitter.hyperpriors = hyperpriors
+
+        positions = fitter.generate_initial_walker_positions_random(nwalkers=50)
+
+        columns = fitter.free_params_names + fitter.free_hyperparams_names
+        lambda_p = positions[:, columns.index("gp_lambda_p")]
+        assert np.all((lambda_p >= 0.0) & (lambda_p <= 1.0))

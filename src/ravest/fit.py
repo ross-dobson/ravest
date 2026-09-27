@@ -4522,7 +4522,7 @@ class GPFitter:
                             hyperparam_walker_position.append(np.random.uniform(low=hyperprior.lower, high=hyperprior.upper))
 
                         elif isinstance(hyperprior, ravest.prior.Beta):
-                            hyperparam_walker_position.append(np.random.uniform(low=hyperprior.a, high=hyperprior.b))
+                            hyperparam_walker_position.append(np.random.uniform(low=0, high=1))
 
                         elif isinstance(hyperprior, ravest.prior.EccentricityUniform):
                             hyperparam_walker_position.append(np.random.uniform(low=0, high=hyperprior.upper))
