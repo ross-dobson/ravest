@@ -3809,8 +3809,8 @@ class GPFitter:
         # If validation passes, update the actual params
         self._params.update(new_params)
 
-        # Update ndim to total number of free parameters (hyperparams are added to ndim when they're set later on)
-        self.ndim = len(self.free_params_values)
+        # Update ndim to total free params + hyperparams (no hyperparams yet counts as 0)
+        self.ndim = len(self.free_params_values) + len(self.free_hyperparams_values)
 
         if self.ndim == 0:
             warnings.warn(

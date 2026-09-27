@@ -2470,6 +2470,65 @@ class TestGPRVCalculations:
         fitter.plot_posterior_phase('b', discard_start=10, thin=5, n_smooth=50, freeze_params={"P_b": 2.0, "Tc_b": 0.0})
 
 
+class TestGPFitterNdim:
+    """GPFitter.ndim counts free parameters plus free hyperparameters, in any assignment order."""
+
+    @staticmethod
+    def _fitter(test_gp_data):
+        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+        return fitter
+
+    @staticmethod
+    def _expected_ndim(fitter):
+        return len(fitter.free_params_names) + len(fitter.free_hyperparams_names)
+
+    def test_params_then_hyperparams(
+        self, test_gp_data, test_gp_circular_params, test_gp_hyperparams
+    ) -> None:
+        """The usual order counts both."""
+        fitter = self._fitter(test_gp_data)
+        fitter.params = test_gp_circular_params
+        fitter.hyperparams = test_gp_hyperparams
+
+        assert fitter.ndim == self._expected_ndim(fitter)
+
+    def test_hyperparams_then_params(
+        self, test_gp_data, test_gp_circular_params, test_gp_hyperparams
+    ) -> None:
+        """Setting params last must not drop the hyperparameters from ndim."""
+        fitter = self._fitter(test_gp_data)
+        fitter.hyperparams = test_gp_hyperparams
+        fitter.params = test_gp_circular_params
+
+        assert fitter.ndim == self._expected_ndim(fitter)
+
+    def test_params_reassigned_after_hyperparams(
+        self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
+        test_gp_priors, test_gp_hyperpriors
+    ) -> None:
+        """Re-assigning params keeps ndim, and so BIC and AICc, unchanged.
+
+        calculate_bic and calculate_aicc use ndim as the number of free parameters,
+        so a stale ndim changes them silently for the same model and point.
+        """
+        fitter = self._fitter(test_gp_data)
+        fitter.params = test_gp_circular_params
+        fitter.hyperparams = test_gp_hyperparams
+        fitter.priors = test_gp_priors
+        fitter.hyperpriors = test_gp_hyperpriors
+        point = {name: p.value for name, p in (fitter.params | fitter.hyperparams).items()}
+        bic_before = fitter.calculate_bic(point)
+        aicc_before = fitter.calculate_aicc(point)
+
+        fitter.params = test_gp_circular_params
+
+        assert fitter.ndim == self._expected_ndim(fitter)
+        assert fitter.calculate_bic(point) == bic_before
+        assert fitter.calculate_aicc(point) == aicc_before
+
+
 class TestGPFitterIntegration:
     """Integration tests for complete GPFitter workflow."""
 
