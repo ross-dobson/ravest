@@ -560,9 +560,13 @@ class Fitter:
 
         Raises
         ------
+        ValueError
+            If a free parameter has no prior
         Warning
             If MAP optimization fails to converge
         """
+        self._validate_free_params_have_priors()
+
         # Initialize log-posterior object
         lp = LogPosterior(
             self.planet_letters,
@@ -870,8 +874,9 @@ class Fitter:
         Raises
         ------
         ValueError
-            If centre has wrong length, if centre point is invalid, or if unable
-            to generate valid positions after max_attempts
+            If a free parameter has no prior, if centre has wrong length, if centre
+            point is invalid, or if unable to generate valid positions after
+            max_attempts
 
         Examples
         --------
@@ -887,6 +892,8 @@ class Fitter:
                 "Cannot generate walker positions: no free parameters to sample. "
                 "At least one parameter must be set as free (fixed=False)."
             )
+
+        self._validate_free_params_have_priors()
 
         centre = np.asarray(centre)
 
@@ -1097,12 +1104,19 @@ class Fitter:
         convergence_check_start : int, optional
             Minimum iteration before starting convergence checks. Set this sensibly
             (e.g. 2x burn-in) to avoid inaccurate tau estimates on short chains (default: 0)
+
+        Raises
+        ------
+        ValueError
+            If there are no free parameters, or if a free parameter has no prior
         """
         if len(self.free_params_values) == 0:
             raise ValueError(
                 "Cannot run MCMC: no free parameters to sample. "
                 "At least one parameter must be set as free (fixed=False)."
             )
+
+        self._validate_free_params_have_priors()
 
         # Initialize log-posterior object for MCMC sampling
         lp = LogPosterior(
@@ -4422,9 +4436,15 @@ class GPFitter:
 
         Raises
         ------
+        ValueError
+            If a free parameter has no prior, or a free hyperparameter has no
+            hyperprior
         Warning
             If MAP optimization fails to converge
         """
+        self._validate_free_params_have_priors()
+        self._validate_free_hyperparams_have_hyperpriors()
+
         # Initialize log-posterior object
         gp_lp = GPLogPosterior(
             self.planet_letters,
@@ -4518,6 +4538,25 @@ class GPFitter:
 
         return via_equivalents
 
+    def _validate_free_hyperparams_have_hyperpriors(self) -> None:
+        """Check that every free hyperparameter has a hyperprior.
+
+        The hyperpriors setter checks this when hyperpriors are assigned, but
+        re-assigning ``hyperparams`` afterwards can free a hyperparameter that has no
+        hyperprior, so it is checked again before fitting.
+
+        Raises
+        ------
+        ValueError
+            If any free hyperparameter has no hyperprior.
+        """
+        missing = [name for name in self.free_hyperparams_names if name not in self.hyperpriors]
+        if missing:
+            raise ValueError(
+                f"No hyperprior for free hyperparameter(s) {missing}. "
+                f"Set a hyperprior for every free hyperparameter before fitting."
+            )
+
     def generate_initial_walker_positions_random(self, nwalkers: int, verbose: bool = False, max_attempts: int = 1000) -> np.ndarray:
         """Generate random initial walker positions that satisfy priors and are astrophysically valid.
 
@@ -4544,9 +4583,9 @@ class GPFitter:
         Raises
         ------
         ValueError
-            If a free parameter has no prior, if a prior type is not supported for
-            walker generation, or if unable to generate valid positions after
-            max_attempts
+            If a free parameter has no prior or a free hyperparameter has no
+            hyperprior, if a prior type is not supported for walker generation, or
+            if unable to generate valid positions after max_attempts
 
         Notes
         -----
@@ -4593,6 +4632,7 @@ class GPFitter:
 
         # Checked once, before the walker loop, rather than on every draw.
         via_equivalents = self._validate_free_params_have_priors()
+        self._validate_free_hyperparams_have_hyperpriors()
         for param_name, equivalents in via_equivalents.items():
             logging.debug(
                 f"{param_name} has no prior of its own; its prior was given on "
@@ -4701,6 +4741,13 @@ class GPFitter:
                         else:
                             raise ValueError(f"Unsupported hyperprior type for walker generation: {type(hyperprior)}")
 
+                    else:
+                        # Unreachable after the check above, but without it a missing
+                        # hyperprior appended nothing, so names and values were silently
+                        # mis-paired below and the failure surfaced as a KeyError naming
+                        # the wrong hyperparameter.
+                        raise ValueError(f"No hyperprior for free hyperparameter {hyperparam_name}")
+
                 # Check astrophysical validity and prior compliance
                 try:
                     # Convert walker position to full parameter dict (free + fixed)
@@ -4807,8 +4854,9 @@ class GPFitter:
         Raises
         ------
         ValueError
-            If centre has wrong length, if centre point is invalid, or if unable
-            to generate valid positions after max_attempts
+            If a free parameter has no prior or a free hyperparameter has no
+            hyperprior, if centre has wrong length, if centre point is invalid, or
+            if unable to generate valid positions after max_attempts
 
         Examples
         --------
@@ -4824,6 +4872,9 @@ class GPFitter:
                 "Cannot generate walker positions: no free parameters or hyperparameters to sample. "
                 "At least one parameter or hyperparameter must be set as free (fixed=False)."
             )
+
+        self._validate_free_params_have_priors()
+        self._validate_free_hyperparams_have_hyperpriors()
 
         centre = np.asarray(centre)
         expected_length = len(self.free_params_names) + len(self.free_hyperparams_names)
@@ -5085,12 +5136,21 @@ class GPFitter:
         convergence_check_start : int, optional
             Minimum iteration before starting convergence checks. Set this sensibly
             (e.g. 2x burn-in) to avoid inaccurate tau estimates on short chains (default: 0)
+
+        Raises
+        ------
+        ValueError
+            If there are no free parameters, if a free parameter has no prior, or if
+            a free hyperparameter has no hyperprior
         """
         if len(self.free_params_values) + len(self.free_hyperparams_values) == 0:
             raise ValueError(
                 "Cannot run MCMC: no free parameters or hyperparameters to sample. "
                 "At least one parameter or hyperparameter must be set as free (fixed=False)."
             )
+
+        self._validate_free_params_have_priors()
+        self._validate_free_hyperparams_have_hyperpriors()
 
         # Initialize log-posterior object for MCMC sampling
         gp_lp = GPLogPosterior(
