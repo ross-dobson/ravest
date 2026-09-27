@@ -679,10 +679,10 @@ class Fitter:
                         prior = self.priors[param_name]
 
                         if isinstance(prior, ravest.prior.Normal):
-                            walker_position.append(np.random.normal(loc=prior.mean, scale=2*prior.std))
+                            walker_position.append(np.random.normal(loc=prior.mean, scale=prior.std))
 
                         elif isinstance(prior, ravest.prior.HalfNormal):
-                            walker_position.append(np.abs(np.random.normal(loc=0, scale=2*prior.std)))
+                            walker_position.append(np.abs(np.random.normal(loc=0, scale=prior.std)))
 
                         elif isinstance(prior, ravest.prior.Uniform):
                             walker_position.append(np.random.uniform(low=prior.lower, high=prior.upper))
@@ -4476,10 +4476,10 @@ class GPFitter:
                         prior = self.priors[param_name]
 
                         if isinstance(prior, ravest.prior.Normal):
-                            param_walker_position.append(np.random.normal(loc=prior.mean, scale=2*prior.std))
+                            param_walker_position.append(np.random.normal(loc=prior.mean, scale=prior.std))
 
                         elif isinstance(prior, ravest.prior.HalfNormal):
-                            param_walker_position.append(np.abs(np.random.normal(loc=0, scale=2*prior.std)))
+                            param_walker_position.append(np.abs(np.random.normal(loc=0, scale=prior.std)))
 
                         elif isinstance(prior, ravest.prior.Uniform):
                             param_walker_position.append(np.random.uniform(low=prior.lower, high=prior.upper))

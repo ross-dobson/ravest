@@ -2635,6 +2635,115 @@ class TestGPFitterIntegration:
 class TestWalkerInitialisationWidths:
     """Tests for how generate_initial_walker_positions_random draws each prior type."""
 
+    NWALKERS = 400
+    SEED = 20260828
+    # A sample standard deviation from 400 draws has a ~3.5% standard error, so this
+    # band sits ~4 sigma from either boundary and ~25 sigma from a 2-sigma draw.
+    LO, HI = 0.85, 1.15
+
+    @staticmethod
+    def _make_fitter(test_data, params, priors, parameterisation="P K e w Tc"):
+        fitter = Fitter(["b"], Parameterisation(parameterisation))
+        time, vel, velerr, instrument = test_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+        fitter.params = params
+        fitter.priors = priors
+        return fitter
+
+    @staticmethod
+    def _unbounded_prior_params():
+        """Circular params with K_b far from the K > 0 validity edge."""
+        return {
+            "P_b": Parameter(2.0, "d", fixed=True),
+            "K_b": Parameter(50.0, "m/s", fixed=False),
+            "e_b": Parameter(0.0, "", fixed=True),
+            "w_b": Parameter(np.pi / 2, "rad", fixed=True),
+            "Tc_b": Parameter(0.0, "d", fixed=True),
+            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
+            "gd": Parameter(0.0, "m/s/day", fixed=True),
+            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
+            "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
+        }
+
+    def test_normal_prior_parameter_drawn_at_one_sigma(self, test_data) -> None:
+        """A Normal prior on a parameter draws at scale=std, not 2*std.
+
+        K_b sits 10 sigma clear of the K > 0 validity check, so no draw is rejected
+        and the sample standard deviation is unbiased.
+        """
+        prior_std = 5.0
+        fitter = self._make_fitter(
+            test_data,
+            self._unbounded_prior_params(),
+            {"K_b": ravest.prior.Normal(50.0, prior_std),
+             "jit_HARPS": ravest.prior.Uniform(0, 5)},
+        )
+
+        np.random.seed(self.SEED)
+        positions = fitter.generate_initial_walker_positions_random(self.NWALKERS)
+
+        k_column = positions[:, fitter.free_params_names.index("K_b")]
+        ratio = np.std(k_column, ddof=1) / prior_std
+        assert self.LO <= ratio <= self.HI, f"drawn at {ratio:.2f} sigma, expected 1"
+
+    def test_halfnormal_prior_parameter_drawn_at_one_sigma(self, test_data) -> None:
+        """A HalfNormal prior on a parameter draws at scale=std, not 2*std.
+
+        Draws are abs(...) so none is ever rejected; the mean of |N(0, s)| is
+        s*sqrt(2/pi), which separates 1 sigma from 2 sigma just as cleanly.
+        """
+        prior_std = 2.0
+        fitter = self._make_fitter(
+            test_data,
+            self._unbounded_prior_params(),
+            {"K_b": ravest.prior.Uniform(0, 100),
+             "jit_HARPS": ravest.prior.HalfNormal(prior_std)},
+        )
+
+        np.random.seed(self.SEED)
+        positions = fitter.generate_initial_walker_positions_random(self.NWALKERS)
+
+        jit_column = positions[:, fitter.free_params_names.index("jit_HARPS")]
+        expected_mean = prior_std * np.sqrt(2 / np.pi)
+        ratio = np.mean(jit_column) / expected_mean
+        assert self.LO <= ratio <= self.HI, f"drawn at {ratio:.2f} sigma, expected 1"
+
+    def test_params_and_hyperparams_share_one_width(
+        self, test_gp_data, test_gp_hyperparams, test_gp_hyperpriors
+    ) -> None:
+        """Parameters and hyperparameters are drawn at the same width in one GP fit.
+
+        This is the invariant the fix establishes: before it, gp_amp started within
+        1 sigma of its hyperprior while K_b started within 2 sigma of its prior.
+        """
+        param_std, hyper_std = 5.0, 1.0
+        gp_kernel = GPKernel("Quasiperiodic")
+        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+        fitter.params = self._unbounded_prior_params()
+
+        hyperparams = dict(test_gp_hyperparams)
+        hyperparams["gp_amp"] = Parameter(5.0, "m/s", fixed=False)
+        fitter.hyperparams = hyperparams
+
+        fitter.priors = {"K_b": ravest.prior.Normal(50.0, param_std),
+                         "jit_HARPS": ravest.prior.Uniform(0, 5)}
+        hyperpriors = dict(test_gp_hyperpriors)
+        hyperpriors["gp_amp"] = ravest.prior.Normal(5.0, hyper_std)
+        fitter.hyperpriors = hyperpriors
+
+        np.random.seed(self.SEED)
+        positions = fitter.generate_initial_walker_positions_random(self.NWALKERS)
+
+        columns = fitter.free_params_names + fitter.free_hyperparams_names
+        param_ratio = np.std(positions[:, columns.index("K_b")], ddof=1) / param_std
+        hyper_ratio = np.std(positions[:, columns.index("gp_amp")], ddof=1) / hyper_std
+
+        assert self.LO <= param_ratio <= self.HI
+        assert self.LO <= hyper_ratio <= self.HI
+        assert abs(param_ratio - hyper_ratio) < 0.25
+
     def test_beta_hyperprior_draws_inside_its_support(
         self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
         test_gp_priors, test_gp_hyperpriors
