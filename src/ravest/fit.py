@@ -650,6 +650,24 @@ class Fitter:
 
         mcmc_init = []
 
+        # Built once, outside the walker loop: every argument is fitter-level
+        # (priors, data, parameterisation), so the object is identical for every
+        # walker and only its log_prior call depends on the position. Building it
+        # per attempt repeated that work up to nwalkers*max_attempts times.
+        lp = LogPosterior(
+            self.planet_letters,
+            self.parameterisation,
+            self.priors,
+            self.fixed_params_values_dict,
+            self.free_params_names,
+            self.time,
+            self.vel,
+            self.velerr,
+            self.instrument,
+            self.unique_instruments,
+            self.t0,
+        )
+
         for walker_idx in range(nwalkers):
             attempts = 0
             while attempts < max_attempts:
@@ -698,21 +716,9 @@ class Fitter:
                     # Check astrophysical validity
                     self._validate_astrophysical_validity(all_params_dict)
 
-                    # Check prior compliance using LogPosterior, rather than calling priors direct
-                    # (because it handles Transformed->Default parameter transformations already, if needed)
-                    lp = LogPosterior(
-                        self.planet_letters,
-                        self.parameterisation,
-                        self.priors,
-                        self.fixed_params_values_dict,
-                        self.free_params_names,
-                        self.time,
-                        self.vel,
-                        self.velerr,
-                        self.instrument,
-                        self.unique_instruments,
-                        self.t0,
-                    )
+                    # Check prior compliance using LogPosterior (built above), rather than
+                    # calling priors direct (because it handles Transformed->Default
+                    # parameter transformations already, if needed)
                     # Check the log-prior probability is finite (i.e. proposed initial values are within prior bounds)
                     params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
                     log_prior = lp.log_prior(params_for_prior)
@@ -4439,6 +4445,29 @@ class GPFitter:
         param_init = []
         hyperparam_init = []
 
+        # Built once, outside the walker loop: every argument is fitter-level
+        # (priors, kernel, data), so the object is identical for every walker and
+        # only its log_prior/log_hyperprior calls depend on the position. Building
+        # it per attempt rebuilt the whole GP likelihood up to
+        # nwalkers*max_attempts times.
+        lp = GPLogPosterior(
+            self.planet_letters,
+            self.parameterisation,
+            self.gp_kernel,
+            self.priors,
+            self.hyperpriors,
+            self.fixed_params_values_dict,
+            self.fixed_hyperparams_values_dict,
+            self.free_params_names,
+            self.free_hyperparams_names,
+            self.time,
+            self.vel,
+            self.velerr,
+            self.t0,
+            self.instrument,
+            self.unique_instruments,
+        )
+
         for walker_idx in range(nwalkers):
             attempts = 0
             while attempts < max_attempts:
@@ -4523,24 +4552,9 @@ class GPFitter:
                     # Check hyperparameter validity using GPKernel (internal method for float values)
                     self.gp_kernel._validate_hyperparams_values(all_hyperparams_dict)
 
-                    # Check prior compliance using GPLogPosterior
-                    lp = GPLogPosterior(
-                        self.planet_letters,
-                        self.parameterisation,
-                        self.gp_kernel,
-                        self.priors,
-                        self.hyperpriors,
-                        self.fixed_params_values_dict,
-                        self.fixed_hyperparams_values_dict,
-                        self.free_params_names,
-                        self.free_hyperparams_names,
-                        self.time,
-                        self.vel,
-                        self.velerr,
-                        self.t0,
-                        self.instrument,
-                        self.unique_instruments,
-                    )
+                    # Check prior compliance using GPLogPosterior (built above), rather than
+                    # calling priors direct (because it handles Transformed->Default
+                    # parameter transformations already, if needed)
                     # Check the log-prior probability is finite (i.e. proposed initial values are within prior bounds)
                     params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
                     log_prior = lp.log_prior(params_for_prior)
