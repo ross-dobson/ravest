@@ -560,9 +560,13 @@ class Fitter:
 
         Raises
         ------
+        ValueError
+            If a free parameter has no prior
         Warning
             If MAP optimization fails to converge
         """
+        self._validate_free_params_have_priors()
+
         # Initialize log-posterior object
         lp = LogPosterior(
             self.planet_letters,
@@ -870,8 +874,9 @@ class Fitter:
         Raises
         ------
         ValueError
-            If centre has wrong length, if centre point is invalid, or if unable
-            to generate valid positions after max_attempts
+            If a free parameter has no prior, if centre has wrong length, if centre
+            point is invalid, or if unable to generate valid positions after
+            max_attempts
 
         Examples
         --------
@@ -887,6 +892,8 @@ class Fitter:
                 "Cannot generate walker positions: no free parameters to sample. "
                 "At least one parameter must be set as free (fixed=False)."
             )
+
+        self._validate_free_params_have_priors()
 
         centre = np.asarray(centre)
 
@@ -1097,12 +1104,19 @@ class Fitter:
         convergence_check_start : int, optional
             Minimum iteration before starting convergence checks. Set this sensibly
             (e.g. 2x burn-in) to avoid inaccurate tau estimates on short chains (default: 0)
+
+        Raises
+        ------
+        ValueError
+            If there are no free parameters, or if a free parameter has no prior
         """
         if len(self.free_params_values) == 0:
             raise ValueError(
                 "Cannot run MCMC: no free parameters to sample. "
                 "At least one parameter must be set as free (fixed=False)."
             )
+
+        self._validate_free_params_have_priors()
 
         # Initialize log-posterior object for MCMC sampling
         lp = LogPosterior(
@@ -4416,9 +4430,13 @@ class GPFitter:
 
         Raises
         ------
+        ValueError
+            If a free parameter has no prior
         Warning
             If MAP optimization fails to converge
         """
+        self._validate_free_params_have_priors()
+
         # Initialize log-posterior object
         gp_lp = GPLogPosterior(
             self.planet_letters,
@@ -4801,8 +4819,9 @@ class GPFitter:
         Raises
         ------
         ValueError
-            If centre has wrong length, if centre point is invalid, or if unable
-            to generate valid positions after max_attempts
+            If a free parameter has no prior, if centre has wrong length, if centre
+            point is invalid, or if unable to generate valid positions after
+            max_attempts
 
         Examples
         --------
@@ -4818,6 +4837,8 @@ class GPFitter:
                 "Cannot generate walker positions: no free parameters or hyperparameters to sample. "
                 "At least one parameter or hyperparameter must be set as free (fixed=False)."
             )
+
+        self._validate_free_params_have_priors()
 
         centre = np.asarray(centre)
         expected_length = len(self.free_params_names) + len(self.free_hyperparams_names)
@@ -5079,12 +5100,19 @@ class GPFitter:
         convergence_check_start : int, optional
             Minimum iteration before starting convergence checks. Set this sensibly
             (e.g. 2x burn-in) to avoid inaccurate tau estimates on short chains (default: 0)
+
+        Raises
+        ------
+        ValueError
+            If there are no free parameters, or if a free parameter has no prior
         """
         if len(self.free_params_values) + len(self.free_hyperparams_values) == 0:
             raise ValueError(
                 "Cannot run MCMC: no free parameters or hyperparameters to sample. "
                 "At least one parameter or hyperparameter must be set as free (fixed=False)."
             )
+
+        self._validate_free_params_have_priors()
 
         # Initialize log-posterior object for MCMC sampling
         gp_lp = GPLogPosterior(
