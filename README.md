@@ -56,7 +56,8 @@ Ravest makes use of the following open-source packages:
 - [tqdm](https://tqdm.github.io/) for progress bars
 - [emcee](https://emcee.readthedocs.io/) for MCMC sampling
 - [corner](https://corner.readthedocs.io/) for visualising posterior distributions
-- [tinygp](https://tinygp.readthedocs.io/) for Gaussian Process modelling, which requires [JAX](https://jax.readthedocs.io/)
+- [tinygp](https://tinygp.readthedocs.io/) for Gaussian Process modelling
+- [JAX](https://jax.readthedocs.io/) for accelerated array computing and 64-bit precision, also required by `tinygp` and `harmonic`
 - [harmonic](https://astro-informatics.github.io/harmonic/) for Bayesian evidence estimation via the Learned Harmonic Mean Estimator
 
 ## License
