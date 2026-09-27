@@ -426,7 +426,7 @@ class Parameterisation:
             raise ValueError(f"parameterisation {self.parameterisation} not recognised")
 
     def log_jacobian_determinant(self) -> float:
-        """Log absolute Jacobian determinant |d(e,w)/d(u,v)| for this parameterisation.
+        """Log absolute Jacobian determinant ``|d(e,w)/d(u,v)|`` for this parameterisation.
 
         Returns log(2) for the secosw/sesinw parameterisation, else 0.0.
         """
