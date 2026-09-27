@@ -115,7 +115,14 @@ class Fitter:
 
     @property
     def params(self) -> Dict[str, Parameter]:
-        """Parameters dictionary. Set via: fitter.params = param_dict."""
+        """Parameters dictionary, both free and fixed. Set via: fitter.params = param_dict.
+
+        Holds every parameter of the chosen parameterisation, whether free
+        (``fixed=False``) or fixed (``fixed=True``), so ``len(params)`` is not
+        the number of sampled dimensions whenever any parameter is fixed. Only
+        the free parameters are sampled: the MCMC chain's columns are
+        ``free_params_names``, in that order (see ``get_samples_df``).
+        """
         return self._params
 
     @params.setter
@@ -3880,7 +3887,19 @@ class GPFitter:
 
     @property
     def params(self) -> Dict[str, Parameter]:
-        """Parameters dictionary. Set via: gpfitter.params = param_dict."""
+        """Parameters dictionary, both free and fixed. Set via: gpfitter.params = param_dict.
+
+        Holds every parameter of the chosen parameterisation, whether free
+        (``fixed=False``) or fixed (``fixed=True``), but **not** the GP
+        hyperparameters, which are held separately in ``hyperparams``.
+
+        So ``params`` does not describe the sampled dimensions. The MCMC
+        chain's columns are ``free_params_names + free_hyperparams_names``, in
+        that order (see ``get_samples_df``). Note that ``len(params)`` equals
+        ``ndim`` whenever the number of fixed parameters happens to equal the
+        number of free hyperparameters, which is common in practice, so a
+        matching length does not mean ``params`` lines up with the chain.
+        """
         return self._params
 
     @params.setter
