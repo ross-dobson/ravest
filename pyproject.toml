@@ -5,7 +5,8 @@ description = "Radial Velocity fitting, simulation and model comparison"
 authors = [
     {name = "Ross Dobson",email = "56548895+ross-dobson@users.noreply.github.com"}
 ]
-license = { text = "MIT" }
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 classifiers = [
