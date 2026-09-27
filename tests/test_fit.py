@@ -3042,3 +3042,68 @@ class TestPriorPresenceValidation:
             self._call(fitter, entry_point, ndim)
 
         assert "jit_HARPS" in str(excinfo.value)
+
+    def _gpfitter_missing_hyperprior(self, test_gp_data, test_gp_circular_params,
+                                     test_gp_hyperparams, test_gp_priors,
+                                     test_gp_hyperpriors, route):
+        """GPFitter whose free gp_amp has no hyperprior, reached by either route.
+
+        gp_amp is the first hyperparameter, so the old code mis-paired names and
+        values rather than only dropping the last one.
+        """
+        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+        time, vel, velerr, instrument = test_gp_data
+        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+        fitter.params = test_gp_circular_params
+        fitter.priors = test_gp_priors
+        if route == "never_set":
+            fitter.hyperparams = test_gp_hyperparams
+        else:  # "freed_after"
+            hyperparams = dict(test_gp_hyperparams)
+            hyperparams["gp_amp"] = Parameter(1.0, "m/s", fixed=True)
+            fitter.hyperparams = hyperparams
+            fitter.hyperpriors = {k: v for k, v in test_gp_hyperpriors.items() if k != "gp_amp"}
+            fitter.hyperparams = test_gp_hyperparams  # gp_amp now free, with no hyperprior
+        return fitter
+
+    @pytest.mark.parametrize("route", ["never_set", "freed_after"])
+    @pytest.mark.parametrize(
+        "entry_point", ["random", "find_map_estimate", "around_point", "run_mcmc"]
+    )
+    def test_gpfitter_raises_for_free_hyperparam_without_hyperprior(
+        self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
+        test_gp_priors, test_gp_hyperpriors, entry_point, route
+    ) -> None:
+        """GPFitter refuses a free hyperparameter without a hyperprior at every entry point."""
+        fitter = self._gpfitter_missing_hyperprior(
+            test_gp_data, test_gp_circular_params, test_gp_hyperparams,
+            test_gp_priors, test_gp_hyperpriors, route,
+        )
+        ndim = len(fitter.free_params_names) + len(fitter.free_hyperparams_names)
+
+        with pytest.raises(ValueError, match="No hyperprior for free hyperparameter") as excinfo:
+            if entry_point == "random":
+                fitter.generate_initial_walker_positions_random(nwalkers=2 * ndim)
+            else:
+                self._call(fitter, entry_point, ndim)
+
+        assert "gp_amp" in str(excinfo.value)
+
+    def test_hyperparameter_loop_names_missing_hyperprior(
+        self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
+        test_gp_priors, test_gp_hyperpriors, monkeypatch
+    ) -> None:
+        """The walker loop's own guard names the hyperparameter if the check is bypassed.
+
+        Unreachable through the public API once the up-front check runs; this keeps the
+        guard honest, since without it the loop silently mis-paired names and values and
+        failed later with a KeyError naming the wrong thing.
+        """
+        fitter = self._gpfitter_missing_hyperprior(
+            test_gp_data, test_gp_circular_params, test_gp_hyperparams,
+            test_gp_priors, test_gp_hyperpriors, "freed_after",
+        )
+        monkeypatch.setattr(fitter, "_validate_free_hyperparams_have_hyperpriors", lambda: None)
+
+        with pytest.raises(ValueError, match="No hyperprior for free hyperparameter gp_amp"):
+            fitter.generate_initial_walker_positions_random(nwalkers=16)
