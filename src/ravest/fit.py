@@ -3389,7 +3389,13 @@ class LogPosterior:
             total_jacobian += jacobian
             total_renorm += renorm
             breakdown[letter] = {"case": case, "jacobian": jacobian, "renorm": renorm}
-            logging.info(
+            # DEBUG, not INFO: the case is a constant derived from the
+            # parameterisation and the priors, so it is identical for every fit
+            # of a given setup, and was previously emitted once per
+            # log-posterior object construction. Anything anomalous raises in
+            # _classify_planet_case rather than being logged; enable DEBUG
+            # logging to see these lines again.
+            logging.debug(
                 f"Planet {letter}: log-posterior correction case {case} "
                 f"(jacobian={jacobian}, renorm={renorm})"
             )
@@ -7777,7 +7783,13 @@ class GPLogPosterior:
             total_jacobian += jacobian
             total_renorm += renorm
             breakdown[letter] = {"case": case, "jacobian": jacobian, "renorm": renorm}
-            logging.info(
+            # DEBUG, not INFO: the case is a constant derived from the
+            # parameterisation and the priors, so it is identical for every fit
+            # of a given setup, and was previously emitted once per
+            # log-posterior object construction. Anything anomalous raises in
+            # _classify_planet_case rather than being logged; enable DEBUG
+            # logging to see these lines again.
+            logging.debug(
                 f"Planet {letter}: log-posterior correction case {case} "
                 f"(jacobian={jacobian}, renorm={renorm})"
             )

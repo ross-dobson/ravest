@@ -452,22 +452,75 @@ def _instrument_subscript_latex(inst: str) -> str:
     return r"\mathrm{{{}}}".format(base)
 
 
-def param_key_to_latex(key: str) -> str:
-    """Convert a parameter key to a LaTeX-formatted label for plotting.
+def _planet_subscript_latex(planet_letter: str) -> str:
+    r"""Format a planet letter as the body of a LaTeX math subscript.
+
+    A planet letter is a label, not a physical variable, so MNRAS style sets it
+    roman rather than italic (cf. ``T_{\mathrm{Eff}}``, ``b_{\mathrm{MAX}}``).
+
+    Examples: ``b`` -> ``\mathrm{b}``.
+    """
+    return r"\mathrm{{{}}}".format(planet_letter)
+
+
+def param_key_to_latex(param_key: str) -> str:
+    r"""Convert a parameter key to a LaTeX-formatted label for plotting.
+
+    Parameter keys are the flat strings Ravest uses to name parameters: the
+    keys of ``Fitter.params`` and ``GPFitter.hyperparams``, and the column
+    names of the sample dataframes. This function is the single source of the
+    labels drawn on every Ravest plot.
+
+    Most keys are a *base* plus an optional suffix, joined by an underscore.
+    The base is the parameter's symbol name on its own: the base of
+    ``secosw_b`` is ``secosw``, and the base of ``P_b`` is ``P``. No base
+    contains an underscore, so the first underscore always ends the base. Keys
+    take one of four shapes:
+
+    - ``<base>`` alone, e.g. ``P``, ``secosw``.
+    - ``<base>_<planet letter>``, e.g. ``P_b``, ``secosw_c``.
+    - ``<prefix>_<instrument>``, e.g. ``g_HARPS``, ``jit_HARPS_15``. Unlike a
+      planet letter, an instrument name may contain a further underscore.
+    - a fixed whole-key name, not decomposed at all, e.g. ``gd``, ``gp_amp``.
+
+    Subscripts follow MNRAS style: a subscript that is a physical variable is
+    italic, one that is merely a label is roman. Planet letters, instrument
+    names, ``GP`` and the ``e``/``p`` on the GP length scales are all labels,
+    so they are set with ``\mathrm``.
 
     Parameters
     ----------
-    key : str
+    param_key : str
         Parameter key, e.g. 'P_b', 'w_c', 'jit_HARPS', 'gp_amp'.
 
     Returns
     -------
     str
-        LaTeX-formatted string suitable for matplotlib labels. Returns
-        the input key unchanged if the parameter is not recognised.
+        LaTeX-formatted string suitable for matplotlib labels, wrapped in
+        ``$...$``. Returns the key unchanged if the parameter is not
+        recognised, so an unexpected parameter is still legible on the plot.
+
+    Notes
+    -----
+    Those four key shapes need four ways of recognising a key, so the body is
+    a run of guard clauses -- the first to match returns, and anything
+    unrecognised falls through to the end:
+
+    1. exact lookup for the GP hyperparameters;
+    2. exact comparison for the trend parameters ``gd`` and ``gdd``;
+    3. fixed-prefix match for ``Tc``/``Tp`` and ``jit_``/``g_``, parsing the
+       remainder as a planet letter or an instrument name;
+    4. split on the first underscore and look up the base, for the orbital
+       parameters.
+
+    Only the fallback's position matters; the four blocks match disjoint sets
+    of keys.
     """
-    # Orbital parameter base names -> LaTeX (without planet suffix)
-    _BASE_LATEX = {
+    # ---- Lookup tables ----------------------------------------------------
+
+    # Orbital parameter bases -> the LaTeX symbol for that base on its own. A
+    # planet suffix, where the key has one, is appended by section 4 below.
+    _BASE_TO_LATEX = {
         "P": "P",
         "K": "K",
         "e": "e",
@@ -478,54 +531,88 @@ def param_key_to_latex(key: str) -> str:
         "esinw": r"e\sin\omega",
     }
 
-    # GP hyperparameters
-    _GP_LATEX = {
-        "gp_amp": r"$A$",
-        "gp_period": r"$P_{\rm GP}$",
-        "gp_lambda_e": r"$\lambda_e$",
-        "gp_lambda_p": r"$\lambda_p$",
-    }
-    if key in _GP_LATEX:
-        return _GP_LATEX[key]
+    # Param keys in _BASE_TO_LATEX where the latex label has omega in it. These take an extra \star
+    # subscript naming the star's argument of periastron: the star's and the
+    # planet's differ by pi, so the label has to say which one is meant.
+    # For a good explanation see Householder & Weiss 2022 https://doi.org/10.48550/arXiv.2212.06966
+    _OMEGA_PARAM_KEYS = frozenset({"w", "secosw", "sesinw", "ecosw", "esinw"})
 
-    # Trend parameters
-    if key == "gd":
+    # GP hyperparameters. These are fixed whole-key names rather than bases, so
+    # unlike _BASE_TO_LATEX the values are finished labels, $...$ delimiters and
+    # all. 'GP', 'e' and 'p' are labels, not variables, so they are set roman.
+    _GP_TO_LATEX = {
+        "gp_amp": r"$A_{\mathrm{GP}}$",
+        "gp_period": r"$P_{\mathrm{GP}}$",
+        "gp_lambda_e": r"$\lambda_{\mathrm{e}}$",
+        "gp_lambda_p": r"$\lambda_{\mathrm{p}}$",
+    }
+
+    # ---- 1. Exact lookup: GP hyperparameters ------------------------------
+
+    if param_key in _GP_TO_LATEX:
+        return _GP_TO_LATEX[param_key]
+
+    # ---- 2. Exact comparison: trend parameters ----------------------------
+    # The linear and quadratic RV trend, written as time derivatives of gamma.
+
+    if param_key == "gd":
         return r"$\dot{\gamma}$"
-    if key == "gdd":
+    if param_key == "gdd":
         return r"$\ddot{\gamma}$"
 
-    # Tc and Tp with optional planet suffix
-    if key.startswith("Tc"):
-        suffix = key[2:]  # e.g. '_b' or ''
-        if suffix:
-            planet = suffix.lstrip("_")
-            return r"$T_{{\rm c}," + planet + r"}$"
-        return r"$T_{\rm c}$"
-    if key.startswith("Tp"):
-        suffix = key[2:]
-        if suffix:
-            planet = suffix.lstrip("_")
-            return r"$T_{{\rm p}," + planet + r"}$"
-        return r"$T_{\rm p}$"
+    # ---- 3a. Fixed prefix: the two characteristic times -------------------
+    # Transit centre ('Tc', 'Tc_b') and periastron passage ('Tp', 'Tp_b'). Both
+    # the C/P and the planet letter are labels, so the whole subscript is one
+    # roman group. C and P are capitalised so that they cannot be misread as
+    # the planet letters which are always lowercase.
+    #
+    # The doubled braces below are .format() escapes, not LaTeX: '{{' emits a
+    # literal '{' and '{}' is a placeholder, so the format string
+    # '$T_{{\mathrm{{{},{}}}}}$' emits '$T_{\mathrm{C,b}}$'.
 
-    # Instrument parameters: jit_<instrument> or g_<instrument>
-    if key.startswith("jit_"):
-        inst = key[4:]
-        return r"$\sigma_{{{}}}$".format(_instrument_subscript_latex(inst))
-    if key.startswith("g_"):
-        inst = key[2:]
-        return r"$\gamma_{{{}}}$".format(_instrument_subscript_latex(inst))
+    for time_prefix, time_letter in (("Tc", "C"), ("Tp", "P")):
+        if param_key.startswith(time_prefix):
+            planet_letter = param_key[len(time_prefix):].lstrip("_")
 
-    # Orbital parameters with optional planet suffix (e.g. P_b, secosw_c)
-    for base in sorted(_BASE_LATEX.keys(), key=len, reverse=True):
-        if key == base:
-            return "${}$".format(_BASE_LATEX[base])
-        if key.startswith(base + "_"):
-            planet = key[len(base) + 1:]
-            return "${}_{}$".format(_BASE_LATEX[base], planet)
+            # check if there's a planet letter
+            if planet_letter:
+                return r"$T_{{\mathrm{{{},{}}}}}$".format(time_letter, planet_letter)
+            else:
+                return r"$T_{{\mathrm{{{}}}}}$".format(time_letter)
 
-    # Unrecognised key: return unchanged
-    return key
+    # ---- 3b. Fixed prefix: per-instrument parameters ----------------------
+    # Jitter ('jit_HARPS') and RV offset ('g_HARPS'). Everything after the
+    # prefix is an instrument name, which unlike a planet letter may contain a
+    # further underscore ('HARPS_15'), hence the dedicated helper.
+
+    if param_key.startswith("jit_"):
+        instrument = param_key[len("jit_"):]
+        return r"$\sigma_{{{}}}$".format(_instrument_subscript_latex(instrument))
+    if param_key.startswith("g_"):
+        instrument = param_key[len("g_"):]
+        return r"$\gamma_{{{}}}$".format(_instrument_subscript_latex(instrument))
+
+    # ---- 4. Table-driven: orbital parameters ------------------------------
+    # A key here is '<base>' or '<base>_<planet letter>'. No base contains an
+    # underscore, so the first underscore separates the two and a single lookup
+    # settles it -- there is no need to try each base in turn.
+
+    base, _, planet_letter = param_key.partition("_")
+    if base in _BASE_TO_LATEX:
+        symbol = _BASE_TO_LATEX[base]
+        is_omega_parameter = base in _OMEGA_PARAM_KEYS
+        if planet_letter:
+            # \star shares the one subscript with the planet letter.
+            subscript = (r"\star," if is_omega_parameter else "") + _planet_subscript_latex(planet_letter)
+            return r"${}_{{{}}}$".format(symbol, subscript)
+        # No planet letter, so \star is the entire subscript.
+        return r"${}{}$".format(symbol, r"_\star" if is_omega_parameter else "")
+
+    # ---- Fallback ---------------------------------------------------------
+    # Nothing matched. Return the key as-is so that an unexpected parameter is
+    # still legible on the plot, rather than raising part-way through a render.
+
+    return param_key
 
 
 def param_key_to_unit(key: str) -> str | None:
