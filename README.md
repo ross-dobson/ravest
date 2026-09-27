@@ -53,4 +53,4 @@ Ravest makes use of the following open-source packages:
 
 ## License
 
-`ravest` was created by Ross Dobson. It is licensed under the terms of the MIT license.
+`ravest` was created by Ross Dobson. It is licensed under the terms of the GNU General Public License v3.0 or later (GPL-3.0-or-later).
