@@ -1,8 +1,13 @@
 # ravest
 
----
-
 **Radial Velocity fitting with Bayesian model comparison**
+
+[![GitHub](https://img.shields.io/badge/GitHub-ross--dobson%2Fravest-181717?logo=github)](https://github.com/ross-dobson/ravest)
+[![PyPI version](https://img.shields.io/pypi/v/ravest.svg)](https://pypi.org/project/ravest/)
+[![CI/CD](https://github.com/ross-dobson/ravest/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/ross-dobson/ravest/actions/workflows/ci-cd.yml)
+[![codecov](https://codecov.io/gh/ross-dobson/ravest/branch/main/graph/badge.svg)](https://codecov.io/gh/ross-dobson/ravest)
+[![Documentation Status](https://readthedocs.org/projects/ravest/badge/?version=latest)](https://ravest.readthedocs.io/en/latest/?badge=latest)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 Features:
 - Model exoplanets and host stars, to simulate RV data for given orbital and instrumental parameters
@@ -11,6 +16,9 @@ Features:
 - Visualise/animate the star's orbit (coming soon!)
 
 Check out the tutorial notebooks at the [online documentation](https://ravest.readthedocs.io/) to see examples of how to do all of these!
+
+GitHub: [github.com/ross-dobson/ravest](https://github.com/ross-dobson/ravest)
+
 
 ## Installation
 
@@ -48,7 +56,8 @@ Ravest makes use of the following open-source packages:
 - [tqdm](https://tqdm.github.io/) for progress bars
 - [emcee](https://emcee.readthedocs.io/) for MCMC sampling
 - [corner](https://corner.readthedocs.io/) for visualising posterior distributions
-- [tinygp](https://tinygp.readthedocs.io/) for Gaussian Process modelling, which requires [JAX](https://jax.readthedocs.io/)
+- [tinygp](https://tinygp.readthedocs.io/) for Gaussian Process modelling
+- [JAX](https://jax.readthedocs.io/) for accelerated array computing and 64-bit precision, also required by `tinygp` and `harmonic`
 - [harmonic](https://astro-informatics.github.io/harmonic/) for Bayesian evidence estimation via the Learned Harmonic Mean Estimator
 
 ## License
