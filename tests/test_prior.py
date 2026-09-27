@@ -485,7 +485,8 @@ class TestBeta:
         assert repr(prior) == "Beta(a=1.58, b=4.4)"
 
     @pytest.fixture(scope="class")
-    def beta_reference_data(self):
+    @classmethod
+    def beta_reference_data(cls):
         """Load reference test data generated from external Log Beta prior."""
         data_file = Path(__file__).parent / "data" / "beta_reference.json"
         with open(data_file, 'r') as f:
