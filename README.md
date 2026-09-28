@@ -31,13 +31,13 @@ JAX is a requirement for `ravest` (and `harmonic`), so you may want to consult [
 
 ## Usage
 
-For an example of how to fit a model to RV data, see [Example 1: fitting a single planet](https://ravest.readthedocs.io/en/latest/Examples/example_fitting.html), where we fit ELODIE data for 51 Peg b.
+For an example of how to fit a model to RV data, see [Example 1: fitting a single planet](https://ravest.readthedocs.io/en/latest/Examples/example_1_fitting.html), where we fit ELODIE data for 51 Peg b.
 
-For fitting a two-planet system, comparing circular and eccentric orbits, see [Example 2: fitting a two-planet system](https://ravest.readthedocs.io/en/latest/Examples/K2-24.html), where we fit HIRES data for K2-24.
+For fitting a two-planet system, comparing circular and eccentric orbits, see [Example 2: fitting a two-planet system](https://ravest.readthedocs.io/en/latest/Examples/example_2_K2-24.html), where we fit HIRES data for K2-24.
 
-For an example of how to use a Gaussian Process to mitigate stellar variability, see [Example 3: fitting with a Gaussian Process](https://ravest.readthedocs.io/en/latest/Examples/example_GP.html), where we use a quasiperiodic kernel on HARPS data for K2-229.
+For an example of how to use a Gaussian Process to mitigate stellar variability, see [Example 3: fitting with a Gaussian Process](https://ravest.readthedocs.io/en/latest/Examples/example_3_GP.html), where we use a quasiperiodic kernel on HARPS data for K2-229.
 
-For an example on using the Learned Harmonic Mean Estimator from `harmonic` to compare two competing RV models by estimating the Bayesian evidence $\mathcal{Z}$ and Bayes factors, see [Example 4: using the Learned Harmonic Mean Estimator](https://ravest.readthedocs.io/en/latest/Examples/example_harmonic.html), where we compare a one-planet and two-planet fit for TOI-544. It also demonstrates a multi-instrument fit, using both HARPS and HARPS-N data.
+For an example on using the Learned Harmonic Mean Estimator from `harmonic` to compare two competing RV models by estimating the Bayesian evidence $\mathcal{Z}$ and Bayes factors, see [Example 4: using the Learned Harmonic Mean Estimator](https://ravest.readthedocs.io/en/latest/Examples/example_4_harmonic.html), where we compare a one-planet and two-planet fit for TOI-544. It also demonstrates a multi-instrument fit, using both HARPS and HARPS-N data.
 
 If you have any questions, check the [Frequently Asked Questions](https://ravest.readthedocs.io/en/latest/FAQ.html), raise an issue on Github, or email me and I'll be happy to help.
 
