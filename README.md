@@ -15,7 +15,7 @@ Features:
 - Bayesian Model Comparison using the Learned Harmonic Mean Estimator from [harmonic](https://astro-informatics.github.io/harmonic/)
 - Visualise/animate the star's orbit (coming soon!)
 
-Check out the tutorial notebooks at the [online documentation](https://ravest.readthedocs.io/) to see examples of how to do all of these!
+Check out the example notebooks at the [online documentation](https://ravest.readthedocs.io/) to see examples of how to do all of these!
 
 GitHub: [github.com/ross-dobson/ravest](https://github.com/ross-dobson/ravest)
 
@@ -31,19 +31,21 @@ JAX is a requirement for `ravest` (and `harmonic`), so you may want to consult [
 
 ## Usage
 
-For an example of how to fit a model to RV data, see the [example fitting notebook](https://ravest.readthedocs.io/en/latest/Examples/example_fitting.html) where we fit some ELODIE data for 51 Peg b.
+For an example of how to fit a model to RV data, see [Example 1: fitting a single planet](https://ravest.readthedocs.io/en/latest/Examples/example_fitting.html), where we fit ELODIE data for 51 Peg b.
 
-For an example of how to use a Gaussian Process to mitigate stellar variability, see the [example GP notebook](https://ravest.readthedocs.io/en/latest/Examples/example_gp.html) where we use a quasiperiodic kernel on HARPS data for K2-229.
+For fitting a two-planet system, comparing circular and eccentric orbits, see [Example 2: fitting a two-planet system](https://ravest.readthedocs.io/en/latest/Examples/K2-24.html), where we fit HIRES data for K2-24.
 
-For an example on using the Learned Harmonic Mean Estimator from `harmonic` to compare two competing RV models by estimating the Bayesian evidence $\mathcal{Z}$ and Bayes Factors, see the [example harmonic notebook](https://ravest.readthedocs.io/en/latest/Examples/example_harmonic.html) where we compare a one-planet and two-planet fit for TOI-544.
+For an example of how to use a Gaussian Process to mitigate stellar variability, see [Example 3: fitting with a Gaussian Process](https://ravest.readthedocs.io/en/latest/Examples/example_GP.html), where we use a quasiperiodic kernel on HARPS data for K2-229.
+
+For an example on using the Learned Harmonic Mean Estimator from `harmonic` to compare two competing RV models by estimating the Bayesian evidence $\mathcal{Z}$ and Bayes factors, see [Example 4: using the Learned Harmonic Mean Estimator](https://ravest.readthedocs.io/en/latest/Examples/example_harmonic.html), where we compare a one-planet and two-planet fit for TOI-544. It also demonstrates a multi-instrument fit, using both HARPS and HARPS-N data.
 
 If you have any questions, check the [Frequently Asked Questions](https://ravest.readthedocs.io/en/latest/FAQ.html), raise an issue on Github, or email me and I'll be happy to help.
 
 ## Citing ravest
 
-If you use `ravest` in your research, or want to read more about how it works, please cite [Dobson et al. (2026)](https://ui.adsabs.harvard.edu/abs/2026MNRAS.551g1343D/abstract).
+If you use `ravest` in your research, please cite [Dobson et al. (2026)](https://ui.adsabs.harvard.edu/abs/2026MNRAS.551g1343D/abstract).
 
-If you use the Bayesian evidence functionality, please also cite `harmonic`: see [its GitHub repository](https://github.com/astro-informatics/harmonic) for the relevant papers to cite, starting with [McEwen et al. (2021)](https://ui.adsabs.harvard.edu/abs/2021arXiv211112720M/abstract).
+If you use the Learned Harmonic Mean Estimator for Bayesian evidence estimation, then please also cite the `harmonic` team: see [their GitHub repository](https://github.com/astro-informatics/harmonic) for the relevant papers to cite, starting with [McEwen et al. (2021)](https://ui.adsabs.harvard.edu/abs/2021arXiv211112720M/abstract).
 
 ## Contributing
 

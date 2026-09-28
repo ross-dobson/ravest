@@ -4,7 +4,7 @@
 ```{toctree}
 :maxdepth: 1
 :hidden:
-:caption: Tutorials
+:caption: Examples
 
 Examples/example_fitting.ipynb
 Examples/K2-24.ipynb
