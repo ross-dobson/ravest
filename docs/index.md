@@ -4,13 +4,12 @@
 ```{toctree}
 :maxdepth: 1
 :hidden:
-:caption: Tutorials
+:caption: Examples
 
-Examples/example_model.ipynb
-Examples/example_fitting.ipynb
-Examples/K2-24.ipynb
-Examples/example_GP.ipynb
-Examples/example_harmonic.ipynb
+Examples/example_1_fitting.ipynb
+Examples/example_2_K2-24.ipynb
+Examples/example_3_GP.ipynb
+Examples/example_4_harmonic.ipynb
 ```
 
 ```{toctree}

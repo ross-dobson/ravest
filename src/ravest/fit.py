@@ -58,7 +58,9 @@ class Fitter:
             Used to distinguish parameters for different planets in the system.
         parameterisation : Parameterisation
             The orbital parameterisation to use for fitting. Defines which orbital
-            elements are used as free/fixed parameters (e.g., 'Default', 'EccentricityWind').
+            elements are used as free/fixed parameters, e.g.
+            ``Parameterisation("P K e w Tp")`` (the default) or
+            ``Parameterisation("P K secosw sesinw Tc")``.
         """
         if not isinstance(parameterisation, Parameterisation):
             raise TypeError(
@@ -3825,7 +3827,9 @@ class GPFitter:
             Used to distinguish parameters for different planets in the system.
         parameterisation : Parameterisation
             The orbital parameterisation to use for fitting. Defines which orbital
-            elements are used as free/fixed parameters (e.g., 'Default', 'EccentricityWind').
+            elements are used as free/fixed parameters, e.g.
+            ``Parameterisation("P K e w Tp")`` (the default) or
+            ``Parameterisation("P K secosw sesinw Tc")``.
         gp_kernel : GPKernel
             The Gaussian Process kernel to use for modelling correlated noise in the data.
         """

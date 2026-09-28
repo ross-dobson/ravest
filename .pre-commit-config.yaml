@@ -6,12 +6,12 @@ repos:
       - id: nbstripout
         args: ['--extra-keys=metadata.kernelspec']
         files: 'docs/Examples/.*\.ipynb'
-        exclude: 'docs/Examples/(example_fitting|K2-24|example_GP|example_harmonic)\.ipynb'
+        exclude: 'docs/Examples/(example_1_fitting|example_2_K2-24|example_3_GP|example_4_harmonic)\.ipynb'
       # Heavy notebooks: Keep outputs, strip metadata only
       - id: nbstripout
         name: nbstripout-keep-output
         args: ['--keep-output', '--extra-keys=metadata.kernelspec']
-        files: 'docs/Examples/(example_fitting|K2-24|example_GP|example_harmonic)\.ipynb'
+        files: 'docs/Examples/(example_1_fitting|example_2_K2-24|example_3_GP|example_4_harmonic)\.ipynb'
 
 -   repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0

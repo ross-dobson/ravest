@@ -33,7 +33,10 @@ nb_execution_mode = "auto"
 
 myst_enable_extensions = [
     "dollarmath",
+    "strikethrough",
 ]
+myst_strikethrough_single_tilde = True
+suppress_warnings = ["myst.strikethrough"]  # HTML-only builds; strikethrough is supported there
 
 # -- Options for HTML output -------------------------------------------------
 
