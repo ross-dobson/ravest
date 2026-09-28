@@ -1,5 +1,59 @@
 # Changelog
 
+## v0.4.1 (2026-09-29)
+
+### Licence
+- **Relicensed from MIT to GPL-3.0-or-later.** v0.4.0 and earlier remain MIT-licensed; code pinned to those versions is unaffected
+- Licence declared the PEP 639 way (`license = "GPL-3.0-or-later"`, `license-files`), replacing the deprecated licence table and classifier
+
+### Breaking changes
+- Log-posterior corrections for the `secosw`/`sesinw` parameterisation (see the [log-posterior corrections](https://ravest.readthedocs.io/en/latest/logprob_corrections.html) page). They do not change parameter inference, but $\ln\mathcal{Z}$ estimates for fits in `secosw`/`sesinw` now differ from v0.4.0 by a constant per planet ($+\ln 2$ or $+\ln(4/\pi)$).
+- `ecosw`/`esinw` parameterisations disabled, since their Jacobian is not constant
+- A prior directly on `(secosw, sesinw)` other than `Uniform(-1, 1)` on both now raises `NotImplementedError`; put the prior on `e` instead
+- Every free parameter must now have a prior, and every free GP hyperparameter a hyperprior. `find_map_estimate`, `run_mcmc` and the walker-initialisation methods raise `ValueError` naming what is missing, where previously a fit could run with no priors at all, silently sampling the likelihood alone
+- `Fitter` and `GPFitter` raise `TypeError` if `parameterisation` is not a `Parameterisation` object
+- `run_mcmc` raises `ValueError` if `check_convergence=True` but the first check could never happen within `max_steps`
+- `param_key_to_latex` argument renamed `key` -> `param_key` (affects keyword callers only)
+
+### Features
+- `freeze_params` argument for `plot_posterior_phase` (both classes): fix e.g. `P` and `Tc` at their posterior medians, or given values, to stop the median model smearing out when phase-folding
+- Overhauled RV and phase plots: `xlim`/`ylim`/`res_xlim`/`res_ylim` on the RV plots and `ylim`/`res_ylim` on the phase plots, `n_smooth` on the phase plots, phase-model curve spanning a full orbit, m s$^{-1}$ axis labels, consistent legend labels
+
+### Fixes
+- Walker initialisation: `Beta` hyperpriors drew from their shape parameters as if they were bounds, so every walker failed and the fit could not start; now drawn from `[0, 1]`
+- Walker initialisation: `Normal`/`HalfNormal` parameters now drawn at one prior width, not two, matching the hyperparameters (measured: far fewer stuck walkers, no cost in convergence time)
+- `GPFitter.ndim` was too small if `params` was set after `hyperparams`, which made BIC/AICc silently undercount the number of free parameters
+- Parameter labels follow MNRAS style: roman subscripts for labels (planet letters, instruments, GP), capitalised $T_\mathrm{C}$/$T_\mathrm{P}$ subscripts, and a $\star$ subscript on every $\omega$ (the star's argument of periastron)
+- Log-posterior correction cases logged at DEBUG rather than INFO
+- Sphinx/RTD warnings from docstrings
+
+### Performance
+- `LogPosterior`/`GPLogPosterior` built once per walker-initialisation call rather than per walker
+
+### Tests
+- New tests for walker initialisation, prior and hyperprior presence checks, `GPFitter.ndim`, parameterisation type validation, and the log-posterior corrections
+- `freeze_params` warnings asserted in tests instead of leaking
+- `TestBeta` class-scoped fixture made a classmethod, ready for `pytest` 10
+
+### Docs
+- Example notebooks renumbered, renamed (`example_1_fitting`, `example_2_K2-24`, `example_3_GP`, `example_4_harmonic`) and retitled (Example 1: fitting a single planet; Example 2: fitting a two-planet system; Example 3: fitting with a Gaussian Process; Example 4: using the Learned Harmonic Mean Estimator), restructured with section headings for easier navigation, and cross-linked; the docs sidebar section is renamed from Tutorials to Examples, and the example pages have new URLs
+- New Example 4 (`harmonic`) comparing 1- and 2-planet models for TOI-544, now using the Dobson et al. (2026) data and priors, with correct $\ln\mathcal{Z}$ error bars (they were $\ln\sigma_\mathcal{Z}$), evidence quality checks, and an error on $\Delta\ln\mathcal{Z}$
+- Example notebooks now fix NumPy's random seed once, in a clearly labelled cell, so they reproduce exactly when re-run, with a note on the shortcuts (fewer walkers, shorter chains, fixed seed) not to copy into real fits.
+- Removed the outdated `ravest.model` example notebook
+- Enabled MyST strikethrough (single tilde) in the docs
+- Example 2 (K2-24): information criteria labelled as AICc (what is computed), and its conclusion corrected: AICc and BIC both prefer the circular model
+- New FAQ and log-posterior corrections pages; the latter has typeset maths, cites Appendix A of Dobson et al. (2026) for the full derivation, and is linked from Example 4
+- Clarified that `GPFitter.params` holds free and fixed parameters, not hyperparameters (and is therefore not the chain's columns)
+- README: citation section (Dobson et al. 2026), badges, GitHub link, JAX acknowledgement, links to all four examples (fixing a broken link to the GP example)
+- Fixed the K2-24 example calling the removed `calculate_aic`
+- Example notebooks updated for the new parameter labels
+
+### Build
+- Lock refreshed: `ml-dtypes` 0.6.0 clears 451 test DeprecationWarnings; `numpy` 2.4.6, `matplotlib` 3.11.2, `tinygp` 0.3.1, `corner` 2.3.0, `astropy` 7.2.2 and others, including security updates for `anyio`, `tornado`, `jupyterlab` and `soupsieve`
+- Classifiers: Development Status Alpha, Python 3.11-3.13
+- CI: checkout, setup-python and Codecov actions v7, coverage upload re-enabled, Poetry 2.3.2
+- Pre-commit hooks: `nbstripout` 0.9.1, `pre-commit-hooks` v6.0.0, `ruff` v0.16.9
+
 ## v0.4.0 (2026-03-02)
 
 ### Features
