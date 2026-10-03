@@ -132,8 +132,8 @@ class Fitter:
         """Set parameters with a dict, checking all required params are present.
 
         You can update all or some of the parameters at once, example:
-        >>> fitter.params = {"g": Parameter(1.0, "m/s"), "gd": Parameter(0.1, "m/s/d")}  # only update trend parameters
-        >>> fitter.params = {"P_c": Parameter(5.0, "d"), "K_c": Parameter(3.5, "m/s")}  # only update some of planet C parameters
+        >>> fitter.params = {"gd": Parameter(0.002, fixed=False), "gdd": Parameter(0.001, fixed=False)}  # only update trend parameters
+        >>> fitter.params = {"P_c": Parameter(5.0, fixed=False), "K_c": Parameter(3.5, fixed=False)}  # only update some of planet C parameters
 
         Parameters
         ----------
@@ -3911,8 +3911,8 @@ class GPFitter:
         """Set parameters with a dict, checking all required params are present.
 
         You can update all or some of the parameters at once, example:
-        >>> gpfitter.params = {"g": Parameter(1.0, "m/s"), "gd": Parameter(0.1, "m/s/d")}  # only update trend parameters
-        >>> gpfitter.params = {"P_c": Parameter(5.0, "d"), "K_c": Parameter(3.5, "m/s")}  # only update some of planet C parameters
+        >>> gpfitter.params = {"gd": Parameter(0.002, fixed=False), "gdd": Parameter(0.001, fixed=False)}  # only update trend parameters
+        >>> gpfitter.params = {"P_c": Parameter(5.0, fixed=False), "K_c": Parameter(3.5, fixed=False)}  # only update some of planet C parameters
 
         Parameters
         ----------

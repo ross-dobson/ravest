@@ -43,15 +43,15 @@ def test_data_multi_instrument():
 def test_circular_params():
     """Simple circular orbit parameters for testing (single instrument: HARPS)."""
     return {
-        "P_b": Parameter(2.0, "d", fixed=True),
-        "K_b": Parameter(5.0, "m/s", fixed=False),
-        "e_b": Parameter(0.0, "", fixed=True),
-        "w_b": Parameter(np.pi/2, "rad", fixed=True),
-        "Tc_b": Parameter(0.0, "d", fixed=True),
-        "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-        "gd": Parameter(0.0, "m/s/day", fixed=True),
-        "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-        "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
+        "P_b": Parameter(2.0, fixed=True),
+        "K_b": Parameter(5.0, fixed=False),
+        "e_b": Parameter(0.0, fixed=True),
+        "w_b": Parameter(np.pi/2, fixed=True),
+        "Tc_b": Parameter(0.0, fixed=True),
+        "g_HARPS": Parameter(0.0, fixed=True),
+        "gd": Parameter(0.0, fixed=True),
+        "gdd": Parameter(0.0, fixed=True),
+        "jit_HARPS": Parameter(1.0, fixed=False),
     }
 
 
@@ -59,17 +59,17 @@ def test_circular_params():
 def test_circular_params_multi_instrument():
     """Circular orbit parameters for two instruments (HARPS and HIRES)."""
     return {
-        "P_b": Parameter(2.0, "d", fixed=True),
-        "K_b": Parameter(5.0, "m/s", fixed=False),
-        "e_b": Parameter(0.0, "", fixed=True),
-        "w_b": Parameter(np.pi/2, "rad", fixed=True),
-        "Tc_b": Parameter(0.0, "d", fixed=True),
-        "g_HARPS": Parameter(0.0, "m/s", fixed=False),
-        "g_HIRES": Parameter(100.0, "m/s", fixed=False),
-        "gd": Parameter(0.0, "m/s/day", fixed=True),
-        "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-        "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
-        "jit_HIRES": Parameter(2.0, "m/s", fixed=False),
+        "P_b": Parameter(2.0, fixed=True),
+        "K_b": Parameter(5.0, fixed=False),
+        "e_b": Parameter(0.0, fixed=True),
+        "w_b": Parameter(np.pi/2, fixed=True),
+        "Tc_b": Parameter(0.0, fixed=True),
+        "g_HARPS": Parameter(0.0, fixed=False),
+        "g_HIRES": Parameter(100.0, fixed=False),
+        "gd": Parameter(0.0, fixed=True),
+        "gdd": Parameter(0.0, fixed=True),
+        "jit_HARPS": Parameter(1.0, fixed=False),
+        "jit_HIRES": Parameter(2.0, fixed=False),
     }
 
 
@@ -163,7 +163,7 @@ class TestFitter:
         time, vel, velerr, instrument = test_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
-        params = {"P_b": Parameter(2.0, "d")}  # Too few params
+        params = {"P_b": Parameter(2.0, fixed=False)}  # Too few params
 
         with pytest.raises(ValueError, match="Missing required parameters.*Expected 9 parameters, got 1"):
             fitter.params = params
@@ -187,7 +187,7 @@ class TestFitter:
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
         params = test_circular_params.copy()
-        params["invalid_param"] = Parameter(1.0, "")  # Add unexpected parameter
+        params["invalid_param"] = Parameter(1.0, fixed=False)  # Add unexpected parameter
 
         # Should raise generic unexpected-parameter error, NOT the legacy g/jit hint
         with pytest.raises(ValueError, match="Unexpected parameters.*Expected 9 parameters, got 10"):
@@ -200,8 +200,8 @@ class TestFitter:
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
         params = {
-            "g": Parameter(0.0, "m/s"),
-            "jit": Parameter(1.0, "m/s"),
+            "g": Parameter(0.0, fixed=False),
+            "jit": Parameter(1.0, fixed=False),
         }
 
         with pytest.raises(ValueError, match="Single-instrument 'g' and 'jit' parameters are no longer supported"):
@@ -219,8 +219,8 @@ class TestFitter:
         params = test_circular_params.copy()
         del params["g_HARPS"]
         del params["jit_HARPS"]
-        params["g"] = Parameter(0.0, "m/s")
-        params["jit"] = Parameter(1.0, "m/s")
+        params["g"] = Parameter(0.0, fixed=False)
+        params["jit"] = Parameter(1.0, fixed=False)
 
         with pytest.raises(ValueError, match="Single-instrument 'g' and 'jit' parameters are no longer supported.*g_HARPS.*jit_HARPS"):
             fitter.params = params
@@ -237,8 +237,8 @@ class TestFitter:
         params = test_circular_params_multi_instrument.copy()
         del params["g_HIRES"]
         del params["jit_HIRES"]
-        params["g"] = Parameter(100.0, "m/s")
-        params["jit"] = Parameter(2.0, "m/s")
+        params["g"] = Parameter(100.0, fixed=False)
+        params["jit"] = Parameter(2.0, fixed=False)
 
         with pytest.raises(ValueError, match="Single-instrument 'g' and 'jit' parameters are no longer supported"):
             fitter.params = params
@@ -253,8 +253,8 @@ class TestFitter:
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
         params = test_circular_params_multi_instrument.copy()
-        params["g"] = Parameter(0.0, "m/s")    # Legacy, on top of all correct params
-        params["jit"] = Parameter(1.0, "m/s")  # Legacy, on top of all correct params
+        params["g"] = Parameter(0.0, fixed=False)    # Legacy, on top of all correct params
+        params["jit"] = Parameter(1.0, fixed=False)  # Legacy, on top of all correct params
 
         with pytest.raises(ValueError, match="Single-instrument 'g' and 'jit' parameters are no longer supported"):
             fitter.params = params
@@ -295,7 +295,7 @@ class TestFitter:
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
         params = test_circular_params.copy()
-        params["K_b"] = Parameter(25.0, "m/s", fixed=False)  # Outside uniform prior [0, 20]
+        params["K_b"] = Parameter(25.0, fixed=False)  # Outside uniform prior [0, 20]
         priors = test_simple_priors
 
         fitter.params = params
@@ -676,22 +676,22 @@ class TestFitterIntegration:
 
         # Multi-planet parameters (single instrument: HARPS)
         params = {
-            "P_b": Parameter(2.0, "d", fixed=True),
-            "K_b": Parameter(5.0, "m/s", fixed=False),
-            "e_b": Parameter(0.0, "", fixed=True),
-            "w_b": Parameter(np.pi/2, "rad", fixed=True),
-            "Tc_b": Parameter(0.0, "d", fixed=True),
+            "P_b": Parameter(2.0, fixed=True),
+            "K_b": Parameter(5.0, fixed=False),
+            "e_b": Parameter(0.0, fixed=True),
+            "w_b": Parameter(np.pi/2, fixed=True),
+            "Tc_b": Parameter(0.0, fixed=True),
 
-            "P_c": Parameter(4.0, "d", fixed=True),
-            "K_c": Parameter(3.0, "m/s", fixed=False),
-            "e_c": Parameter(0.0, "", fixed=True),
-            "w_c": Parameter(np.pi/2, "rad", fixed=True),
-            "Tc_c": Parameter(1.0, "d", fixed=True),
+            "P_c": Parameter(4.0, fixed=True),
+            "K_c": Parameter(3.0, fixed=False),
+            "e_c": Parameter(0.0, fixed=True),
+            "w_c": Parameter(np.pi/2, fixed=True),
+            "Tc_c": Parameter(1.0, fixed=True),
 
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
+            "g_HARPS": Parameter(0.0, fixed=True),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False),
         }
 
         priors = {
@@ -730,7 +730,7 @@ class TestFitterIntegration:
         time, vel, velerr, instrument = test_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
-        params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_circular_params.items()}
+        params = {k: Parameter(v.value, fixed=True) for k, v in test_circular_params.items()}
 
         with pytest.warns(UserWarning, match="All parameters are fixed"):
             fitter.params = params
@@ -746,7 +746,7 @@ class TestFitterIntegration:
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
         # Set all parameters as fixed — no priors needed as there are no free params
-        params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_circular_params.items()}
+        params = {k: Parameter(v.value, fixed=True) for k, v in test_circular_params.items()}
         with pytest.warns(UserWarning):
             fitter.params = params
 
@@ -759,7 +759,7 @@ class TestFitterIntegration:
         time, vel, velerr, instrument = test_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
-        params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_circular_params.items()}
+        params = {k: Parameter(v.value, fixed=True) for k, v in test_circular_params.items()}
         with pytest.warns(UserWarning):
             fitter.params = params
 
@@ -772,7 +772,7 @@ class TestFitterIntegration:
         time, vel, velerr, instrument = test_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
-        params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_circular_params.items()}
+        params = {k: Parameter(v.value, fixed=True) for k, v in test_circular_params.items()}
         with pytest.warns(UserWarning):
             fitter.params = params
 
@@ -1071,14 +1071,14 @@ class TestRVCalculations:
         time, vel, velerr, instrument = test_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
         fitter.params = {
-            "P_b": Parameter(2.0, "d", fixed=True), "K_b": Parameter(5.0, "m/s", fixed=False),
-            "e_b": Parameter(0.0, "", fixed=True), "w_b": Parameter(np.pi/2, "rad", fixed=True),
-            "Tc_b": Parameter(0.0, "d", fixed=True),
-            "P_c": Parameter(8.0, "d", fixed=True), "K_c": Parameter(3.0, "m/s", fixed=False),
-            "e_c": Parameter(0.0, "", fixed=True), "w_c": Parameter(np.pi/2, "rad", fixed=True),
-            "Tc_c": Parameter(1.0, "d", fixed=True),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True), "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True), "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
+            "P_b": Parameter(2.0, fixed=True), "K_b": Parameter(5.0, fixed=False),
+            "e_b": Parameter(0.0, fixed=True), "w_b": Parameter(np.pi/2, fixed=True),
+            "Tc_b": Parameter(0.0, fixed=True),
+            "P_c": Parameter(8.0, fixed=True), "K_c": Parameter(3.0, fixed=False),
+            "e_c": Parameter(0.0, fixed=True), "w_c": Parameter(np.pi/2, fixed=True),
+            "Tc_c": Parameter(1.0, fixed=True),
+            "g_HARPS": Parameter(0.0, fixed=True), "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True), "jit_HARPS": Parameter(1.0, fixed=False),
         }
         fitter.priors = {
             "K_b": ravest.prior.Uniform(0, 20), "K_c": ravest.prior.Uniform(0, 20),
@@ -1138,15 +1138,15 @@ class TestRVCalculations:
 
         # Set up params with non-zero trend (gd only - no global gamma)
         params = {
-            "P_b": Parameter(2.0, "d", fixed=True),
-            "K_b": Parameter(5.0, "m/s", fixed=False),
-            "e_b": Parameter(0.0, "", fixed=True),
-            "w_b": Parameter(np.pi/2, "rad", fixed=True),
-            "Tc_b": Parameter(0.0, "d", fixed=True),
-            "g_HARPS": Parameter(10.0, "m/s", fixed=True),  # Per-instrument gamma
-            "gd": Parameter(0.5, "m/s/day", fixed=True),  # Non-zero slope
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
+            "P_b": Parameter(2.0, fixed=True),
+            "K_b": Parameter(5.0, fixed=False),
+            "e_b": Parameter(0.0, fixed=True),
+            "w_b": Parameter(np.pi/2, fixed=True),
+            "Tc_b": Parameter(0.0, fixed=True),
+            "g_HARPS": Parameter(10.0, fixed=True),  # Per-instrument gamma
+            "gd": Parameter(0.5, fixed=True),  # Non-zero slope
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False),
         }
         fitter.params = params
 
@@ -1458,15 +1458,15 @@ def test_gp_data():
 def test_gp_circular_params():
     """Simple circular orbit parameters for GP testing (single instrument: HARPS)."""
     return {
-        "P_b": Parameter(2.0, "d", fixed=True),
-        "K_b": Parameter(5.0, "m/s", fixed=False),
-        "e_b": Parameter(0.0, "", fixed=True),
-        "w_b": Parameter(np.pi/2, "rad", fixed=True),
-        "Tc_b": Parameter(0.0, "d", fixed=True),
-        "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-        "gd": Parameter(0.0, "m/s/day", fixed=True),
-        "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-        "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
+        "P_b": Parameter(2.0, fixed=True),
+        "K_b": Parameter(5.0, fixed=False),
+        "e_b": Parameter(0.0, fixed=True),
+        "w_b": Parameter(np.pi/2, fixed=True),
+        "Tc_b": Parameter(0.0, fixed=True),
+        "g_HARPS": Parameter(0.0, fixed=True),
+        "gd": Parameter(0.0, fixed=True),
+        "gdd": Parameter(0.0, fixed=True),
+        "jit_HARPS": Parameter(1.0, fixed=False),
     }
 
 
@@ -1474,10 +1474,10 @@ def test_gp_circular_params():
 def test_gp_hyperparams():
     """Simple GP hyperparameters for testing."""
     return {
-        "gp_amp": Parameter(1.0, "m/s", fixed=False),
-        "gp_lambda_e": Parameter(50.0, "d", fixed=False),
-        "gp_lambda_p": Parameter(0.5, "", fixed=False),
-        "gp_period": Parameter(10.0, "d", fixed=False),
+        "gp_amp": Parameter(1.0, fixed=False),
+        "gp_lambda_e": Parameter(50.0, fixed=False),
+        "gp_lambda_p": Parameter(0.5, fixed=False),
+        "gp_period": Parameter(10.0, fixed=False),
     }
 
 
@@ -1515,17 +1515,17 @@ def test_gp_data_multi_instrument():
 def test_gp_circular_params_multi_instrument():
     """Circular orbit parameters for two instruments (HARPS and HIRES) with GP."""
     return {
-        "P_b": Parameter(2.0, "d", fixed=True),
-        "K_b": Parameter(5.0, "m/s", fixed=False),
-        "e_b": Parameter(0.0, "", fixed=True),
-        "w_b": Parameter(np.pi/2, "rad", fixed=True),
-        "Tc_b": Parameter(0.0, "d", fixed=True),
-        "g_HARPS": Parameter(0.0, "m/s", fixed=False),
-        "g_HIRES": Parameter(100.0, "m/s", fixed=False),
-        "gd": Parameter(0.0, "m/s/day", fixed=True),
-        "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-        "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
-        "jit_HIRES": Parameter(2.0, "m/s", fixed=False),
+        "P_b": Parameter(2.0, fixed=True),
+        "K_b": Parameter(5.0, fixed=False),
+        "e_b": Parameter(0.0, fixed=True),
+        "w_b": Parameter(np.pi/2, fixed=True),
+        "Tc_b": Parameter(0.0, fixed=True),
+        "g_HARPS": Parameter(0.0, fixed=False),
+        "g_HIRES": Parameter(100.0, fixed=False),
+        "gd": Parameter(0.0, fixed=True),
+        "gdd": Parameter(0.0, fixed=True),
+        "jit_HARPS": Parameter(1.0, fixed=False),
+        "jit_HIRES": Parameter(2.0, fixed=False),
     }
 
 
@@ -1811,8 +1811,8 @@ class TestGPFitter:
 
         # Missing gp_lambda_p and gp_period
         incomplete_hyperparams = {
-            "gp_amp": Parameter(1.0, "m/s"),
-            "gp_lambda_e": Parameter(50.0, "d"),
+            "gp_amp": Parameter(1.0, fixed=False),
+            "gp_lambda_e": Parameter(50.0, fixed=False),
         }
 
         with pytest.raises(ValueError, match="Missing required hyperparameters"):
@@ -1912,7 +1912,7 @@ class TestGPFitter:
         time, vel, velerr, instrument = test_gp_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
-        params = {"P_b": Parameter(2.0, "d")}  # Too few params
+        params = {"P_b": Parameter(2.0, fixed=False)}  # Too few params
 
         with pytest.raises(ValueError, match="Missing required parameters.*Expected 9 parameters, got 1"):
             fitter.params = params
@@ -1938,7 +1938,7 @@ class TestGPFitter:
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
         params = test_gp_circular_params.copy()
-        params["invalid_param"] = Parameter(1.0, "")
+        params["invalid_param"] = Parameter(1.0, fixed=False)
 
         with pytest.raises(ValueError, match="Unexpected parameters.*Expected 9 parameters, got 10"):
             fitter.params = params
@@ -1964,7 +1964,7 @@ class TestGPFitter:
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
         params = test_gp_circular_params.copy()
-        params["K_b"] = Parameter(25.0, "m/s", fixed=False)  # Outside uniform prior [0, 20]
+        params["K_b"] = Parameter(25.0, fixed=False)  # Outside uniform prior [0, 20]
         fitter.params = params
 
         with pytest.raises(ValueError, match="Initial value 25.0 of parameter K_b is invalid"):
@@ -2012,7 +2012,7 @@ class TestGPFitter:
         time, vel, velerr, instrument = test_gp_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
-        params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_circular_params.items()}
+        params = {k: Parameter(v.value, fixed=True) for k, v in test_gp_circular_params.items()}
 
         with pytest.warns(UserWarning, match="All parameters are fixed"):
             fitter.params = params
@@ -2025,9 +2025,9 @@ class TestGPFitter:
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
         with pytest.warns(UserWarning):
-            fitter.params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_circular_params.items()}
+            fitter.params = {k: Parameter(v.value, fixed=True) for k, v in test_gp_circular_params.items()}
 
-        hyperparams = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_hyperparams.items()}
+        hyperparams = {k: Parameter(v.value, fixed=True) for k, v in test_gp_hyperparams.items()}
 
         with pytest.warns(UserWarning, match="All parameters and hyperparameters are fixed"):
             fitter.hyperparams = hyperparams
@@ -2043,8 +2043,8 @@ class TestGPFitter:
         time, vel, velerr, instrument = test_gp_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
-        params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_circular_params.items()}
-        hyperparams = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_hyperparams.items()}
+        params = {k: Parameter(v.value, fixed=True) for k, v in test_gp_circular_params.items()}
+        hyperparams = {k: Parameter(v.value, fixed=True) for k, v in test_gp_hyperparams.items()}
         with pytest.warns(UserWarning):
             fitter.params = params
         with pytest.warns(UserWarning):
@@ -2061,9 +2061,9 @@ class TestGPFitter:
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
         with pytest.warns(UserWarning):
-            fitter.params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_circular_params.items()}
+            fitter.params = {k: Parameter(v.value, fixed=True) for k, v in test_gp_circular_params.items()}
         with pytest.warns(UserWarning):
-            fitter.hyperparams = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_hyperparams.items()}
+            fitter.hyperparams = {k: Parameter(v.value, fixed=True) for k, v in test_gp_hyperparams.items()}
 
         with pytest.raises(ValueError, match="no free parameters or hyperparameters to sample"):
             fitter.generate_initial_walker_positions_random(nwalkers=10)
@@ -2076,9 +2076,9 @@ class TestGPFitter:
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
         with pytest.warns(UserWarning):
-            fitter.params = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_circular_params.items()}
+            fitter.params = {k: Parameter(v.value, fixed=True) for k, v in test_gp_circular_params.items()}
         with pytest.warns(UserWarning):
-            fitter.hyperparams = {k: Parameter(v.value, v.unit, fixed=True) for k, v in test_gp_hyperparams.items()}
+            fitter.hyperparams = {k: Parameter(v.value, fixed=True) for k, v in test_gp_hyperparams.items()}
 
         dummy_positions = np.empty((10, 0))
         with pytest.raises(ValueError, match="no free parameters or hyperparameters to sample"):
@@ -2267,15 +2267,15 @@ class TestGPRVCalculations:
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
         params = {
-            "P_b": Parameter(2.0, "d", fixed=True),
-            "K_b": Parameter(5.0, "m/s", fixed=False),
-            "e_b": Parameter(0.0, "", fixed=True),
-            "w_b": Parameter(np.pi/2, "rad", fixed=True),
-            "Tc_b": Parameter(0.0, "d", fixed=True),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.5, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
+            "P_b": Parameter(2.0, fixed=True),
+            "K_b": Parameter(5.0, fixed=False),
+            "e_b": Parameter(0.0, fixed=True),
+            "w_b": Parameter(np.pi/2, fixed=True),
+            "Tc_b": Parameter(0.0, fixed=True),
+            "g_HARPS": Parameter(0.0, fixed=True),
+            "gd": Parameter(0.5, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False),
         }
         fitter.params = params
         fitter.hyperparams = test_gp_hyperparams
@@ -2617,20 +2617,20 @@ class TestGPFitterIntegration:
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
         params = {
-            "P_b": Parameter(2.0, "d", fixed=True),
-            "K_b": Parameter(5.0, "m/s", fixed=False),
-            "e_b": Parameter(0.0, "", fixed=True),
-            "w_b": Parameter(np.pi/2, "rad", fixed=True),
-            "Tc_b": Parameter(0.0, "d", fixed=True),
-            "P_c": Parameter(4.0, "d", fixed=True),
-            "K_c": Parameter(3.0, "m/s", fixed=False),
-            "e_c": Parameter(0.0, "", fixed=True),
-            "w_c": Parameter(np.pi/2, "rad", fixed=True),
-            "Tc_c": Parameter(1.0, "d", fixed=True),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
+            "P_b": Parameter(2.0, fixed=True),
+            "K_b": Parameter(5.0, fixed=False),
+            "e_b": Parameter(0.0, fixed=True),
+            "w_b": Parameter(np.pi/2, fixed=True),
+            "Tc_b": Parameter(0.0, fixed=True),
+            "P_c": Parameter(4.0, fixed=True),
+            "K_c": Parameter(3.0, fixed=False),
+            "e_c": Parameter(0.0, fixed=True),
+            "w_c": Parameter(np.pi/2, fixed=True),
+            "Tc_c": Parameter(1.0, fixed=True),
+            "g_HARPS": Parameter(0.0, fixed=True),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False),
         }
         fitter.params = params
         fitter.hyperparams = test_gp_hyperparams
@@ -2663,15 +2663,15 @@ class TestWalkerInitialisationWidths:
     def _unbounded_prior_params():
         """Circular params with K_b far from the K > 0 validity edge."""
         return {
-            "P_b": Parameter(2.0, "d", fixed=True),
-            "K_b": Parameter(50.0, "m/s", fixed=False),
-            "e_b": Parameter(0.0, "", fixed=True),
-            "w_b": Parameter(np.pi / 2, "rad", fixed=True),
-            "Tc_b": Parameter(0.0, "d", fixed=True),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
+            "P_b": Parameter(2.0, fixed=True),
+            "K_b": Parameter(50.0, fixed=False),
+            "e_b": Parameter(0.0, fixed=True),
+            "w_b": Parameter(np.pi / 2, fixed=True),
+            "Tc_b": Parameter(0.0, fixed=True),
+            "g_HARPS": Parameter(0.0, fixed=True),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False),
         }
 
     def test_normal_prior_parameter_drawn_at_one_sigma(self, test_data) -> None:
@@ -2733,7 +2733,7 @@ class TestWalkerInitialisationWidths:
         fitter.params = self._unbounded_prior_params()
 
         hyperparams = dict(test_gp_hyperparams)
-        hyperparams["gp_amp"] = Parameter(5.0, "m/s", fixed=False)
+        hyperparams["gp_amp"] = Parameter(5.0, fixed=False)
         fitter.hyperparams = hyperparams
 
         fitter.priors = {"K_b": ravest.prior.Normal(50.0, param_std),
@@ -2784,15 +2784,15 @@ class TestWalkerInitialisationWidths:
     @staticmethod
     def _transformed_params():
         return {
-            "P_b": Parameter(2.0, "d", fixed=True),
-            "K_b": Parameter(5.0, "m/s", fixed=False),
-            "secosw_b": Parameter(0.0177, "", fixed=False),
-            "sesinw_b": Parameter(0.0767, "", fixed=False),
-            "Tc_b": Parameter(0.0, "d", fixed=True),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
+            "P_b": Parameter(2.0, fixed=True),
+            "K_b": Parameter(5.0, fixed=False),
+            "secosw_b": Parameter(0.0177, fixed=False),
+            "sesinw_b": Parameter(0.0767, fixed=False),
+            "Tc_b": Parameter(0.0, fixed=True),
+            "g_HARPS": Parameter(0.0, fixed=True),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False),
         }
 
     @staticmethod
@@ -2865,7 +2865,7 @@ class TestWalkerInitialisationWidths:
         re-check priors, so this must be caught before fitting.
         """
         params = self._unbounded_prior_params()
-        params["jit_HARPS"] = Parameter(1.0, "m/s", fixed=True)
+        params["jit_HARPS"] = Parameter(1.0, fixed=True)
         fitter = self._make_fitter(
             test_data, params, {"K_b": ravest.prior.Uniform(0, 100)},
         )
@@ -2946,7 +2946,7 @@ class TestWalkerInitialisationWidths:
         re-assigned with another parameter free.
         """
         params = self._unbounded_prior_params()
-        params["jit_HARPS"] = Parameter(1.0, "m/s", fixed=True)
+        params["jit_HARPS"] = Parameter(1.0, fixed=True)
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"),
                           GPKernel("Quasiperiodic"))
         time, vel, velerr, instrument = test_gp_data
@@ -2976,15 +2976,15 @@ class TestPriorPresenceValidation:
     @staticmethod
     def _params(jit_fixed=False):
         return {
-            "P_b": Parameter(2.0, "d", fixed=True),
-            "K_b": Parameter(5.0, "m/s", fixed=False),
-            "e_b": Parameter(0.0, "", fixed=True),
-            "w_b": Parameter(np.pi / 2, "rad", fixed=True),
-            "Tc_b": Parameter(0.0, "d", fixed=True),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=jit_fixed),
+            "P_b": Parameter(2.0, fixed=True),
+            "K_b": Parameter(5.0, fixed=False),
+            "e_b": Parameter(0.0, fixed=True),
+            "w_b": Parameter(np.pi / 2, fixed=True),
+            "Tc_b": Parameter(0.0, fixed=True),
+            "g_HARPS": Parameter(0.0, fixed=True),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=jit_fixed),
         }
 
     def _fitter(self, test_data, route):
@@ -3067,7 +3067,7 @@ class TestPriorPresenceValidation:
             fitter.hyperparams = test_gp_hyperparams
         else:  # "freed_after"
             hyperparams = dict(test_gp_hyperparams)
-            hyperparams["gp_amp"] = Parameter(1.0, "m/s", fixed=True)
+            hyperparams["gp_amp"] = Parameter(1.0, fixed=True)
             fitter.hyperparams = hyperparams
             fitter.hyperpriors = {k: v for k, v in test_gp_hyperpriors.items() if k != "gp_amp"}
             fitter.hyperparams = test_gp_hyperparams  # gp_amp now free, with no hyperprior

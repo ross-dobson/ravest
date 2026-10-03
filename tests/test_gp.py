@@ -32,10 +32,10 @@ class TestGPKernel:
         """Test validating valid hyperparameters."""
         kernel = GPKernel("Quasiperiodic")
         hyperparams = {
-            "gp_amp": Parameter(1.0, "m/s"),
-            "gp_lambda_e": Parameter(50.0, "d"),
-            "gp_lambda_p": Parameter(0.5, ""),
-            "gp_period": Parameter(10.0, "d"),
+            "gp_amp": Parameter(1.0, fixed=False),
+            "gp_lambda_e": Parameter(50.0, fixed=False),
+            "gp_lambda_p": Parameter(0.5, fixed=False),
+            "gp_period": Parameter(10.0, fixed=False),
         }
         # Should not raise
         kernel.validate_hyperparams(hyperparams)
@@ -44,8 +44,8 @@ class TestGPKernel:
         """Test error when required hyperparameters are missing."""
         kernel = GPKernel("Quasiperiodic")
         hyperparams = {
-            "gp_amp": Parameter(1.0, "m/s"),
-            "gp_lambda_e": Parameter(50.0, "d"),
+            "gp_amp": Parameter(1.0, fixed=False),
+            "gp_lambda_e": Parameter(50.0, fixed=False),
             # Missing gp_lambda_p and gp_period
         }
         with pytest.raises(ValueError, match="Missing required hyperparameters"):
@@ -55,11 +55,11 @@ class TestGPKernel:
         """Test error when unexpected hyperparameters are provided."""
         kernel = GPKernel("Quasiperiodic")
         hyperparams = {
-            "gp_amp": Parameter(1.0, "m/s"),
-            "gp_lambda_e": Parameter(50.0, "d"),
-            "gp_lambda_p": Parameter(0.5, ""),
-            "gp_period": Parameter(10.0, "d"),
-            "extra_param": Parameter(5.0, ""),
+            "gp_amp": Parameter(1.0, fixed=False),
+            "gp_lambda_e": Parameter(50.0, fixed=False),
+            "gp_lambda_p": Parameter(0.5, fixed=False),
+            "gp_period": Parameter(10.0, fixed=False),
+            "extra_param": Parameter(5.0, fixed=False),
         }
         with pytest.raises(ValueError, match="Unexpected hyperparameters"):
             kernel.validate_hyperparams(hyperparams)
