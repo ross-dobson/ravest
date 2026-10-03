@@ -745,7 +745,7 @@ class TestFitterIntegration:
         time, vel, velerr, instrument = test_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
-        # Set all parameters as fixed — no priors needed as there are no free params
+        # Set all parameters as fixed - no priors needed as there are no free params
         params = {k: Parameter(v.value, fixed=True) for k, v in test_circular_params.items()}
         with pytest.warns(UserWarning):
             fitter.params = params
