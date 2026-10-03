@@ -682,31 +682,33 @@ def param_key_to_unit(key: str) -> str | None:
 
 
 class Parameter:
-    """Represents a model parameter with value, unit, and fixed/free status."""
+    """Represents a model parameter with value and fixed/free status."""
 
-    def __init__(self, value: float, unit: str, fixed: bool = False) -> None:
+    def __init__(self, value: float, *, fixed: bool) -> None:
         """
         Initialize a parameter object.
 
         Parameters
         ----------
         value : float
-            The value of the parameter.
-        unit : str
-            The unit of measurement for the parameter. This is only used for
-            display purposes.
+            The value of the parameter, in ravest's internal units (days, m/s,
+            radians). ravest does not convert units; see :doc:`/units`.
         fixed : bool
-            Indicates whether the parameter is fixed or free to vary in fitting.
-            Default is False.
+            Whether the parameter is fixed (True) or free to vary in fitting
+            (False). Must be passed by keyword, as exactly True or False.
+
+        Raises
+        ------
+        TypeError
+            If `fixed` is not a Python bool.
         """
+        if type(fixed) is not bool:
+            raise TypeError(
+                f"fixed must be True or False, not {fixed!r} of type {type(fixed)!r}."
+            )
         self.value = value
-        self.unit = unit
         self.fixed = fixed
 
     def __repr__(self) -> str:
         class_name = type(self).__name__
-        return f"{class_name}(value={self.value!r}, unit={self.unit!r}, fixed={self.fixed!r})"
-
-    def __str__(self) -> str:
-        class_name = type(self).__name__
-        return f"{class_name} {self.value} {self.unit}"
+        return f"{class_name}(value={self.value!r}, fixed={self.fixed!r})"

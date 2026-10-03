@@ -526,7 +526,7 @@ class TestMpsini:
         """Test invalid unit raises ValueError."""
         from ravest.model import calculate_mpsini
 
-        with pytest.raises(ValueError, match="Unit.*not valid"):
+        with pytest.raises(ValueError, match="Unit.*not valid.*'kg'.*'M_earth'.*'M_jupiter'"):
             calculate_mpsini(1.0, 10.0, 5.0, 0.0, unit="invalid")
 
     def test_mpsini_via_planet(self) -> None:
