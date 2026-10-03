@@ -615,29 +615,26 @@ def param_key_to_latex(param_key: str) -> str:
     return param_key
 
 
-def param_key_to_unit(key: str) -> str | None:
-    """Return the internal unit string for a parameter key.
+# Every internal unit, plain-text form -> LaTeX form.
+_UNIT_TO_LATEX = {
+    "": "",
+    "d": r"$\mathrm{d}$",
+    "rad": r"$\mathrm{rad}$",
+    "m/s": r"$\mathrm{m}\,\mathrm{s}^{-1}$",
+    "m/s/d": r"$\mathrm{m}\,\mathrm{s}^{-1}\,\mathrm{d}^{-1}$",
+    "m/s/d^2": r"$\mathrm{m}\,\mathrm{s}^{-1}\,\mathrm{d}^{-2}$",
+}
 
-    All parameters in ravest have fixed internal units — this function
-    returns the correct unit for a given parameter key. Useful for
-    labelling plots and formatting results tables.
 
-    Parameters
-    ----------
-    key : str
-        Parameter key, e.g. 'P_b', 'K_c', 'jit_HARPS', 'gp_amp'.
+def _param_key_to_plain_unit(key: str) -> str | None:
+    """Return the plain-text unit for a parameter key, or None if unrecognised.
 
-    Returns
-    -------
-    str or None
-        Unit string (e.g. 'd', 'm/s', 'rad'). Returns '' for
-        dimensionless parameters. Returns None if the parameter
-        is not recognised.
+    Every unit returned is a key of ``_UNIT_TO_LATEX``.
     """
     # Orbital parameter base names -> units
     _BASE_UNITS = {
         "P": "d",
-        "K": r"$\mathrm{m}\,\mathrm{s}^{-1}$",
+        "K": "m/s",
         "e": "",
         "w": "rad",
         "secosw": "",
@@ -648,7 +645,7 @@ def param_key_to_unit(key: str) -> str | None:
 
     # GP hyperparameters
     _GP_UNITS = {
-        "gp_amp": r"$\mathrm{m}\,\mathrm{s}^{-1}$",
+        "gp_amp": "m/s",
         "gp_period": "d",
         "gp_lambda_e": "d",
         "gp_lambda_p": "",
@@ -658,9 +655,9 @@ def param_key_to_unit(key: str) -> str | None:
 
     # Trend parameters
     if key == "gd":
-        return r"$\mathrm{m}\,\mathrm{s}^{-1}\,\mathrm{d}^{-1}$"
+        return "m/s/d"
     if key == "gdd":
-        return r"$\mathrm{m}\,\mathrm{s}^{-1}\,\mathrm{d}^{-2}$"
+        return "m/s/d^2"
 
     # Tc and Tp (with or without planet suffix)
     if key.startswith("Tc") or key.startswith("Tp"):
@@ -668,9 +665,9 @@ def param_key_to_unit(key: str) -> str | None:
 
     # Instrument parameters
     if key.startswith("jit_"):
-        return r"$\mathrm{m}\,\mathrm{s}^{-1}$"
+        return "m/s"
     if key.startswith("g_"):
-        return r"$\mathrm{m}\,\mathrm{s}^{-1}$"
+        return "m/s"
 
     # Orbital parameters with optional planet suffix
     for base in sorted(_BASE_UNITS.keys(), key=len, reverse=True):
@@ -681,32 +678,71 @@ def param_key_to_unit(key: str) -> str | None:
     return None
 
 
-class Parameter:
-    """Represents a model parameter with value, unit, and fixed/free status."""
+def param_key_to_unit(key: str, *, latex: bool = False) -> str | None:
+    r"""Return ravest's internal unit for a parameter key.
 
-    def __init__(self, value: float, unit: str, fixed: bool = False) -> None:
+    ravest does not convert units: every parameter, prior and data value is
+    in these units (see :doc:`/units`). This function is the single source of
+    those units, for labelling plots and formatting results tables.
+
+    Parameters
+    ----------
+    key : str
+        Parameter key, e.g. 'P_b', 'K_c', 'jit_HARPS', 'gp_amp'.
+    latex : bool, optional
+        If False (default), return plain text, e.g. 'm/s'. If True, return
+        the LaTeX form for matplotlib labels, e.g.
+        '$\mathrm{m}\,\mathrm{s}^{-1}$'. Must be passed by keyword.
+
+    Returns
+    -------
+    str or None
+        The unit. Returns '' for dimensionless parameters, in both forms.
+        Returns None if the parameter is not recognised.
+
+    Examples
+    --------
+    >>> param_key_to_unit("K_b")
+    'm/s'
+    >>> param_key_to_unit("K_b", latex=True)
+    '$\\mathrm{m}\\,\\mathrm{s}^{-1}$'
+    >>> param_key_to_unit("e_b")
+    ''
+    """
+    unit = _param_key_to_plain_unit(key)
+    if unit is None or not latex:
+        return unit
+    return _UNIT_TO_LATEX[unit]
+
+
+class Parameter:
+    """Represents a model parameter with value and fixed/free status."""
+
+    def __init__(self, value: float, *, fixed: bool) -> None:
         """
         Initialize a parameter object.
 
         Parameters
         ----------
         value : float
-            The value of the parameter.
-        unit : str
-            The unit of measurement for the parameter. This is only used for
-            display purposes.
+            The value of the parameter, in ravest's internal units (days, m/s,
+            radians). ravest does not convert units; see :doc:`/units`.
         fixed : bool
-            Indicates whether the parameter is fixed or free to vary in fitting.
-            Default is False.
+            Whether the parameter is fixed (True) or free to vary in fitting
+            (False). Must be passed by keyword, as exactly True or False.
+
+        Raises
+        ------
+        TypeError
+            If `fixed` is not a Python bool.
         """
+        if type(fixed) is not bool:
+            raise TypeError(
+                f"fixed must be True or False, not {fixed!r} of type {type(fixed)!r}."
+            )
         self.value = value
-        self.unit = unit
         self.fixed = fixed
 
     def __repr__(self) -> str:
         class_name = type(self).__name__
-        return f"{class_name}(value={self.value!r}, unit={self.unit!r}, fixed={self.fixed!r})"
-
-    def __str__(self) -> str:
-        class_name = type(self).__name__
-        return f"{class_name} {self.value} {self.unit}"
+        return f"{class_name}(value={self.value!r}, fixed={self.fixed!r})"

@@ -484,7 +484,7 @@ class Beta:
             raise ValueError(f"Value of b > 0 required, got {b}")
         self.a = float(a)
         self.b = float(b)
-        # Pre-compute log(B(a,b)) = log(Γ(a)) + log(Γ(b)) - log(Γ(a+b))
+        # Pre-compute log(B(a,b)) = log(Gamma(a)) + log(Gamma(b)) - log(Gamma(a+b))
         self._log_beta = gammaln(self.a) + gammaln(self.b) - gammaln(self.a + self.b)
 
     def __call__(self, value: float) -> float:

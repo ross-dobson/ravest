@@ -48,12 +48,12 @@ def simple_test_data():
 
 def _common_params(letter: str, fixed: bool = False) -> dict:
     return {
-        f"P_{letter}": Parameter(5.0, "days", fixed=False),
-        f"K_{letter}": Parameter(3.0, "m/s", fixed=False),
-        "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-        "gd": Parameter(0.0, "m/s/day", fixed=True),
-        "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-        "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
+        f"P_{letter}": Parameter(5.0, fixed=False),
+        f"K_{letter}": Parameter(3.0, fixed=False),
+        "g_HARPS": Parameter(0.0, fixed=True),
+        "gd": Parameter(0.0, fixed=True),
+        "gdd": Parameter(0.0, fixed=True),
+        "jit_HARPS": Parameter(1.0, fixed=False),
     }
 
 
@@ -70,11 +70,11 @@ class TestSinglePlanetCases:
         """Default (e, w) parameterisation always classifies as CASE_1."""
         time, vel, velerr, instrument = simple_test_data
         params = _common_params("b") | {
-            "P_b": Parameter(5.0, "days", fixed=False),
-            "K_b": Parameter(3.0, "m/s", fixed=False),
-            "e_b": Parameter(0.0, "", fixed=False),
-            "w_b": Parameter(0.0, "rad", fixed=False),
-            "Tp_b": Parameter(0.0, "days", fixed=False),
+            "P_b": Parameter(5.0, fixed=False),
+            "K_b": Parameter(3.0, fixed=False),
+            "e_b": Parameter(0.0, fixed=False),
+            "w_b": Parameter(0.0, fixed=False),
+            "Tp_b": Parameter(0.0, fixed=False),
         }
         priors = _common_priors() | {
             "P_b": Uniform(0, 10),
@@ -98,9 +98,9 @@ class TestSinglePlanetCases:
         """Transformed parameterisation with fixed secosw/sesinw classifies as CASE_1."""
         time, vel, velerr, instrument = simple_test_data
         params = _common_params("b") | {
-            "secosw_b": Parameter(0.0, "", fixed=True),
-            "sesinw_b": Parameter(0.0, "", fixed=True),
-            "Tc_b": Parameter(0.0, "days", fixed=True),
+            "secosw_b": Parameter(0.0, fixed=True),
+            "sesinw_b": Parameter(0.0, fixed=True),
+            "Tc_b": Parameter(0.0, fixed=True),
         }
         priors = _common_priors() | {
             "P_b": Uniform(0, 10),
@@ -121,9 +121,9 @@ class TestSinglePlanetCases:
         """Transformed parameterisation with Uniform(-1, 1) (u, v) priors classifies as CASE_2."""
         time, vel, velerr, instrument = simple_test_data
         params = _common_params("b") | {
-            "secosw_b": Parameter(0.1, "", fixed=False),
-            "sesinw_b": Parameter(0.2, "", fixed=False),
-            "Tc_b": Parameter(2.0, "days", fixed=False),
+            "secosw_b": Parameter(0.1, fixed=False),
+            "sesinw_b": Parameter(0.2, fixed=False),
+            "Tc_b": Parameter(2.0, fixed=False),
         }
         priors = _common_priors() | {
             "P_b": Uniform(0, 10),
@@ -148,9 +148,9 @@ class TestSinglePlanetCases:
         """Transformed parameterisation with (e, w) priors classifies as CASE_3, for any e prior."""
         time, vel, velerr, instrument = simple_test_data
         params = _common_params("b") | {
-            "secosw_b": Parameter(0.1, "", fixed=False),
-            "sesinw_b": Parameter(0.2, "", fixed=False),
-            "Tc_b": Parameter(2.0, "days", fixed=False),
+            "secosw_b": Parameter(0.1, fixed=False),
+            "sesinw_b": Parameter(0.2, fixed=False),
+            "Tc_b": Parameter(2.0, fixed=False),
         }
         priors = _common_priors() | {
             "P_b": Uniform(0, 10),
@@ -176,20 +176,20 @@ class TestTwoPlanetCases:
 
     def _two_planet_params_and_priors(self, secosw_priors: dict, e_priors: dict, letters: list[str]) -> tuple[dict, dict]:
         params = {
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False),
+            "g_HARPS": Parameter(0.0, fixed=True),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False),
         }
         priors = {"jit_HARPS": Uniform(0, 5)}
 
         for letter in letters:
             fixed = letter not in secosw_priors and letter not in e_priors
-            params[f"P_{letter}"] = Parameter(5.0, "days", fixed=False)
-            params[f"K_{letter}"] = Parameter(3.0, "m/s", fixed=False)
-            params[f"secosw_{letter}"] = Parameter(0.1, "", fixed=fixed)
-            params[f"sesinw_{letter}"] = Parameter(0.2, "", fixed=fixed)
-            params[f"Tc_{letter}"] = Parameter(2.0, "days", fixed=fixed)
+            params[f"P_{letter}"] = Parameter(5.0, fixed=False)
+            params[f"K_{letter}"] = Parameter(3.0, fixed=False)
+            params[f"secosw_{letter}"] = Parameter(0.1, fixed=fixed)
+            params[f"sesinw_{letter}"] = Parameter(0.2, fixed=fixed)
+            params[f"Tc_{letter}"] = Parameter(2.0, fixed=fixed)
 
             priors[f"P_{letter}"] = Uniform(0, 10)
             priors[f"K_{letter}"] = Uniform(0, 10)
@@ -296,9 +296,9 @@ class TestUnsupportedPriorRaises:
         """Non-Uniform(-1, 1) priors on (secosw, sesinw) raise NotImplementedError."""
         time, vel, velerr, instrument = simple_test_data
         params = _common_params("b") | {
-            "secosw_b": Parameter(0.1, "", fixed=False),
-            "sesinw_b": Parameter(0.2, "", fixed=False),
-            "Tc_b": Parameter(2.0, "days", fixed=False),
+            "secosw_b": Parameter(0.1, fixed=False),
+            "sesinw_b": Parameter(0.2, fixed=False),
+            "Tc_b": Parameter(2.0, fixed=False),
         }
         priors = _common_priors() | {
             "P_b": Uniform(0, 10),

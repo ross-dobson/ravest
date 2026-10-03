@@ -39,15 +39,15 @@ class TestParameterisationFlexibility:
         """Test default parameterisation with default priors (single instrument: HARPS)."""
         time, vel, velerr, instrument = simple_test_data
         params = {
-            "P_b": Parameter(5.0, "days", fixed=False),
-            "K_b": Parameter(3.0, "m/s", fixed=False),
-            "e_b": Parameter(0.3, "", fixed=False),
-            "w_b": Parameter(np.radians(47), "rad", fixed=False),
-            "Tp_b": Parameter(68.7, "days", fixed=False),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False)
+            "P_b": Parameter(5.0, fixed=False),
+            "K_b": Parameter(3.0, fixed=False),
+            "e_b": Parameter(0.3, fixed=False),
+            "w_b": Parameter(np.radians(47), fixed=False),
+            "Tp_b": Parameter(68.7, fixed=False),
+            "g_HARPS": Parameter(0.0, fixed=True),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False)
         }
         priors = {
             "P_b": Uniform(0, 10),
@@ -67,15 +67,15 @@ class TestParameterisationFlexibility:
         """Test secosw/sesinw parameterisation with secosw/sesinw priors (single instrument: HARPS)."""
         time, vel, velerr, instrument = simple_test_data
         params = {
-            "P_b": Parameter(5.0, "days", fixed=False),
-            "K_b": Parameter(3.0, "m/s", fixed=False),
-            "secosw_b": Parameter(0.3735, "", fixed=False),
-            "sesinw_b": Parameter(0.4006, "", fixed=False),
-            "Tc_b": Parameter(69.0, "days", fixed=False),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False)
+            "P_b": Parameter(5.0, fixed=False),
+            "K_b": Parameter(3.0, fixed=False),
+            "secosw_b": Parameter(0.3735, fixed=False),
+            "sesinw_b": Parameter(0.4006, fixed=False),
+            "Tc_b": Parameter(69.0, fixed=False),
+            "g_HARPS": Parameter(0.0, fixed=True),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False)
         }
         priors = {
             "P_b": Uniform(0, 10),
@@ -95,15 +95,15 @@ class TestParameterisationFlexibility:
         """Test secosw/sesinw parameterisation with default priors (Case 3, single instrument: HARPS)."""
         time, vel, velerr, instrument = simple_test_data
         params = {
-            "P_b": Parameter(5.0, "days", fixed=False),
-            "K_b": Parameter(3.0, "m/s", fixed=False),
-            "secosw_b": Parameter(0.3735, "", fixed=False),
-            "sesinw_b": Parameter(0.4006, "", fixed=False),
-            "Tc_b": Parameter(69.0, "days", fixed=False),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False)
+            "P_b": Parameter(5.0, fixed=False),
+            "K_b": Parameter(3.0, fixed=False),
+            "secosw_b": Parameter(0.3735, fixed=False),
+            "sesinw_b": Parameter(0.4006, fixed=False),
+            "Tc_b": Parameter(69.0, fixed=False),
+            "g_HARPS": Parameter(0.0, fixed=True),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False)
         }
         priors = {
             "P_b": Uniform(0, 10),
@@ -123,15 +123,15 @@ class TestParameterisationFlexibility:
         """Test mixed priors (per-parameter flexibility, single instrument: HARPS)."""
         time, vel, velerr, instrument = simple_test_data
         params = {
-            "P_b": Parameter(5.0, "days", fixed=False),
-            "K_b": Parameter(3.0, "m/s", fixed=False),
-            "secosw_b": Parameter(0.3735, "", fixed=False),
-            "sesinw_b": Parameter(0.4006, "", fixed=False),
-            "Tc_b": Parameter(69.0, "days", fixed=False),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False)
+            "P_b": Parameter(5.0, fixed=False),
+            "K_b": Parameter(3.0, fixed=False),
+            "secosw_b": Parameter(0.3735, fixed=False),
+            "sesinw_b": Parameter(0.4006, fixed=False),
+            "Tc_b": Parameter(69.0, fixed=False),
+            "g_HARPS": Parameter(0.0, fixed=True),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False)
         }
         priors = {
             "P_b": Uniform(0, 10),          # Current parameterisation
@@ -151,15 +151,15 @@ class TestParameterisationFlexibility:
         """Test common parameters only with transformed parameterisation (single instrument: HARPS)."""
         time, vel, velerr, instrument = simple_test_data
         params = {
-            "P_b": Parameter(5.0, "days", fixed=False),
-            "K_b": Parameter(3.0, "m/s", fixed=False),
-            "secosw_b": Parameter(0.3735, "", fixed=True),    # Fixed
-            "sesinw_b": Parameter(0.4006, "", fixed=True),    # Fixed
-            "Tc_b": Parameter(69.0, "days", fixed=True),      # Fixed
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False)
+            "P_b": Parameter(5.0, fixed=False),
+            "K_b": Parameter(3.0, fixed=False),
+            "secosw_b": Parameter(0.3735, fixed=True),    # Fixed
+            "sesinw_b": Parameter(0.4006, fixed=True),    # Fixed
+            "Tc_b": Parameter(69.0, fixed=True),      # Fixed
+            "g_HARPS": Parameter(0.0, fixed=True),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False)
         }
         priors = {
             "P_b": Uniform(0, 10),
@@ -176,15 +176,15 @@ class TestParameterisationFlexibility:
         """Test common parameters only with default parameterisation (single instrument: HARPS)."""
         time, vel, velerr, instrument = simple_test_data
         params = {
-            "P_b": Parameter(5.0, "days", fixed=False),
-            "K_b": Parameter(3.0, "m/s", fixed=False),
-            "e_b": Parameter(0.3, "", fixed=True),                # Fixed
-            "w_b": Parameter(np.radians(47), "rad", fixed=True),  # Fixed
-            "Tp_b": Parameter(68.7, "days", fixed=True),          # Fixed
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False)
+            "P_b": Parameter(5.0, fixed=False),
+            "K_b": Parameter(3.0, fixed=False),
+            "e_b": Parameter(0.3, fixed=True),                # Fixed
+            "w_b": Parameter(np.radians(47), fixed=True),  # Fixed
+            "Tp_b": Parameter(68.7, fixed=True),          # Fixed
+            "g_HARPS": Parameter(0.0, fixed=True),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False)
         }
         priors = {
             "P_b": Uniform(0, 10),
@@ -201,15 +201,15 @@ class TestParameterisationFlexibility:
         """Test that mixed secosw/sesinw coupling is rejected (single instrument: HARPS)."""
         time, vel, velerr, instrument = simple_test_data
         params = {
-            "P_b": Parameter(5.0, "days", fixed=False),
-            "K_b": Parameter(3.0, "m/s", fixed=False),
-            "secosw_b": Parameter(0.3735, "", fixed=True),     # Fixed
-            "sesinw_b": Parameter(0.4006, "", fixed=False),    # Free - violation!
-            "Tc_b": Parameter(69.0, "days", fixed=True),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False)
+            "P_b": Parameter(5.0, fixed=False),
+            "K_b": Parameter(3.0, fixed=False),
+            "secosw_b": Parameter(0.3735, fixed=True),     # Fixed
+            "sesinw_b": Parameter(0.4006, fixed=False),    # Free - violation!
+            "Tc_b": Parameter(69.0, fixed=True),
+            "g_HARPS": Parameter(0.0, fixed=True),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False)
         }
         fitter = Fitter(["b"], Parameterisation("P K secosw sesinw Tc"))
         fitter.add_data(time=time, vel=vel, velerr=velerr, instrument=instrument, t0=2.0)
@@ -220,15 +220,15 @@ class TestParameterisationFlexibility:
         """Test that missing priors are rejected (single instrument: HARPS)."""
         time, vel, velerr, instrument = simple_test_data
         params = {
-            "P_b": Parameter(5.0, "days", fixed=False),
-            "K_b": Parameter(3.0, "m/s", fixed=False),
-            "e_b": Parameter(0.3, "", fixed=False),
-            "w_b": Parameter(np.radians(47), "rad", fixed=False),
-            "Tp_b": Parameter(68.7, "days", fixed=False),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False)
+            "P_b": Parameter(5.0, fixed=False),
+            "K_b": Parameter(3.0, fixed=False),
+            "e_b": Parameter(0.3, fixed=False),
+            "w_b": Parameter(np.radians(47), fixed=False),
+            "Tp_b": Parameter(68.7, fixed=False),
+            "g_HARPS": Parameter(0.0, fixed=True),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False)
         }
         priors = {
             "P_b": Uniform(0, 10),
@@ -245,15 +245,15 @@ class TestParameterisationFlexibility:
         """Test that invalid parameter values are rejected (single instrument: HARPS)."""
         time, vel, velerr, instrument = simple_test_data
         params = {
-            "P_b": Parameter(5.0, "days", fixed=False),
-            "K_b": Parameter(25.0, "m/s", fixed=False),     # Outside prior bounds [0, 20]
-            "e_b": Parameter(0.3, "", fixed=True),
-            "w_b": Parameter(np.radians(47), "rad", fixed=True),
-            "Tp_b": Parameter(68.7, "days", fixed=False),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False)
+            "P_b": Parameter(5.0, fixed=False),
+            "K_b": Parameter(25.0, fixed=False),     # Outside prior bounds [0, 20]
+            "e_b": Parameter(0.3, fixed=True),
+            "w_b": Parameter(np.radians(47), fixed=True),
+            "Tp_b": Parameter(68.7, fixed=False),
+            "g_HARPS": Parameter(0.0, fixed=True),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False)
         }
         priors = {
             "P_b": Uniform(0, 10),
@@ -271,15 +271,15 @@ class TestParameterisationFlexibility:
         """Test that providing both current and default parameterisation priors raises an error (single instrument: HARPS)."""
         time, vel, velerr, instrument = simple_test_data
         params = {
-            "P_b": Parameter(5.0, "days", fixed=False),
-            "K_b": Parameter(3.0, "m/s", fixed=False),
-            "secosw_b": Parameter(0.1, "", fixed=False),
-            "sesinw_b": Parameter(0.0, "", fixed=False),
-            "Tc_b": Parameter(25.0, "days", fixed=False),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=True),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False)
+            "P_b": Parameter(5.0, fixed=False),
+            "K_b": Parameter(3.0, fixed=False),
+            "secosw_b": Parameter(0.1, fixed=False),
+            "sesinw_b": Parameter(0.0, fixed=False),
+            "Tc_b": Parameter(25.0, fixed=False),
+            "g_HARPS": Parameter(0.0, fixed=True),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False)
         }
         priors = {
             "P_b": Uniform(0, 10),
@@ -305,15 +305,15 @@ class TestParameterisationFlexibility:
         time, true_rv, velerr, instrument = mcmc_test_data
 
         params = {
-            "P_b": Parameter(5.0, "days", fixed=False),
-            "K_b": Parameter(3.0, "m/s", fixed=False),
-            "e_b": Parameter(0.1, "", fixed=False),
-            "w_b": Parameter(0.0, "rad", fixed=False),
-            "Tp_b": Parameter(25.0, "days", fixed=False),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=False),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False)
+            "P_b": Parameter(5.0, fixed=False),
+            "K_b": Parameter(3.0, fixed=False),
+            "e_b": Parameter(0.1, fixed=False),
+            "w_b": Parameter(0.0, fixed=False),
+            "Tp_b": Parameter(25.0, fixed=False),
+            "g_HARPS": Parameter(0.0, fixed=False),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False)
         }
         priors = {
             "P_b": Uniform(3, 7),
@@ -353,15 +353,15 @@ class TestParameterisationFlexibility:
         time, true_rv, velerr, instrument = mcmc_test_data
 
         params = {
-            "P_b": Parameter(5.0, "days", fixed=False),
-            "K_b": Parameter(3.0, "m/s", fixed=False),
-            "secosw_b": Parameter(0.1, "", fixed=False),
-            "sesinw_b": Parameter(0.0, "", fixed=False),
-            "Tc_b": Parameter(25.0, "days", fixed=False),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=False),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False)
+            "P_b": Parameter(5.0, fixed=False),
+            "K_b": Parameter(3.0, fixed=False),
+            "secosw_b": Parameter(0.1, fixed=False),
+            "sesinw_b": Parameter(0.0, fixed=False),
+            "Tc_b": Parameter(25.0, fixed=False),
+            "g_HARPS": Parameter(0.0, fixed=False),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False)
         }
         priors = {
             "P_b": Uniform(3, 7),
@@ -401,15 +401,15 @@ class TestParameterisationFlexibility:
         time, true_rv, velerr, instrument = mcmc_test_data
 
         params = {
-            "P_b": Parameter(5.0, "days", fixed=False),
-            "K_b": Parameter(3.0, "m/s", fixed=False),
-            "secosw_b": Parameter(0.1, "", fixed=False),
-            "sesinw_b": Parameter(0.0, "", fixed=False),
-            "Tc_b": Parameter(25.0, "days", fixed=False),
-            "g_HARPS": Parameter(0.0, "m/s", fixed=False),
-            "gd": Parameter(0.0, "m/s/day", fixed=True),
-            "gdd": Parameter(0.0, "m/s/day^2", fixed=True),
-            "jit_HARPS": Parameter(1.0, "m/s", fixed=False)
+            "P_b": Parameter(5.0, fixed=False),
+            "K_b": Parameter(3.0, fixed=False),
+            "secosw_b": Parameter(0.1, fixed=False),
+            "sesinw_b": Parameter(0.0, fixed=False),
+            "Tc_b": Parameter(25.0, fixed=False),
+            "g_HARPS": Parameter(0.0, fixed=False),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False)
         }
         priors = {
             "P_b": Uniform(3, 7),

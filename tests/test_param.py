@@ -4,6 +4,7 @@ import pytest
 from ravest.gp import SUPPORTED_KERNELS, GPKernel
 from ravest.param import (
     ALLOWED_PARAMETERISATIONS,
+    Parameter,
     Parameterisation,
     param_key_to_latex,
     param_key_to_unit,
@@ -314,6 +315,68 @@ class TestParameterReprStr:
 
 
 # ============================================================================
+# Test Parameter
+# ============================================================================
+
+
+class TestParameter:
+    """Test Parameter construction, validation of `fixed`, and repr/str."""
+
+    @pytest.mark.parametrize("fixed", [True, False])
+    def test_valid_construction(self, fixed) -> None:
+        """Test value and fixed are stored as given."""
+        p = Parameter(4.23, fixed=fixed)
+        assert p.value == 4.23
+        assert p.fixed is fixed
+
+    def test_no_unit_attribute(self) -> None:
+        """Test Parameter no longer carries a unit."""
+        p = Parameter(4.23, fixed=False)
+        assert not hasattr(p, "unit")
+
+    def test_positional_unit_raises(self) -> None:
+        """Test the old positional unit argument raises TypeError."""
+        with pytest.raises(TypeError):
+            Parameter(5.0, "m/s")
+
+    def test_positional_unit_with_fixed_raises(self) -> None:
+        """Test the old positional unit argument raises TypeError when fixed is also given."""
+        with pytest.raises(TypeError):
+            Parameter(5.0, "m/s", fixed=True)
+
+    def test_unit_keyword_raises(self) -> None:
+        """Test the old unit keyword argument raises TypeError."""
+        with pytest.raises(TypeError):
+            Parameter(5.0, unit="m/s", fixed=False)
+
+    def test_positional_fixed_raises(self) -> None:
+        """Test fixed cannot be passed positionally."""
+        with pytest.raises(TypeError):
+            Parameter(5.0, True)
+
+    def test_missing_fixed_raises(self) -> None:
+        """Test fixed is required."""
+        with pytest.raises(TypeError):
+            Parameter(5.0)
+
+    @pytest.mark.parametrize("fixed", ["m/s", 1, 0, None, np.True_, np.False_])
+    def test_non_bool_fixed_raises(self, fixed) -> None:
+        """Test fixed must be exactly True or False, not truthy/falsy look-alikes."""
+        with pytest.raises(TypeError, match="fixed"):
+            Parameter(5.0, fixed=fixed)
+
+    def test_repr(self) -> None:
+        """Test repr is valid code under the current signature."""
+        p = Parameter(4.23, fixed=False)
+        assert repr(p) == "Parameter(value=4.23, fixed=False)"
+
+    def test_str_equals_repr(self) -> None:
+        """Test str falls back to repr."""
+        p = Parameter(4.23, fixed=True)
+        assert str(p) == repr(p)
+
+
+# ============================================================================
 # Test param_key_to_latex
 # ============================================================================
 
@@ -433,6 +496,71 @@ class TestLabelCoverage:
             result = param_key_to_unit(key)
             assert result is not None, f"param_key_to_unit returned None for '{key}'"
 
+    def test_all_keys_have_latex_unit(self) -> None:
+        """Every known parameter key must be handled by param_key_to_unit(latex=True)."""
+        for key in self._get_all_known_keys():
+            result = param_key_to_unit(key, latex=True)
+            assert result is not None, f"param_key_to_unit(latex=True) returned None for '{key}'"
+
+    def test_all_plain_units_have_no_latex(self) -> None:
+        """The default plain-text form must contain no LaTeX markup."""
+        for key in self._get_all_known_keys():
+            result = param_key_to_unit(key)
+            assert "$" not in result, f"plain unit for '{key}' contains '$': {result!r}"
+            assert "\\" not in result, f"plain unit for '{key}' contains a backslash: {result!r}"
+
+    def test_all_latex_units_are_math_mode(self) -> None:
+        """Every non-empty latex=True unit must be wrapped in $...$."""
+        for key in self._get_all_known_keys():
+            result = param_key_to_unit(key, latex=True)
+            if result:
+                assert result.startswith("$") and result.endswith("$"), (
+                    f"latex unit for '{key}' is not in math mode: {result!r}"
+                )
+
+    def test_dimensionless_agree_between_forms(self) -> None:
+        """A key is dimensionless in one form if and only if it is in the other."""
+        for key in self._get_all_known_keys():
+            plain = param_key_to_unit(key)
+            latex = param_key_to_unit(key, latex=True)
+            assert (plain == "") == (latex == ""), f"forms disagree on '{key}': {plain!r} vs {latex!r}"
+
+
+class TestParamKeyToUnit:
+    """Test the plain-text and LaTeX unit strings for parameter keys."""
+
+    @pytest.mark.parametrize("key, expected", [
+        ("P_b", "d"),
+        ("K_b", "m/s"),
+        ("e_b", ""),
+        ("w_b", "rad"),
+        ("Tc_b", "d"),
+        ("Tp_b", "d"),
+        ("jit_HARPS", "m/s"),
+        ("g_HARPS", "m/s"),
+        ("gd", "m/s/d"),
+        ("gdd", "m/s/d^2"),
+        ("gp_amp", "m/s"),
+        ("gp_lambda_p", ""),
+    ])
+    def test_plain(self, key, expected) -> None:
+        """Test the default plain-text form."""
+        assert param_key_to_unit(key) == expected
+
+    @pytest.mark.parametrize("key, expected", [
+        ("P_b", r"$\mathrm{d}$"),
+        ("K_b", r"$\mathrm{m}\,\mathrm{s}^{-1}$"),
+        ("e_b", ""),
+    ])
+    def test_latex(self, key, expected) -> None:
+        """Test the latex=True form."""
+        assert param_key_to_unit(key, latex=True) == expected
+
+    def test_latex_is_keyword_only(self) -> None:
+        """Test latex cannot be passed positionally."""
+        with pytest.raises(TypeError):
+            param_key_to_unit("K_b", True)
+
 
 class TestLabelFallbacks:
     """Test that unrecognised keys hit the fallback correctly."""
@@ -446,3 +574,8 @@ class TestLabelFallbacks:
         """Unrecognised key should return None."""
         assert param_key_to_unit("foo_bar") is None
         assert param_key_to_unit("xyz") is None
+
+    def test_latex_unit_fallback_returns_none(self) -> None:
+        """Unrecognised key should return None in the LaTeX form too."""
+        assert param_key_to_unit("foo_bar", latex=True) is None
+        assert param_key_to_unit("xyz", latex=True) is None

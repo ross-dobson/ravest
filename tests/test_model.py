@@ -150,7 +150,8 @@ def test_instrument_repr_str() -> None:
     assert "HARPS" in repr(inst)
     assert "5.0" in repr(inst)
     assert "HARPS" in str(inst)
-    assert "γ=5.0" in str(inst)
+    assert "g=5.0" in str(inst)
+    assert "jit=2.0" in str(inst)
 
 
 def test_instrument_zero_jitter_allowed() -> None:
@@ -526,7 +527,7 @@ class TestMpsini:
         """Test invalid unit raises ValueError."""
         from ravest.model import calculate_mpsini
 
-        with pytest.raises(ValueError, match="Unit.*not valid"):
+        with pytest.raises(ValueError, match="Unit.*not valid.*'kg'.*'M_earth'.*'M_jupiter'"):
             calculate_mpsini(1.0, 10.0, 5.0, 0.0, unit="invalid")
 
     def test_mpsini_via_planet(self) -> None:

@@ -238,7 +238,7 @@ def _compute_rv(M: np.ndarray, e: float, K: float, w: float) -> np.ndarray:
     """
     if e == 0:
         # For circular orbits, E = M and f = M so the RV is just K*cos(M + w).
-        # No need to iterate Kepler's equation — use vectorised numpy directly.
+        # No need to iterate Kepler's equation - use vectorised numpy directly.
         return K * (np.cos(M + w) + e * np.cos(w))
     return _njit_kepler_rv(M, e, K, w)
 
@@ -399,7 +399,7 @@ class Instrument:
     --------
     >>> harps = Instrument("HARPS", g=5.0, jit=2.0)
     >>> print(harps)
-    Instrument HARPS: γ=5.0 m/s, jitter=2.0 m/s
+    Instrument HARPS: g=5.0 m/s, jit=2.0 m/s
 
     >>> hires = Instrument("HIRES", g=-3.6, jit=1.5)
     >>> hires.g
@@ -420,7 +420,7 @@ class Instrument:
         return f"Instrument(name={self.name!r}, g={self.g}, jit={self.jit})"
 
     def __str__(self) -> str:
-        return f"Instrument {self.name}: γ={self.g} m/s, jitter={self.jit} m/s"
+        return f"Instrument {self.name}: g={self.g} m/s, jit={self.jit} m/s"
 
 
 class Trend:
@@ -824,7 +824,7 @@ def calculate_mpsini(mass_star: float, period: float, semi_amplitude: float, ecc
     elif unit == "M_jupiter":
         return mpsini_kg / const.M_jup.value  # type: ignore
     else:
-        raise ValueError(f"Unit {unit} not valid. Use 'kg', 'M_Earth' or 'M_Jupiter'")
+        raise ValueError(f"Unit {unit} not valid. Use 'kg', 'M_earth' or 'M_jupiter'")
 
 
 def fold_time_series(times: np.ndarray, period: float, t_ref: float) -> tuple[np.ndarray, np.ndarray]:

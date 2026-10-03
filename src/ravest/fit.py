@@ -132,8 +132,8 @@ class Fitter:
         """Set parameters with a dict, checking all required params are present.
 
         You can update all or some of the parameters at once, example:
-        >>> fitter.params = {"g": Parameter(1.0, "m/s"), "gd": Parameter(0.1, "m/s/d")}  # only update trend parameters
-        >>> fitter.params = {"P_c": Parameter(5.0, "d"), "K_c": Parameter(3.5, "m/s")}  # only update some of planet C parameters
+        >>> fitter.params = {"gd": Parameter(0.002, fixed=False), "gdd": Parameter(0.001, fixed=False)}  # only update trend parameters
+        >>> fitter.params = {"P_c": Parameter(5.0, fixed=False), "K_c": Parameter(3.5, fixed=False)}  # only update some of planet C parameters
 
         Parameters
         ----------
@@ -1766,7 +1766,7 @@ class Fitter:
         if plot_mean:
             # Plot mean tau
             mean_tau = np.mean(tau_history, axis=1)
-            ax.plot(iterations, mean_tau, linewidth=2, label="Mean τ")
+            ax.plot(iterations, mean_tau, linewidth=2, label=r"Mean $\tau$")
         else:
             # Determine which parameters to plot
             if params is None:
@@ -3703,14 +3703,14 @@ class LogLikelihood:
 
         # Precompute parameter key strings for gamma and jitter lookups.
         # These strings (e.g. "g_HARPS", "jit_ESPRESSO") are constant for the lifetime
-        # of this object — precomputing them avoids rebuilding f-strings on every call.
+        # of this object - precomputing them avoids rebuilding f-strings on every call.
         self._gamma_keys = [f"g_{inst}" for inst in self.unique_instruments]
         self._jitter_keys = [f"jit_{inst}" for inst in self.unique_instruments]
 
-        # Precompute log(2*pi) — it's a constant, no need to recalculate every time
+        # Precompute log(2*pi) - it's a constant, no need to recalculate every time
         self._log_2pi = np.log(2 * np.pi)
 
-        # Precompute velerr squared — constant (observed data doesn't change) so no need to recalculate every time
+        # Precompute velerr squared - constant (observed data doesn't change) so no need to recalculate every time
         self._velerr_sq = self.velerr ** 2
 
     def __call__(self, params: Dict[str, float]) -> float:
@@ -3754,7 +3754,7 @@ class LogLikelihood:
         # Step 3: Add per-instrument gamma offsets using vectorised fancy indexing.
         # Build a small array of gamma values, one per instrument (length K), then use
         # _instrument_indices to select the right gamma for each of the N observations.
-        # This gives a length-N array in one numpy operation — no Python loop needed.
+        # This gives a length-N array in one numpy operation - no Python loop needed.
         gamma_per_instrument = np.array([params[k] for k in self._gamma_keys])
         gamma_at_each_obs = gamma_per_instrument[self._instrument_indices]
         rv_total += gamma_at_each_obs
@@ -3764,7 +3764,7 @@ class LogLikelihood:
         # with its instrument's jitter. We do this in two steps:
         #   1. Build a small array of jitter values, one per instrument (length K)
         #   2. Use _instrument_indices to select the right jitter for each observation (length N)
-        # The result is a full-length array ready for vectorised arithmetic — no Python loop needed.
+        # The result is a full-length array ready for vectorised arithmetic - no Python loop needed.
         jitter_per_instrument = np.array([params[k] for k in self._jitter_keys])
         jitter_at_each_obs = jitter_per_instrument[self._instrument_indices]
         velerr_jit_sq = self._velerr_sq + jitter_at_each_obs**2
@@ -3911,8 +3911,8 @@ class GPFitter:
         """Set parameters with a dict, checking all required params are present.
 
         You can update all or some of the parameters at once, example:
-        >>> gpfitter.params = {"g": Parameter(1.0, "m/s"), "gd": Parameter(0.1, "m/s/d")}  # only update trend parameters
-        >>> gpfitter.params = {"P_c": Parameter(5.0, "d"), "K_c": Parameter(3.5, "m/s")}  # only update some of planet C parameters
+        >>> gpfitter.params = {"gd": Parameter(0.002, fixed=False), "gdd": Parameter(0.001, fixed=False)}  # only update trend parameters
+        >>> gpfitter.params = {"P_c": Parameter(5.0, fixed=False), "K_c": Parameter(3.5, fixed=False)}  # only update some of planet C parameters
 
         Parameters
         ----------
@@ -5921,7 +5921,7 @@ class GPFitter:
         if plot_mean:
             # Plot mean tau
             mean_tau = np.mean(tau_history, axis=1)
-            ax.plot(iterations, mean_tau, linewidth=2, label="Mean τ")
+            ax.plot(iterations, mean_tau, linewidth=2, label=r"Mean $\tau$")
         else:
             # Determine which parameters/hyperparameters to plot
             names_to_plot = []
@@ -8258,11 +8258,11 @@ class GPLogLikelihood:
 
         # Precompute parameter key strings for gamma and jitter lookups.
         # These strings (e.g. "g_HARPS", "jit_ESPRESSO") are constant for the lifetime
-        # of this object — precomputing them avoids rebuilding f-strings on every call.
+        # of this object - precomputing them avoids rebuilding f-strings on every call.
         self._gamma_keys = [f"g_{inst}" for inst in self.unique_instruments]
         self._jitter_keys = [f"jit_{inst}" for inst in self.unique_instruments]
 
-        # Precompute jax_velerr squared — constant (as observed data doesn't change) so no need to recalculate every time
+        # Precompute jax_velerr squared - constant (as observed data doesn't change) so no need to recalculate every time
         self._velerr_sq = self.jax_velerr ** 2
 
     def _calculate_mean_model(self, params: Dict[str, float]) -> jnp.ndarray:
