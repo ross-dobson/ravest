@@ -151,6 +151,7 @@ def test_instrument_repr_str() -> None:
     assert "5.0" in repr(inst)
     assert "HARPS" in str(inst)
     assert "g=5.0" in str(inst)
+    assert "jit=2.0" in str(inst)
 
 
 def test_instrument_zero_jitter_allowed() -> None:
