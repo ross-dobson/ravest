@@ -824,7 +824,7 @@ def calculate_mpsini(mass_star: float, period: float, semi_amplitude: float, ecc
     elif unit == "M_jupiter":
         return mpsini_kg / const.M_jup.value  # type: ignore
     else:
-        raise ValueError(f"Unit {unit} not valid. Use 'kg', 'M_Earth' or 'M_Jupiter'")
+        raise ValueError(f"Unit {unit} not valid. Use 'kg', 'M_earth' or 'M_jupiter'")
 
 
 def fold_time_series(times: np.ndarray, period: float, t_ref: float) -> tuple[np.ndarray, np.ndarray]:
