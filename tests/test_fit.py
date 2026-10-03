@@ -3204,3 +3204,195 @@ class TestMinimumWalkers:
         assert fitter.nwalkers == nwalkers
         assert fitter.sampler.nwalkers == nwalkers
         assert fitter.get_samples_np(flat=False).shape == (2, nwalkers, fitter.ndim)
+
+
+class TestParamOrder:
+    """Parameters, priors and chain columns follow one fixed order, whatever the dict order.
+
+    Planets by letter, each in the parameterisation's order; then g_ and jit_ per instrument,
+    instruments sorted case-insensitively; then gd, gdd; then (GPFitter) the kernel's
+    hyperparameters. Fixed parameters are skipped in the free names, so those are the chain's
+    columns.
+    """
+
+    INSTRUMENTS = ["HIRES", "apf", "harps"]
+
+    EXPECTED_ORDER = [
+        "P_b", "K_b", "secosw_b", "sesinw_b", "Tc_b",
+        "P_c", "K_c", "secosw_c", "sesinw_c", "Tc_c",
+        "g_apf", "jit_apf", "g_harps", "jit_harps", "g_HIRES", "jit_HIRES",
+        "gd", "gdd",
+    ]
+
+    FIXED = {"Tc_c", "jit_harps", "gd", "gdd"}
+
+    @classmethod
+    def _add_data(cls, fitter):
+        time = np.linspace(0.0, 20.0, 9)
+        vel = np.zeros(9)
+        velerr = np.ones(9)
+        instrument = np.array(cls.INSTRUMENTS * 3)
+        fitter.add_data(time, vel, velerr, instrument, t0=10.0)
+
+    @classmethod
+    def _scrambled_params(cls):
+        """Every parameter, in reverse of the expected order."""
+        values = {"P": 5.0, "K": 3.0, "secosw": 0.1, "sesinw": 0.1, "Tc": 0.0}
+        params = {}
+        for name in cls.EXPECTED_ORDER:
+            base, _, suffix = name.partition("_")
+            if base in values:
+                value = values[base] + (7.0 if base == "P" and suffix == "c" else 0.0)
+            elif base == "jit":
+                value = 1.0
+            else:
+                value = 0.0
+            params[name] = Parameter(value, fixed=name in cls.FIXED)
+        return dict(reversed(params.items()))
+
+    @staticmethod
+    def _scrambled_priors():
+        """Priors in no particular order.
+
+        Planet b's are on e, w and Tp (default-parameterisation equivalents), planet c's on its
+        own parameters.
+        """
+        U = ravest.prior.Uniform
+        return {
+            "jit_HIRES": U(0, 10),
+            "Tp_b": U(-20, 20),
+            "sesinw_c": U(-1, 1),
+            "g_apf": U(-10, 10),
+            "w_b": U(-np.pi, np.pi),
+            "K_c": U(0, 10),
+            "e_b": U(0, 1),
+            "g_harps": U(-10, 10),
+            "P_c": U(10, 14),
+            "secosw_c": U(-1, 1),
+            "jit_apf": U(0, 10),
+            "K_b": U(0, 10),
+            "g_HIRES": U(-10, 10),
+            "P_b": U(4, 6),
+        }
+
+    def _fitter(self):
+        fitter = Fitter(["c", "b"], Parameterisation("P K secosw sesinw Tc"))
+        self._add_data(fitter)
+        fitter.params = self._scrambled_params()
+        return fitter
+
+    def _gpfitter(self):
+        fitter = GPFitter(["c", "b"], Parameterisation("P K secosw sesinw Tc"),
+                          GPKernel("Quasiperiodic"))
+        self._add_data(fitter)
+        fitter.params = self._scrambled_params()
+        fitter.hyperparams = {
+            "gp_period": Parameter(10.0, fixed=False),
+            "gp_lambda_p": Parameter(0.5, fixed=True),
+            "gp_amp": Parameter(1.0, fixed=False),
+            "gp_lambda_e": Parameter(50.0, fixed=False),
+        }
+        return fitter
+
+    @pytest.mark.parametrize("cls", [Fitter, GPFitter])
+    def test_unique_instruments_sorted_case_insensitively(self, cls) -> None:
+        """Case-insensitive alphabetical, with upper case first when two names differ only in case."""
+        args = (["b"], Parameterisation("P K e w Tp"))
+        fitter = cls(*args) if cls is Fitter else cls(*args, GPKernel("Quasiperiodic"))
+        instrument = np.array(["HIRES", "apf", "harps", "HARPS"])
+        fitter.add_data(np.arange(4.0), np.zeros(4), np.ones(4), instrument, t0=0.0)
+
+        assert list(fitter.unique_instruments) == ["apf", "HARPS", "harps", "HIRES"]
+
+    def test_param_order_fitter(self) -> None:
+        """Planets sorted by letter, instruments case-insensitively, trend last."""
+        assert self._fitter()._param_order() == self.EXPECTED_ORDER
+
+    def test_param_order_gpfitter(self) -> None:
+        """GPFitter's params use the same order as Fitter's."""
+        assert self._gpfitter()._param_order() == self.EXPECTED_ORDER
+
+    @pytest.mark.parametrize("make", ["_fitter", "_gpfitter"])
+    def test_params_stored_in_order(self, make) -> None:
+        """Params assigned in reverse order come back in the fixed order."""
+        fitter = getattr(self, make)()
+
+        assert list(fitter.params) == self.EXPECTED_ORDER
+
+    @pytest.mark.parametrize("make", ["_fitter", "_gpfitter"])
+    def test_partial_update_keeps_order(self, make) -> None:
+        """A partial params update changes values, not positions."""
+        fitter = getattr(self, make)()
+        fitter.params = {"gd": Parameter(0.0, fixed=True), "K_b": Parameter(4.0, fixed=False)}
+
+        assert list(fitter.params) == self.EXPECTED_ORDER
+        assert fitter.params["K_b"].value == 4.0
+
+    @pytest.mark.parametrize("make", ["_fitter", "_gpfitter"])
+    def test_free_and_fixed_names_in_order(self, make) -> None:
+        """free_params_names skips fixed parameters; both lists keep the fixed order."""
+        fitter = getattr(self, make)()
+
+        assert fitter.free_params_names == [n for n in self.EXPECTED_ORDER if n not in self.FIXED]
+        assert fitter.fixed_params_names == [n for n in self.EXPECTED_ORDER if n in self.FIXED]
+
+    @pytest.mark.parametrize("make", ["_fitter", "_gpfitter"])
+    def test_priors_stored_in_order(self, make) -> None:
+        """Priors follow the free parameters' order.
+
+        A default-parameterisation equivalent takes the slot of the parameter it constrains
+        (e_b, w_b for secosw_b, sesinw_b; Tp_b for Tc_b).
+        """
+        fitter = getattr(self, make)()
+        fitter.priors = self._scrambled_priors()
+
+        assert list(fitter.priors) == [
+            "P_b", "K_b", "e_b", "w_b", "Tp_b",
+            "P_c", "K_c", "secosw_c", "sesinw_c",
+            "g_apf", "jit_apf", "g_harps", "g_HIRES", "jit_HIRES",
+        ]
+
+    @pytest.mark.parametrize("make", ["_fitter", "_gpfitter"])
+    def test_partial_priors_update_keeps_order(self, make) -> None:
+        """A partial priors update replaces the function, not its position."""
+        fitter = getattr(self, make)()
+        fitter.priors = self._scrambled_priors()
+        before = list(fitter.priors)
+        new_prior = ravest.prior.Uniform(0, 20)
+
+        fitter.priors = {"K_c": new_prior}
+
+        assert list(fitter.priors) == before
+        assert fitter.priors["K_c"] is new_prior
+
+    @pytest.mark.parametrize("make", ["_fitter", "_gpfitter"])
+    def test_ndim_is_read_only(self, make) -> None:
+        """Ndim is derived, so it cannot be assigned."""
+        fitter = getattr(self, make)()
+
+        with pytest.raises(AttributeError):
+            fitter.ndim = 3
+
+    def test_fitter_ndim_is_number_of_free_params(self) -> None:
+        """Fitter.ndim is len(free_params_names), after re-assignment too."""
+        fitter = self._fitter()
+        assert fitter.ndim == len(fitter.free_params_names) == 14
+
+        fitter.params = {"K_c": Parameter(3.0, fixed=True)}
+        assert fitter.ndim == 13
+
+    @pytest.mark.parametrize("make", ["_fitter", "_gpfitter"])
+    def test_ndim_follows_in_place_edit(self, make) -> None:
+        """Replacing a parameter in place (bypassing the setter) cannot leave ndim stale."""
+        fitter = getattr(self, make)()
+        before = fitter.ndim
+
+        fitter.params["K_c"] = Parameter(3.0, fixed=True)
+
+        assert fitter.ndim == before - 1
+
+    def test_gpfitter_ndim_counts_free_hyperparams(self) -> None:
+        """GPFitter.ndim adds the free hyperparameters (three of the four here)."""
+        fitter = self._gpfitter()
+
+        assert fitter.ndim == len(fitter.free_params_names) + 3 == 17

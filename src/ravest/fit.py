@@ -112,7 +112,7 @@ class Fitter:
         self.vel = np.ascontiguousarray(vel)
         self.velerr = np.ascontiguousarray(velerr)
         self.instrument = np.asarray(instrument)
-        self.unique_instruments = np.unique(self.instrument)
+        self.unique_instruments = np.array(sorted(np.unique(self.instrument), key=str.lower))  # case-insensitive
         self.t0 = t0
 
     @property
@@ -157,11 +157,8 @@ class Fitter:
         # Validate the complete parameter set
         self._validate_complete_params(merged_params)
 
-        # If validation passes, update the actual params
-        self._params.update(new_params)
-
-        # Update ndim based on new free parameters
-        self.ndim = len(self.free_params_values)
+        # If validation passes, store the params in the fixed order
+        self._params = {name: merged_params[name] for name in self._param_order()}
 
         if self.ndim == 0:
             warnings.warn(
@@ -203,6 +200,19 @@ class Fitter:
         """
         self._set_priors_with_validation(new_priors)
 
+    def _param_order(self) -> list[str]:
+        """Every parameter name, in the fixed order used for params, priors and the chain's columns.
+
+        Planets sorted by letter, each in the parameterisation's order; then g and jit per
+        instrument, in ``unique_instruments`` order; then the trend's gd and gdd.
+        """
+        order = [f"{par_name}_{planet_letter}"
+                 for planet_letter in sorted(self.planet_letters)
+                 for par_name in self.parameterisation.pars]
+        for inst in self.unique_instruments:
+            order += [f"g_{inst}", f"jit_{inst}"]
+        return order + ["gd", "gdd"]
+
     def _validate_complete_params(self, params: Dict[str, Parameter]) -> None:
         """Validate that params dict has required parameters, astrophysically valid values."""
         # Require add_data() to have been called first (need unique_instruments)
@@ -212,21 +222,7 @@ class Fitter:
                 "(need instrument list for per-instrument parameters)"
             )
 
-        # Build complete set of expected parameters
-        expected_params = set()
-
-        # Add planetary parameters
-        for planet_letter in self.planet_letters:
-            for par_name in self.parameterisation.pars:
-                expected_params.add(f"{par_name}_{planet_letter}")
-
-        # Add trend parameters (system-wide, no gamma offset here)
-        expected_params.update(["gd", "gdd"])
-
-        # Add per-instrument gamma offset and jitter parameters
-        for inst in self.unique_instruments:
-            expected_params.add(f"g_{inst}")
-            expected_params.add(f"jit_{inst}")
+        expected_params = set(self._param_order())
 
         # Convert to sets for easy comparison
         provided_params = set(params.keys())
@@ -341,7 +337,8 @@ class Fitter:
         conflicts = []
 
         # in the current parameterisation, which (free) parameters do we expect priors for?
-        current_parameterisation_free_param_names = set(self.free_params_names)
+        # (walked in the fixed order, so validated_priors is built in that order)
+        current_parameterisation_free_param_names = self.free_params_names
         for free_param_name in current_parameterisation_free_param_names:
             if free_param_name in provided_prior_param_names:
                 # Prior was provided for the param in the current parameterisation
@@ -390,8 +387,8 @@ class Fitter:
         # Check parameter values work with priors
         self._check_params_values_against_priors(validated_priors, current_parameterisation_free_param_names)
 
-        # Update the priors with the new values
-        self._priors.update(new_priors)
+        # Store the priors in the fixed order (validated_priors holds every merged prior, as none were unexpected)
+        self._priors = validated_priors
 
     def _get_default_parameterisation_equivalent_free_param_name(self, free_param: str) -> Optional[list[str]]:
         """Get the names of the default parameterisation equivalent parameter(s), for a single free parameter from the current parameterisation.
@@ -529,6 +526,11 @@ class Fitter:
     def free_params_names(self) -> list[str]:
         """Names of free parameters as list."""
         return list(self.free_params_dict.keys())
+
+    @property
+    def ndim(self) -> int:
+        """Number of free parameters: the number of columns in the MCMC chain."""
+        return len(self.free_params_names)
 
     @property
     def fixed_params_dict(self) -> Dict[str, Parameter]:
@@ -3885,7 +3887,7 @@ class GPFitter:
         self.vel = np.ascontiguousarray(vel)
         self.velerr = np.ascontiguousarray(velerr)
         self.instrument = np.asarray(instrument)
-        self.unique_instruments = np.unique(self.instrument)
+        self.unique_instruments = np.array(sorted(np.unique(self.instrument), key=str.lower))  # case-insensitive
         self.t0 = t0
 
     @property
@@ -3935,11 +3937,8 @@ class GPFitter:
         # Validate the complete parameter set
         self._validate_complete_params(merged_params)
 
-        # If validation passes, update the actual params
-        self._params.update(new_params)
-
-        # Update ndim to total free params + hyperparams (no hyperparams yet counts as 0)
-        self.ndim = len(self.free_params_values) + len(self.free_hyperparams_values)
+        # If validation passes, store the params in the fixed order
+        self._params = {name: merged_params[name] for name in self._param_order()}
 
         if self.ndim == 0:
             warnings.warn(
@@ -3966,9 +3965,6 @@ class GPFitter:
 
         # If validation passes, update the actual hyperparams
         self._hyperparams.update(new_hyperparams)
-
-        # Update ndim to include hyperparameters (total free params + hyperparams)
-        self.ndim = len(self.free_params_values) + len(self.free_hyperparams_values)
 
         if self.ndim == 0:
             warnings.warn(
@@ -4019,23 +4015,22 @@ class GPFitter:
         """Set hyperprior functions with validation."""
         self._set_hyperpriors_with_validation(new_hyperpriors)
 
+    def _param_order(self) -> list[str]:
+        """Every parameter name, in the fixed order used for params, priors and the chain's columns.
+
+        Planets sorted by letter, each in the parameterisation's order; then g and jit per
+        instrument, in ``unique_instruments`` order; then the trend's gd and gdd.
+        """
+        order = [f"{par_name}_{planet_letter}"
+                 for planet_letter in sorted(self.planet_letters)
+                 for par_name in self.parameterisation.pars]
+        for inst in self.unique_instruments:
+            order += [f"g_{inst}", f"jit_{inst}"]
+        return order + ["gd", "gdd"]
+
     def _validate_complete_params(self, params: Dict[str, Parameter]) -> None:
         """Validate that params dict has required parameters, astrophysically valid values."""
-        # Build complete set of expected parameters
-        expected_params = set()
-
-        # Add planetary parameters
-        for planet_letter in self.planet_letters:
-            for par_name in self.parameterisation.pars:
-                expected_params.add(f"{par_name}_{planet_letter}")
-
-        # Add trend parameters (no gamma - that's per-instrument)
-        expected_params.update(["gd", "gdd"])
-
-        # Add per-instrument gamma offset and jitter parameters
-        for inst in self.unique_instruments:
-            expected_params.add(f"g_{inst}")
-            expected_params.add(f"jit_{inst}")
+        expected_params = set(self._param_order())
 
         # Validate same as Fitter
         provided_params = set(params.keys())
@@ -4150,7 +4145,8 @@ class GPFitter:
         conflicts = []
 
         # in the current parameterisation, which (free) parameters do we expect priors for?
-        current_parameterisation_free_param_names = set(self.free_params_names)
+        # (walked in the fixed order, so validated_priors is built in that order)
+        current_parameterisation_free_param_names = self.free_params_names
         for free_param_name in current_parameterisation_free_param_names:
             if free_param_name in provided_prior_param_names:
                 # Prior was provided for the param in the current parameterisation
@@ -4199,8 +4195,8 @@ class GPFitter:
         # Check parameter values work with priors
         self._check_params_values_against_priors(validated_priors, current_parameterisation_free_param_names)
 
-        # Update the priors with the new values
-        self._priors.update(new_priors)
+        # Store the priors in the fixed order (validated_priors holds every merged prior, as none were unexpected)
+        self._priors = validated_priors
 
 
     def _get_default_parameterisation_equivalent_free_param_name(self, free_param: str) -> Optional[list[str]]:
@@ -4375,6 +4371,11 @@ class GPFitter:
     def free_params_names(self) -> list[str]:
         """Names of free parameters as list."""
         return list(self.free_params_dict.keys())
+
+    @property
+    def ndim(self) -> int:
+        """Number of free parameters and hyperparameters: the number of columns in the MCMC chain."""
+        return len(self.free_params_names) + len(self.free_hyperparams_names)
 
     @property
     def fixed_params_dict(self) -> Dict[str, Parameter]:

@@ -601,3 +601,25 @@ def test_star_invalid_mass() -> None:
 
     with pytest.raises(ValueError, match="must be greater than zero"):
         Star(name="test", mass=-1.0)
+
+
+def test_phase_plot_instruments_sorted_case_insensitively() -> None:
+    """Plot colours and legend follow the same case-insensitive instrument order as the fitters."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    names = ["HIRES", "apf", "harps", "HARPS"]
+    star = Star(name="test", mass=1.0)
+    star.add_planet(good_planet2())
+    star.add_trend(Trend(t0=0.0, params={"gd": 0.0, "gdd": 0.0}))
+    for name in names:
+        star.add_instrument(Instrument(name, g=0.0, jit=1.0))
+    t = np.arange(8.0)
+    instrument = np.array(names * 2)
+
+    star.phase_plot(t, np.zeros(8), np.ones(8), instrument)
+    labels = plt.gcf().axes[0].get_legend_handles_labels()[1]
+    plt.close("all")
+
+    assert labels == ["apf", "HARPS", "harps", "HIRES"]
