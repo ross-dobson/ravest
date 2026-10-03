@@ -1117,7 +1117,8 @@ class Fitter:
         Raises
         ------
         ValueError
-            If there are no free parameters, or if a free parameter has no prior
+            If there are no free parameters, if a free parameter has no prior, or if
+            nwalkers is less than 2 * ndim
         """
         if len(self.free_params_values) == 0:
             raise ValueError(
@@ -1144,10 +1145,8 @@ class Fitter:
 
         # Enforce minimum number of walkers (though users ideally should have many more than this)
         if nwalkers < 2 * self.ndim:
-            logging.warning(f"nwalkers should be at least 2 * ndim. You have {nwalkers} walkers and {self.ndim} dimensions. Setting nwalkers to {2 * self.ndim}.")
-            self.nwalkers = 2 * self.ndim
-        else:
-            self.nwalkers = nwalkers
+            raise ValueError(f"nwalkers must be at least 2 * ndim = {2 * self.ndim} ({self.ndim} free parameters), got {nwalkers}.")
+        self.nwalkers = nwalkers
 
         # Validate walker positions shape
         if initial_positions .shape != (nwalkers, self.ndim):
@@ -5163,8 +5162,9 @@ class GPFitter:
         Raises
         ------
         ValueError
-            If there are no free parameters, if a free parameter has no prior, or if
-            a free hyperparameter has no hyperprior
+            If there are no free parameters, if a free parameter has no prior, if
+            a free hyperparameter has no hyperprior, or if nwalkers is less than
+            2 * ndim
         """
         if len(self.free_params_values) + len(self.free_hyperparams_values) == 0:
             raise ValueError(
@@ -5196,10 +5196,8 @@ class GPFitter:
 
         # Enforce minimum number of walkers (though users ideally should have many more than this)
         if nwalkers < 2 * self.ndim:
-            logging.warning(f"nwalkers should be at least 2 * ndim. You have {nwalkers} walkers and {self.ndim} dimensions. Setting nwalkers to {2 * self.ndim}.")
-            self.nwalkers = 2 * self.ndim
-        else:
-            self.nwalkers = nwalkers
+            raise ValueError(f"nwalkers must be at least 2 * ndim = {2 * self.ndim} ({self.ndim} free parameters), got {nwalkers}.")
+        self.nwalkers = nwalkers
 
         # Validate walker positions shape
         if initial_positions.shape != (nwalkers, self.ndim):

@@ -1,4 +1,5 @@
 import logging
+import re
 import warnings
 
 import jax.numpy as jnp
@@ -3114,3 +3115,92 @@ class TestPriorPresenceValidation:
 
         with pytest.raises(ValueError, match="No hyperprior for free hyperparameter gp_amp"):
             fitter.generate_initial_walker_positions_random(nwalkers=16)
+
+
+class TestMinimumWalkers:
+    """run_mcmc refuses fewer than 2 * ndim walkers and never changes the caller's nwalkers.
+
+    emcee's stretch move needs at least 2 * ndim walkers. Raising up front names the
+    minimum, instead of quietly raising self.nwalkers above the number of starting
+    positions supplied.
+    """
+
+    def _fitter(self, kind, test_data, test_circular_params, test_simple_priors,
+                test_gp_data, test_gp_hyperparams, test_gp_hyperpriors):
+        """Fitter (ndim 2: K_b, jit_HARPS) or GPFitter (ndim 6: plus the four QP hyperparameters)."""
+        if kind == "Fitter":
+            fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+            fitter.add_data(*test_data, t0=2.0)
+            fitter.params = test_circular_params
+            fitter.priors = test_simple_priors
+            centre = np.array([5.0, 1.0])
+        else:
+            fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+            fitter.add_data(*test_gp_data, t0=2.0)
+            fitter.params = test_circular_params
+            fitter.priors = test_simple_priors
+            fitter.hyperparams = test_gp_hyperparams
+            fitter.hyperpriors = test_gp_hyperpriors
+            centre = np.array([5.0, 1.0, 1.0, 50.0, 0.5, 10.0])
+        assert fitter.ndim == len(centre)
+        return fitter, centre
+
+    @staticmethod
+    def _positions(centre, nwalkers):
+        rng = np.random.default_rng(0)
+        return centre * (1 + 0.01 * rng.standard_normal((nwalkers, len(centre))))
+
+    @pytest.fixture(params=["Fitter", "GPFitter"])
+    def fitter_and_centre(self, request, test_data, test_circular_params, test_simple_priors,
+                          test_gp_data, test_gp_hyperparams, test_gp_hyperpriors):
+        """Each fitter class with its walker centre, in free-parameter order."""
+        return self._fitter(request.param, test_data, test_circular_params, test_simple_priors,
+                            test_gp_data, test_gp_hyperparams, test_gp_hyperpriors)
+
+    def test_too_few_walkers_raises(self, fitter_and_centre) -> None:
+        """One walker short of 2 * ndim raises, naming the minimum, ndim and the value given."""
+        fitter, centre = fitter_and_centre
+        ndim = fitter.ndim
+        nwalkers = 2 * ndim - 1
+
+        expected = (
+            f"nwalkers must be at least 2 * ndim = {2 * ndim} "
+            f"({ndim} free parameters), got {nwalkers}."
+        )
+        with pytest.raises(ValueError, match=re.escape(expected)):
+            fitter.run_mcmc(self._positions(centre, nwalkers), nwalkers=nwalkers,
+                            max_steps=2, progress=False)
+
+    def test_too_few_walkers_checked_before_positions_shape(self, fitter_and_centre) -> None:
+        """The walker minimum is reported even when initial_positions has the wrong shape too."""
+        fitter, centre = fitter_and_centre
+        nwalkers = 2 * fitter.ndim - 1
+
+        with pytest.raises(ValueError, match="nwalkers must be at least"):
+            fitter.run_mcmc(self._positions(centre, 2 * fitter.ndim), nwalkers=nwalkers,
+                            max_steps=2, progress=False)
+
+    def test_too_few_walkers_leaves_nwalkers_unchanged(self, fitter_and_centre) -> None:
+        """A refused run does not touch self.nwalkers."""
+        fitter, centre = fitter_and_centre
+        before = getattr(fitter, "nwalkers", None)
+        nwalkers = 2 * fitter.ndim - 1
+
+        with pytest.raises(ValueError):
+            fitter.run_mcmc(self._positions(centre, nwalkers), nwalkers=nwalkers,
+                            max_steps=2, progress=False)
+
+        assert getattr(fitter, "nwalkers", None) == before
+
+    @pytest.mark.parametrize("extra", [0, 1, 6], ids=["exactly_2ndim", "odd", "even_above"])
+    def test_enough_walkers_runs(self, fitter_and_centre, extra) -> None:
+        """2 * ndim walkers or more (odd counts included) run, and self.nwalkers is the argument."""
+        fitter, centre = fitter_and_centre
+        nwalkers = 2 * fitter.ndim + extra
+
+        fitter.run_mcmc(self._positions(centre, nwalkers), nwalkers=nwalkers,
+                        max_steps=2, progress=False)
+
+        assert fitter.nwalkers == nwalkers
+        assert fitter.sampler.nwalkers == nwalkers
+        assert fitter.get_samples_np(flat=False).shape == (2, nwalkers, fitter.ndim)
