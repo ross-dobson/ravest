@@ -1575,7 +1575,7 @@ class TestGPLogLikelihood:
             "gp_period": 10.0,
         }
 
-        log_like = ll(params, hyperparams)
+        log_like = ll(params | hyperparams)
         assert np.isfinite(log_like)
         # JAX returns JAX Array types, so we need to check for those as well
         assert isinstance(log_like, (float, np.floating, jnp.ndarray))
@@ -1604,7 +1604,7 @@ class TestGPLogLikelihood:
             "gp_period": 10.0,
         }
 
-        log_like = ll(params, hyperparams)
+        log_like = ll(params | hyperparams)
         assert log_like == -np.inf
 
 
@@ -1622,22 +1622,18 @@ class TestGPLogPosterior:
         hyperpriors = test_gp_hyperpriors
         gp_kernel = GPKernel("Quasiperiodic")
 
-        # Extract fixed and free params/hyperparams
-        fixed_params = {k: v.value for k, v in params.items() if v.fixed}
-        free_params_names = [k for k, v in params.items() if not v.fixed]
-        fixed_hyperparams = {k: v.value for k, v in hyperparams.items() if v.fixed}
-        free_hyperparams_names = [k for k, v in hyperparams.items() if not v.fixed]
+        # Extract fixed and free params (GP hyperparameters included)
+        all_params = params | hyperparams
+        fixed_params = {k: v.value for k, v in all_params.items() if v.fixed}
+        free_params_names = [k for k, v in all_params.items() if not v.fixed]
 
         lpost = GPLogPosterior(
             planet_letters=["b"],
             parameterisation=Parameterisation("P K e w Tc"),
             gp_kernel=gp_kernel,
-            priors=priors,
-            hyperpriors=hyperpriors,
+            priors=priors | hyperpriors,
             fixed_params=fixed_params,
-            fixed_hyperparams=fixed_hyperparams,
             free_params_names=free_params_names,
-            free_hyperparams_names=free_hyperparams_names,
             time=time, vel=vel, velerr=velerr, t0=2.0,
             instrument=instrument, unique_instruments=unique_instruments
         )
@@ -1657,21 +1653,17 @@ class TestGPLogPosterior:
         hyperpriors = test_gp_hyperpriors
         gp_kernel = GPKernel("Quasiperiodic")
 
-        fixed_params = {k: v.value for k, v in params.items() if v.fixed}
-        free_params_names = [k for k, v in params.items() if not v.fixed]
-        fixed_hyperparams = {k: v.value for k, v in hyperparams.items() if v.fixed}
-        free_hyperparams_names = [k for k, v in hyperparams.items() if not v.fixed]
+        all_params = params | hyperparams
+        fixed_params = {k: v.value for k, v in all_params.items() if v.fixed}
+        free_params_names = [k for k, v in all_params.items() if not v.fixed]
 
         lpost = GPLogPosterior(
             planet_letters=["b"],
             parameterisation=Parameterisation("P K e w Tc"),
             gp_kernel=gp_kernel,
-            priors=priors,
-            hyperpriors=hyperpriors,
+            priors=priors | hyperpriors,
             fixed_params=fixed_params,
-            fixed_hyperparams=fixed_hyperparams,
             free_params_names=free_params_names,
-            free_hyperparams_names=free_hyperparams_names,
             time=time, vel=vel, velerr=velerr, t0=2.0,
             instrument=instrument, unique_instruments=unique_instruments
         )
@@ -1697,21 +1689,17 @@ class TestGPLogPosterior:
         hyperpriors = test_gp_hyperpriors
         gp_kernel = GPKernel("Quasiperiodic")
 
-        fixed_params = {k: v.value for k, v in params.items() if v.fixed}
-        free_params_names = [k for k, v in params.items() if not v.fixed]
-        fixed_hyperparams = {k: v.value for k, v in hyperparams.items() if v.fixed}
-        free_hyperparams_names = [k for k, v in hyperparams.items() if not v.fixed]
+        all_params = params | hyperparams
+        fixed_params = {k: v.value for k, v in all_params.items() if v.fixed}
+        free_params_names = [k for k, v in all_params.items() if not v.fixed]
 
         lpost = GPLogPosterior(
             planet_letters=["b"],
             parameterisation=Parameterisation("P K e w Tc"),
             gp_kernel=gp_kernel,
-            priors=priors,
-            hyperpriors=hyperpriors,
+            priors=priors | hyperpriors,
             fixed_params=fixed_params,
-            fixed_hyperparams=fixed_hyperparams,
             free_params_names=free_params_names,
-            free_hyperparams_names=free_hyperparams_names,
             time=time, vel=vel, velerr=velerr, t0=2.0,
             instrument=instrument, unique_instruments=unique_instruments
         )
@@ -1723,6 +1711,119 @@ class TestGPLogPosterior:
         log_post = lpost.log_probability(combined_dict)
 
         assert log_post == -np.inf
+
+
+class TestGPOneDictInternals:
+    """GPLogPosterior and GPLogLikelihood take one dict, GP hyperparameters included.
+
+    Reference values were computed with the earlier two-dict (params + hyperparams) API at the
+    same points, so these also check that merging the dicts changes no number.
+    """
+
+    TIME = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
+    VEL = np.array([5.0, -2.0, -5.0, 2.0, 3.0, -1.0])
+    VELERR = np.array([1.0, 1.1, 0.9, 0.85, 1.5, 1.0])
+    INSTRUMENT = np.array(["HARPS"] * 6)
+
+    @classmethod
+    def _data(cls):
+        return dict(time=cls.TIME, vel=cls.VEL, velerr=cls.VELERR, t0=2.0,
+                    instrument=cls.INSTRUMENT, unique_instruments=["HARPS"],
+                    gp_kernel=GPKernel("Quasiperiodic"))
+
+    def _posterior(self, case):
+        """One-dict GPLogPosterior for case "A" or "B".
+
+        A: P K e w Tc, every hyperparameter free. B: P K secosw sesinw Tc with priors on e_b,
+        w_b (log-Jacobian correction applies), gp_lambda_p fixed.
+        """
+        U = ravest.prior.Uniform
+        if case == "A":
+            return GPLogPosterior(
+                planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+                priors={"K_b": U(0, 20), "jit_HARPS": U(0, 5), "gp_amp": U(0, 10),
+                        "gp_lambda_e": U(1, 100), "gp_lambda_p": U(0.1, 2.0), "gp_period": U(1, 50)},
+                fixed_params={"P_b": 2.0, "e_b": 0.0, "w_b": np.pi / 2, "Tc_b": 0.0,
+                              "g_HARPS": 0.0, "gd": 0.0, "gdd": 0.0},
+                free_params_names=["K_b", "jit_HARPS", "gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"],
+                **self._data(),
+            )
+        return GPLogPosterior(
+            planet_letters=["b"], parameterisation=Parameterisation("P K secosw sesinw Tc"),
+            priors={"K_b": U(0, 20), "e_b": U(0, 1), "w_b": U(-np.pi, np.pi), "jit_HARPS": U(0, 5),
+                    "gp_amp": U(0, 10), "gp_lambda_e": U(1, 100), "gp_period": U(1, 50)},
+            fixed_params={"P_b": 2.0, "Tc_b": 0.0, "g_HARPS": 0.0, "gd": 0.0, "gdd": 0.0,
+                          "gp_lambda_p": 0.5},
+            free_params_names=["K_b", "secosw_b", "sesinw_b", "jit_HARPS",
+                               "gp_amp", "gp_lambda_e", "gp_period"],
+            **self._data(),
+        )
+
+    POINTS = {
+        "A": {"K_b": 5.0, "jit_HARPS": 1.0,
+              "gp_amp": 1.0, "gp_lambda_e": 50.0, "gp_lambda_p": 0.5, "gp_period": 10.0},
+        "B": {"K_b": 5.0, "secosw_b": 0.2, "sesinw_b": -0.1, "jit_HARPS": 1.0,
+              "gp_amp": 1.0, "gp_lambda_e": 50.0, "gp_period": 10.0},
+    }
+    REFERENCE = {"A": -39.71988723240225, "B": -40.312193275974195}
+
+    def test_likelihood_one_dict_matches_reference(self) -> None:
+        """GPLogLikelihood(params) with the GP names in params gives the two-dict value."""
+        ll = GPLogLikelihood(planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+                             **self._data())
+        params = {"P_b": 2.0, "K_b": 5.0, "e_b": 0.1, "w_b": 1.0, "Tc_b": 0.3,
+                  "g_HARPS": 0.5, "gd": 0.1, "gdd": 0.01, "jit_HARPS": 2.0,
+                  "gp_amp": 1.5, "gp_lambda_e": 30.0, "gp_lambda_p": 0.7, "gp_period": 8.0}
+
+        assert float(ll(params)) == pytest.approx(-25.523497814852725, rel=1e-12)
+
+    def test_likelihood_rejects_separate_hyperparams(self) -> None:
+        """There is no separate hyperparams argument."""
+        ll = GPLogLikelihood(planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+                             **self._data())
+
+        with pytest.raises(TypeError):
+            ll({"P_b": 2.0}, {"gp_amp": 1.0})
+
+    @pytest.mark.parametrize("case", ["A", "B"])
+    def test_posterior_one_dict_matches_reference(self, case) -> None:
+        """log_probability gives the two-dict value, incl. prior conversion to e, w (case B)."""
+        lp = self._posterior(case)
+
+        assert float(lp.log_probability(self.POINTS[case])) == pytest.approx(
+            self.REFERENCE[case], rel=1e-12)
+
+    def test_map_objective_takes_one_list(self) -> None:
+        """The MAP objective reads one list in free_params_names order."""
+        lp = self._posterior("A")
+        values = [self.POINTS["A"][name] for name in lp.free_params_names]
+
+        assert lp._negative_log_probability_for_MAP(values) == pytest.approx(
+            -self.REFERENCE["A"], rel=1e-12)
+
+    @pytest.mark.parametrize("name, value", [("gp_period", 60.0), ("gp_amp", -1.0)],
+                             ids=["outside_prior", "unphysical"])
+    def test_posterior_minus_inf_for_bad_gp_value(self, name, value) -> None:
+        """A GP value outside its prior, or unphysical for the kernel, gives -inf."""
+        lp = self._posterior("A")
+
+        assert lp.log_probability(self.POINTS["A"] | {name: value}) == -np.inf
+
+    @pytest.mark.parametrize("keyword", ["hyperpriors", "fixed_hyperparams", "free_hyperparams_names"])
+    def test_posterior_has_no_hyper_keywords(self, keyword) -> None:
+        """The separate hyperparameter arguments are gone."""
+        lp = self._posterior("A")
+        kwargs = dict(planet_letters=lp.planet_letters, parameterisation=lp.parameterisation,
+                      priors=lp.priors, fixed_params=lp.fixed_params,
+                      free_params_names=lp.free_params_names, **self._data())
+        kwargs[keyword] = {} if keyword != "free_hyperparams_names" else []
+
+        with pytest.raises(TypeError):
+            GPLogPosterior(**kwargs)
+
+    def test_posterior_has_no_log_hyperprior(self) -> None:
+        """One LogPrior covers the GP names too."""
+        assert not hasattr(self._posterior("A"), "log_hyperprior")
 
 
 class TestGPFitter:

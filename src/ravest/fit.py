@@ -4473,12 +4473,9 @@ class GPFitter:
             self.planet_letters,
             self.parameterisation,
             self.gp_kernel,
-            self.priors,
-            self.hyperpriors,
-            self.fixed_params_values_dict,
-            self.fixed_hyperparams_values_dict,
-            self.free_params_names,
-            self.free_hyperparams_names,
+            self.priors | self.hyperpriors,
+            self.fixed_params_values_dict | self.fixed_hyperparams_values_dict,
+            self.free_params_names + self.free_hyperparams_names,
             self.time,
             self.vel,
             self.velerr,
@@ -4668,19 +4665,16 @@ class GPFitter:
 
         # Built once, outside the walker loop: every argument is fitter-level
         # (priors, kernel, data), so the object is identical for every walker and
-        # only its log_prior/log_hyperprior calls depend on the position. Building
+        # only its log_prior calls depend on the position. Building
         # it per attempt rebuilt the whole GP likelihood up to
         # nwalkers*max_attempts times.
         lp = GPLogPosterior(
             self.planet_letters,
             self.parameterisation,
             self.gp_kernel,
-            self.priors,
-            self.hyperpriors,
-            self.fixed_params_values_dict,
-            self.fixed_hyperparams_values_dict,
-            self.free_params_names,
-            self.free_hyperparams_names,
+            self.priors | self.hyperpriors,
+            self.fixed_params_values_dict | self.fixed_hyperparams_values_dict,
+            self.free_params_names + self.free_hyperparams_names,
             self.time,
             self.vel,
             self.velerr,
@@ -4791,13 +4785,10 @@ class GPFitter:
                     # calling priors direct (because it handles Transformed->Default
                     # parameter transformations already, if needed)
                     # Check the log-prior probability is finite (i.e. proposed initial values are within prior bounds)
-                    params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
+                    params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict | free_hyperparams_dict)
                     log_prior = lp.log_prior(params_for_prior)
-                    log_hyperprior = lp.log_hyperprior(free_hyperparams_dict)
                     if not np.isfinite(log_prior):
                         raise ValueError(f"Outside prior bounds (log_prior = {log_prior})")
-                    if not np.isfinite(log_hyperprior):
-                        raise ValueError(f"Outside hyperprior bounds (log_hyperprior = {log_hyperprior})")
 
                     # If all validations pass, we have a valid walker position
                     break
@@ -4938,12 +4929,9 @@ class GPFitter:
                 self.planet_letters,
                 self.parameterisation,
                 self.gp_kernel,
-                self.priors,
-                self.hyperpriors,
-                self.fixed_params_values_dict,
-                self.fixed_hyperparams_values_dict,
-                self.free_params_names,
-                self.free_hyperparams_names,
+                self.priors | self.hyperpriors,
+                self.fixed_params_values_dict | self.fixed_hyperparams_values_dict,
+                self.free_params_names + self.free_hyperparams_names,
                 self.time,
                 self.vel,
                 self.velerr,
@@ -4951,17 +4939,14 @@ class GPFitter:
                 self.instrument,
                 self.unique_instruments,
             )
-            params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
+            params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict | free_hyperparams_dict)
             log_prior = lp.log_prior(params_for_prior)
-            log_hyperprior = lp.log_hyperprior(free_hyperparams_dict)
 
             if not np.isfinite(log_prior):
                 raise ValueError(f"Centre point outside prior bounds (log_prior = {log_prior})")
-            if not np.isfinite(log_hyperprior):
-                raise ValueError(f"Centre point outside hyperprior bounds (log_hyperprior = {log_hyperprior})")
 
             if verbose:
-                print(f"Centre point validated (log_prior = {log_prior}, log_hyperprior = {log_hyperprior})")
+                print(f"Centre point validated (log_prior = {log_prior})")
 
         except ValueError as e:
             raise ValueError(f"Supplied centre point is not valid: {e}")
@@ -5018,14 +5003,11 @@ class GPFitter:
                     self.gp_kernel._validate_hyperparams_values(all_hyperparams_dict)
 
                     # Check prior/hyperprior compliance
-                    params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
+                    params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict | free_hyperparams_dict)
                     log_prior = lp.log_prior(params_for_prior)
-                    log_hyperprior = lp.log_hyperprior(free_hyperparams_dict)
 
                     if not np.isfinite(log_prior):
                         raise ValueError(f"Outside prior bounds (log_prior = {log_prior})")
-                    if not np.isfinite(log_hyperprior):
-                        raise ValueError(f"Outside hyperprior bounds (log_hyperprior = {log_hyperprior})")
 
                     # If validation passes, we have a valid walker position
                     break
@@ -5181,12 +5163,9 @@ class GPFitter:
             self.planet_letters,
             self.parameterisation,
             self.gp_kernel,
-            self.priors,
-            self.hyperpriors,
-            self.fixed_params_values_dict,
-            self.fixed_hyperparams_values_dict,
-            self.free_params_names,
-            self.free_hyperparams_names,
+            self.priors | self.hyperpriors,
+            self.fixed_params_values_dict | self.fixed_hyperparams_values_dict,
+            self.free_params_names + self.free_hyperparams_names,
             self.time,
             self.vel,
             self.velerr,
@@ -5230,16 +5209,11 @@ class GPFitter:
             except ValueError as e:
                 raise ValueError(f"Walker {i} has invalid hyperparameters: {e}") from e
 
-            # Check prior compliance
-            params_for_prior = gp_lp._convert_params_for_prior_evaluation(walker_params_dict)
+            # Check prior compliance (GP hyperparameters' priors included)
+            params_for_prior = gp_lp._convert_params_for_prior_evaluation(walker_params_dict | walker_hyperparams_dict)
             log_prior = gp_lp.log_prior(params_for_prior)
             if not np.isfinite(log_prior):
                 raise ValueError(f"Walker {i} is outside prior bounds (log_prior = {log_prior})")
-
-            # Check hyperprior compliance
-            log_hyperprior = gp_lp.log_hyperprior(walker_hyperparams_dict)
-            if not np.isfinite(log_hyperprior):
-                raise ValueError(f"Walker {i} is outside hyperprior bounds (log_hyperprior = {log_hyperprior})")
 
         # Combine parameter names for sampler (needs it as one argument)
         all_param_names = self.free_params_names + self.free_hyperparams_names
@@ -5580,7 +5554,7 @@ class GPFitter:
         params = {name: params_hyperparams_dict[name] for name in all_param_names}
         hyperparams = {name: params_hyperparams_dict[name] for name in all_hyperparam_names}
 
-        return gp_log_likelihood(params=params, hyperparams=hyperparams)
+        return gp_log_likelihood(params | hyperparams)
 
     def build_params_dict(self, free_params_hyperparams: np.ndarray | list | Dict[str, float]) -> Dict[str, float]:
         """Build complete parameter dictionary by combining free and fixed parameters and hyperparameters.
@@ -7863,7 +7837,8 @@ class GPFitter:
 class GPLogPosterior:
     """Log posterior probability for GP MCMC sampling.
 
-    Combines GP log likelihood and log priors for both parameters and hyperparameters.
+    Combines GP log likelihood and log priors. GP hyperparameters are parameters like any
+    other here: their names sit in the same priors, fixed_params and free_params_names.
     """
 
     def __init__(
@@ -7872,11 +7847,8 @@ class GPLogPosterior:
         parameterisation: Parameterisation,
         gp_kernel: GPKernel,
         priors: dict[str, Callable[[float], float]],
-        hyperpriors: dict[str, Callable[[float], float]],
         fixed_params: dict[str, float],
-        fixed_hyperparams: dict[str, float],
         free_params_names: list[str],
-        free_hyperparams_names: list[str],
         time: np.ndarray,
         vel: np.ndarray,
         velerr: np.ndarray,
@@ -7895,17 +7867,12 @@ class GPLogPosterior:
         gp_kernel : GPKernel
             The Gaussian Process kernel to use.
         priors : dict[str, Callable[[float], float]]
-            Dictionary mapping parameter names to their prior probability functions.
-        hyperpriors : dict[str, Callable[[float], float]]
-            Dictionary mapping hyperparameter names to their prior probability functions.
+            Dictionary mapping parameter names (GP hyperparameters included) to their
+            prior probability functions.
         fixed_params : dict[str, float]
-            Dictionary of fixed parameter values.
-        fixed_hyperparams : dict[str, float]
-            Dictionary of fixed hyperparameter values.
+            Dictionary of fixed parameter values (GP hyperparameters included).
         free_params_names : list[str]
-            List of free parameter names to sample.
-        free_hyperparams_names : list[str]
-            List of free hyperparameter names to sample.
+            List of free parameter names to sample (GP hyperparameters included).
         time : np.ndarray
             Time of each observation [days].
         vel : np.ndarray
@@ -7923,11 +7890,8 @@ class GPLogPosterior:
         self.parameterisation = parameterisation
         self.gp_kernel = gp_kernel
         self.priors = priors
-        self.hyperpriors = hyperpriors
         self.fixed_params = fixed_params
-        self.fixed_hyperparams = fixed_hyperparams
         self.free_params_names = free_params_names
-        self.free_hyperparams_names = free_hyperparams_names
         self.time = time
         self.vel = vel
         self.velerr = velerr
@@ -7948,9 +7912,8 @@ class GPLogPosterior:
             gp_kernel=self.gp_kernel,
         )
 
-        # Create LogPrior objects for parameters and hyperparameters
+        # Create LogPrior object (covers the GP hyperparameters' priors too)
         self.log_prior = LogPrior(self.priors)
-        self.log_hyperprior = LogPrior(self.hyperpriors)
 
         (
             self._logprob_jacobian_correction,
@@ -8106,22 +8069,19 @@ class GPLogPosterior:
 
             return params_for_prior
 
-    def log_probability(self, combined_params_hyperparams: Dict[str, float]) -> float:
-        """Calculate log posterior probability for given free parameters and hyperparameters.
+    def log_probability(self, free_params_dict: Dict[str, float]) -> float:
+        """Calculate log posterior probability for given free parameters.
 
         Parameters
         ----------
-        combined_params_hyperparams : Dict[str, float]
-            Combined dictionary of free parameters and hyperparameters
+        free_params_dict : Dict[str, float]
+            Dictionary of free parameter values (GP hyperparameters included)
 
         Returns
         -------
         float
-            Log posterior probability (log likelihood + log prior + log hyperprior)
+            Log posterior probability (log likelihood + log prior)
         """
-        # Split the combined dictionary into parameters and hyperparameters
-        free_params_dict = {name: combined_params_hyperparams[name] for name in self.free_params_names}
-        free_hyperparams_dict = {name: combined_params_hyperparams[name] for name in self.free_hyperparams_names}
         # Fast fail for invalid jitter (before expensive prior/likelihood calculations)
         # We have to check jitter specifically because all other params will ultimately
         # get checked/raise Exceptions when they are used to calculate an RV.
@@ -8132,10 +8092,9 @@ class GPLogPosterior:
                 return -np.inf
 
         # Fast fail for invalid GP hyperparameters
-        # This is a check for unphysical values, not for if they are within the hyperpriors or not
+        # This is a check for unphysical values, not for if they are within their priors or not
         try:
-            all_hyperparams_values = self.fixed_hyperparams | free_hyperparams_dict
-            self.gp_kernel._validate_hyperparams_values(all_hyperparams_values)
+            self.gp_kernel._validate_hyperparams_values(_all_params_for_ll)
         except ValueError:
             return -np.inf
 
@@ -8153,27 +8112,20 @@ class GPLogPosterior:
         if not np.isfinite(lp):
             return -np.inf
 
-        # Evaluate hyperpriors on the free hyperparameters - fail fast if any hyperparameters are outside priors
-        lhp = self.log_hyperprior(free_hyperparams_dict)
-        if not np.isfinite(lhp):
-            return -np.inf
+        # Calculate GP log-likelihood with all parameters
+        ll = self.gp_log_likelihood(_all_params_for_ll)
 
-        # Calculate GP log-likelihood with all parameters and hyperparameters
-        all_params = self.fixed_params | free_params_dict
-        all_hyperparams = self.fixed_hyperparams | free_hyperparams_dict
-        ll = self.gp_log_likelihood(params=all_params, hyperparams=all_hyperparams)
-
-        # Return combined log-posterior (log-likelihood + log-prior + log-hyperprior),
+        # Return combined log-posterior (log-likelihood + log-prior),
         # plus the constant per-planet Jacobian/prior-renormalisation corrections
         # needed for evidence-correct (u, v) parameterisation sampling. These are
         # constants so they cancel in the MCMC acceptance ratio and only matter
         # for Bayesian evidence estimation (e.g. via harmonic/LHME).
-        logprob = ll + lp + lhp
+        logprob = ll + lp
         logprob += self._logprob_jacobian_correction
         logprob += self._logprob_prior_renorm_correction
         return logprob
 
-    def _negative_log_probability_for_MAP(self, combined_free_params_hyperparams_vals: list[float]) -> float:
+    def _negative_log_probability_for_MAP(self, free_params_vals: list[float]) -> float:
         """For MAP: run __call__ only passing in a list, not dict, of params.
 
         Because scipy.optimize.minimise only takes list of values, not a dict,
@@ -8185,22 +8137,15 @@ class GPLogPosterior:
 
         Parameters
         ----------
-        combined_free_params_hyperparams_vals : list
-            Combined list of free parameter and free hyperparameter values
+        free_params_vals : list
+            float values of the free parameters (GP hyperparameters included)
         """
-        # Split the list back into params values and hyperparams values
-        n_params = len(self.free_params_names)
-        params_values = combined_free_params_hyperparams_vals[:n_params]
-        hyperparams_values = combined_free_params_hyperparams_vals[n_params:]
-
-        # Create combined dict from the names and values
+        # Create dicts from the names and values
         # (Assumes the order of names matches the order of values)
-        params_dict = dict(zip(self.free_params_names, params_values))
-        hyperparams_dict = dict(zip(self.free_hyperparams_names, hyperparams_values))
-        combined_dict = params_dict | hyperparams_dict
+        free_params_dict = dict(zip(self.free_params_names, free_params_vals))
 
         # Calculate *negative* log_probability (MAP is backwards from MCMC)
-        logprob = self.log_probability(combined_dict)
+        logprob = self.log_probability(free_params_dict)
         neg_logprob = -logprob
 
         # Handle -inf log_probability to prevent scipy RuntimeWarnings during optimisation
@@ -8332,15 +8277,13 @@ class GPLogLikelihood:
         residuals = vel_array - mean_model
         return gp.log_probability(y=residuals)
 
-    def __call__(self, params: Dict[str, float], hyperparams: Dict[str, float]) -> float:
-        """Calculate GP log likelihood for given parameters and hyperparameters.
+    def __call__(self, params: Dict[str, float]) -> float:
+        """Calculate GP log likelihood for given parameters, GP hyperparameters included.
 
         Parameters
         ----------
         params : Dict[str, float]
-            Dictionary of all parameter values
-        hyperparams : Dict[str, float]
-            Dictionary of all hyperparameter values
+            Dictionary of all parameter values, including the GP hyperparameters
 
         Returns
         -------
@@ -8356,7 +8299,7 @@ class GPLogLikelihood:
             return -np.inf
 
         # Build GP kernel with hyperparameters
-        kernel = self.gp_kernel.build_kernel(hyperparams)
+        kernel = self.gp_kernel.build_kernel(params)
 
         # Add per-instrument jitter to observational uncertainties using vectorised fancy indexing.
         # Each instrument has its own jitter value. We need to pair each of the N observations
