@@ -3768,3 +3768,104 @@ class TestGPLogPosteriorSubclass:
         assert not hasattr(lp, "gp_log_likelihood")
         if klass is GPLogPosterior:
             assert lp.log_likelihood.gp_kernel is lp.gp_kernel
+
+
+class TestGPFitterSubclass:
+    """GPFitter is a Fitter with a GP: it defines only what the GP changes.
+
+    Everything else is inherited, which also fixes the places where GPFitter's copies of
+    Fitter's methods had drifted apart.
+    """
+
+    GP_DEFINED = {
+        # Fitter's version plus the GP part, via super()
+        "__init__", "_param_order", "_validate_astrophysical_validity",
+        "_get_default_parameterisation_equivalent_free_param_name",
+        "calculate_rv_total_from_samples", "calculate_rv_total_custom",
+        # The GP posterior and likelihood
+        "_build_log_posterior", "_build_log_likelihood",
+        # GP statistics, RVs and plots
+        "calculate_chi2", "_compute_gp_chi2", "calculate_rv_gp_from_samples", "calculate_rv_gp_custom",
+        "_plot_rv", "_plot_phase", "plot_posterior_rv", "plot_posterior_phase",
+        # progress=True by default
+        "calculate_rv_planet_from_samples", "_calculate_rv_planet_from_samples",
+        "calculate_rv_trend_from_samples",
+        # Default titles differ from Fitter's
+        "plot_MAP_rv", "plot_MAP_phase", "plot_custom_rv", "plot_custom_phase",
+        "plot_best_sample_rv", "plot_best_sample_phase",
+    }
+
+    @pytest.fixture
+    def fitted(self, test_data, test_circular_params, test_simple_priors,
+               test_gp_data, test_gp_all_params, test_gp_all_priors):
+        """A GPFitter after a short MCMC run."""
+        fitter = TestPointOfUseValidation._fitter("GPFitter", test_data, test_circular_params,
+                                                  test_simple_priors, test_gp_data, test_gp_all_params,
+                                                  test_gp_all_priors)
+        nwalkers = 2 * fitter.ndim
+        rng = np.random.default_rng(0)
+        centre = np.array(fitter.free_params_values)
+        positions = centre * (1 + 0.01 * rng.standard_normal((nwalkers, fitter.ndim)))
+        fitter.run_mcmc(positions, nwalkers=nwalkers, max_steps=20, progress=False)
+        return fitter
+
+    def test_is_subclass(self) -> None:
+        """GPFitter inherits from Fitter."""
+        assert issubclass(GPFitter, Fitter)
+
+    def test_defines_only_gp_parts(self) -> None:
+        """GPFitter defines exactly these; anything else comes from Fitter."""
+        defined = {name for name in vars(GPFitter)
+                   if name == "__init__" or not (name.startswith("__") and name.endswith("__"))}
+
+        assert defined == self.GP_DEFINED
+
+    def test_gp_kernel_must_be_gpkernel(self) -> None:
+        """A kernel name passed as a plain string is refused."""
+        with pytest.raises(TypeError, match="gp_kernel must be a GPKernel"):
+            GPFitter(["b"], Parameterisation("P K e w Tc"), "Quasiperiodic")
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    def test_params_before_add_data_raises(self, kind, test_circular_params, test_gp_all_params) -> None:
+        """Setting params before add_data() names the missing step on both classes."""
+        if kind == "Fitter":
+            fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+            params = test_circular_params
+        else:
+            fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+            params = test_gp_all_params
+
+        with pytest.raises(RuntimeError, match=r"add_data\(\) must be called"):
+            fitter.params = params
+
+    @pytest.mark.parametrize("title, expected", [("My title", "My title"), (None, ""), ("", "")],
+                             ids=["custom", "none", "empty"])
+    def test_plot_corner_title(self, fitted, title, expected) -> None:
+        """plot_corner draws the title given, or none for None or ""."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        plt.close("all")
+
+        fitted.plot_corner(title=title)
+
+        assert plt.gcf().get_suptitle() == expected
+        plt.close("all")
+
+    def test_rv_total_from_samples_progress_false(self, fitted, capsys) -> None:
+        """progress=False reaches the trend, planet and GP calculations: no bars at all."""
+        capsys.readouterr()
+
+        fitted.calculate_rv_total_from_samples(np.linspace(0, 5, 7), discard_start=10, progress=False)
+
+        assert "from samples" not in capsys.readouterr().err
+
+    def test_rv_total_from_samples_progress_true(self, fitted, capsys) -> None:
+        """progress=True shows a bar for each of the trend, planet and GP calculations."""
+        capsys.readouterr()
+
+        fitted.calculate_rv_total_from_samples(np.linspace(0, 5, 7), discard_start=10, progress=True)
+
+        err = capsys.readouterr().err
+        for label in ("Calculating trend RV", "Calculating planet b RV", "Calculating GP"):
+            assert label in err
