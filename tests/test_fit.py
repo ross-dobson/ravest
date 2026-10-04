@@ -3736,3 +3736,35 @@ class TestLogProbFactories:
             TestPointOfUseValidation._call(fitter, entry_point, np.array(fitter.free_params_values))
 
         assert built
+
+
+class TestGPLogPosteriorSubclass:
+    """GPLogPosterior is a LogPosterior that builds a GP likelihood and checks kernel values first.
+
+    The prior conversion, log-probability corrections and MAP objective are inherited. The
+    recorded values in TestGPOneDictInternals check that no number changes.
+    """
+
+    def test_is_subclass(self) -> None:
+        """GPLogPosterior inherits from LogPosterior."""
+        assert issubclass(GPLogPosterior, LogPosterior)
+
+    def test_defines_only_gp_parts(self) -> None:
+        """GPLogPosterior defines only its constructor, its likelihood and the kernel check."""
+        import inspect
+        defined = {name for name, value in vars(GPLogPosterior).items() if inspect.isfunction(value)}
+
+        assert defined == {"__init__", "_build_log_likelihood", "log_probability"}
+
+    @pytest.mark.parametrize("klass, likelihood", [(LogPosterior, LogLikelihood),
+                                                   (GPLogPosterior, GPLogLikelihood)],
+                             ids=["LogPosterior", "GPLogPosterior"])
+    def test_log_likelihood_attribute(self, klass, likelihood) -> None:
+        """Both hold their likelihood as log_likelihood, built by _build_log_likelihood()."""
+        lp = klass(**TestLogProbSignatures._kwargs(klass))
+
+        assert type(lp.log_likelihood) is likelihood
+        assert type(lp._build_log_likelihood()) is likelihood
+        assert not hasattr(lp, "gp_log_likelihood")
+        if klass is GPLogPosterior:
+            assert lp.log_likelihood.gp_kernel is lp.gp_kernel

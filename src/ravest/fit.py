@@ -3438,7 +3438,24 @@ class LogPosterior:
         self.t0 = t0
 
         # Create log-likelihood and log-prior objects for later
-        self.log_likelihood = LogLikelihood(
+        self.log_likelihood = self._build_log_likelihood()
+        self.log_prior = LogPrior(self.priors)
+
+        (
+            self._logprob_jacobian_correction,
+            self._logprob_prior_renorm_correction,
+            self._logprob_correction_breakdown,
+        ) = self._compute_logprob_corrections()
+
+    def _build_log_likelihood(self) -> "LogLikelihood":
+        """Build the log likelihood from the model and data.
+
+        Returns
+        -------
+        LogLikelihood
+            A new log likelihood, called with a full params dict.
+        """
+        return LogLikelihood(
             planet_letters=self.planet_letters,
             parameterisation=self.parameterisation,
             time=self.time,
@@ -3448,13 +3465,6 @@ class LogPosterior:
             unique_instruments=self.unique_instruments,
             t0=self.t0,
         )
-        self.log_prior = LogPrior(self.priors)
-
-        (
-            self._logprob_jacobian_correction,
-            self._logprob_prior_renorm_correction,
-            self._logprob_correction_breakdown,
-        ) = self._compute_logprob_corrections()
 
     def _classify_planet_case(self, letter: str) -> str:
         """Classify a single planet's log-posterior correction case.
@@ -7587,11 +7597,12 @@ class GPFitter:
         return total_rv
 
 
-class GPLogPosterior:
+class GPLogPosterior(LogPosterior):
     """Log posterior probability for GP MCMC sampling.
 
     Combines GP log likelihood and log priors. GP hyperparameters are parameters like any
     other here: their names sit in the same priors, fixed_params and free_params_names.
+    A LogPosterior that builds a GPLogLikelihood and checks the kernel values first.
     """
 
     def __init__(
@@ -7639,21 +7650,31 @@ class GPLogPosterior:
         t0 : float
             Reference time for the trend [days].
         """
-        self.planet_letters = planet_letters
-        self.parameterisation = parameterisation
+        # Set before super().__init__(), which builds the likelihood via _build_log_likelihood()
         self.gp_kernel = gp_kernel
-        self.priors = priors
-        self.fixed_params = fixed_params
-        self.free_params_names = free_params_names
-        self.time = time
-        self.vel = vel
-        self.velerr = velerr
-        self.instrument = instrument
-        self.unique_instruments = unique_instruments
-        self.t0 = t0
+        super().__init__(
+            planet_letters=planet_letters,
+            parameterisation=parameterisation,
+            priors=priors,
+            fixed_params=fixed_params,
+            free_params_names=free_params_names,
+            time=time,
+            vel=vel,
+            velerr=velerr,
+            instrument=instrument,
+            unique_instruments=unique_instruments,
+            t0=t0,
+        )
 
-        # Create GP log-likelihood and GP log-prior objects for later
-        self.gp_log_likelihood = GPLogLikelihood(
+    def _build_log_likelihood(self) -> "GPLogLikelihood":
+        """Build the GP log likelihood from the model, kernel and data.
+
+        Returns
+        -------
+        GPLogLikelihood
+            A new GP log likelihood, called with a full params dict (GP hyperparameters included).
+        """
+        return GPLogLikelihood(
             planet_letters=self.planet_letters,
             parameterisation=self.parameterisation,
             gp_kernel=self.gp_kernel,
@@ -7665,249 +7686,30 @@ class GPLogPosterior:
             t0=self.t0,
         )
 
-        # Create LogPrior object (covers the GP hyperparameters' priors too)
-        self.log_prior = LogPrior(self.priors)
-
-        (
-            self._logprob_jacobian_correction,
-            self._logprob_prior_renorm_correction,
-            self._logprob_correction_breakdown,
-        ) = self._compute_logprob_corrections()
-
-    def _classify_planet_case(self, letter: str) -> str:
-        """Classify a single planet's log-posterior correction case.
-
-        Parameters
-        ----------
-        letter : str
-            Single-character planet identifier.
-
-        Returns
-        -------
-        str
-            One of "CASE_1", "CASE_2", "CASE_3".
-
-        Raises
-        ------
-        NotImplementedError
-            If the planet has a prior on (secosw, sesinw) that is not both
-            Uniform(-1, 1) - such priors are unsupported; express the
-            eccentricity belief on (e, w) instead.
-        RuntimeError
-            If neither a (secosw, sesinw) nor an (e, w) prior pair is found
-            for this planet (should be unreachable given prior validation).
-        """
-        if self.parameterisation.log_jacobian_determinant() == 0.0:
-            return "CASE_1"
-
-        if f"secosw_{letter}" not in self.free_params_names:
-            # secosw/sesinw are fixed for this planet (coupling enforced at
-            # GPFitter._validate_parameter_coupling)
-            return "CASE_1"
-
-        secosw_key, sesinw_key = f"secosw_{letter}", f"sesinw_{letter}"
-        e_key, w_key = f"e_{letter}", f"w_{letter}"
-
-        if secosw_key in self.priors and sesinw_key in self.priors:
-            secosw_prior = self.priors[secosw_key]
-            sesinw_prior = self.priors[sesinw_key]
-            if (
-                isinstance(secosw_prior, Uniform)
-                and isinstance(sesinw_prior, Uniform)
-                and secosw_prior.lower == -1
-                and secosw_prior.upper == 1
-                and sesinw_prior.lower == -1
-                and sesinw_prior.upper == 1
-            ):
-                return "CASE_2"
-            raise NotImplementedError(
-                f"Unsupported priors on (secosw_{letter}, sesinw_{letter}): "
-                f"{secosw_prior!r}, {sesinw_prior!r}. Only Uniform(-1, 1) priors "
-                "on (secosw, sesinw) are supported for evidence-correct log-posterior "
-                "corrections. A separable, rotationally-symmetric belief about "
-                "eccentricity can always be re-expressed as a prior on e instead - "
-                f"place priors on (e_{letter}, w_{letter}) using one of Ravest's "
-                "eccentricity priors (HalfNormal, Rayleigh, VanEylen19Mixture, Beta, "
-                "EccentricityUniform, TruncatedNormal)."
-            )
-        elif e_key in self.priors and w_key in self.priors:
-            return "CASE_3"
-        else:
-            raise RuntimeError(
-                f"Could not classify log-posterior correction case for planet "
-                f"'{letter}': no priors found on either (secosw, sesinw) or (e, w)."
-            )
-
-    def _compute_logprob_corrections(self) -> tuple[float, float, dict[str, dict]]:
-        """Compute per-planet log-posterior corrections, summed across planets.
-
-        Returns
-        -------
-        tuple[float, float, dict[str, dict]]
-            Total log-Jacobian correction, total log-prior-renormalisation
-            correction, and a per-planet breakdown of case/contributions.
-        """
-        log_jac = self.parameterisation.log_jacobian_determinant()
-        total_jacobian = 0.0
-        total_renorm = 0.0
-        breakdown: dict[str, dict] = {}
-
-        for letter in self.planet_letters:
-            case = self._classify_planet_case(letter)
-            jacobian = log_jac if case == "CASE_3" else 0.0
-            renorm = np.log(4.0 / np.pi) if case == "CASE_2" else 0.0
-
-            total_jacobian += jacobian
-            total_renorm += renorm
-            breakdown[letter] = {"case": case, "jacobian": jacobian, "renorm": renorm}
-            # DEBUG, not INFO: the case is a constant derived from the
-            # parameterisation and the priors, so it is identical for every fit
-            # of a given setup, and was previously emitted once per
-            # log-posterior object construction. Anything anomalous raises in
-            # _classify_planet_case rather than being logged; enable DEBUG
-            # logging to see these lines again.
-            logging.debug(
-                f"Planet {letter}: log-posterior correction case {case} "
-                f"(jacobian={jacobian}, renorm={renorm})"
-            )
-
-        return total_jacobian, total_renorm, breakdown
-
-    def _convert_params_for_prior_evaluation(self, free_params_dict: dict[str, float]) -> Dict[str, float]:
-        """Convert free parameters for prior evaluation if needed.
-
-        Parameters
-        ----------
-        free_params_dict : dict
-            Free parameters in current parameterisation
-
-        Returns
-        -------
-        dict
-            Parameters with names/values converted for prior evaluation
-        """
-        # Three cases:
-        # Case 1: User is fitting in transformed parameterisation, but priors are in same transformed parameterisation
-        # Case 2: User is fitting in default parameterisation, and priors are also in default parameterisation
-        # Case 3: User is fitting in transformed parameterisation, but priors are in default parameterisation
-
-        # Simple detection: do prior keys match our current free parameter names?
-        prior_keys = set(self.priors.keys())
-        free_param_keys = set(self.free_params_names)
-        if prior_keys == free_param_keys:
-            # No conversion needed (Cases 1 & 2)
-            return free_params_dict
-        else:
-            # Conversion needed (Case 3) - convert to default parameterisation equivalents
-            # Start with just the non-planetary parameters that match
-            params_for_prior = {key: value for key, value in free_params_dict.items()
-                              if key in prior_keys}
-
-            all_params = self.fixed_params | free_params_dict
-
-            # Convert each planet's parameters
-            for planet_letter in self.planet_letters:
-                # Get current planet parameters
-                planet_params = {par: all_params[f"{par}_{planet_letter}"]
-                               for par in self.parameterisation.pars}
-
-                # Convert to default parameterisation
-                default_params = self.parameterisation.convert_pars_to_default_parameterisation(planet_params)
-
-                # Add the converted parameter values for priors that need them
-                for default_par, value in default_params.items():
-                    default_param_key = f"{default_par}_{planet_letter}"
-                    if default_param_key in prior_keys:  # Only add if we have a prior for it
-                        params_for_prior[default_param_key] = value
-
-            return params_for_prior
-
     def log_probability(self, free_params_dict: Dict[str, float]) -> float:
         """Calculate log posterior probability for given free parameters.
+
+        Returns -inf straight away if a GP hyperparameter value is unphysical for the
+        kernel; otherwise as LogPosterior.log_probability, with the GP likelihood.
 
         Parameters
         ----------
         free_params_dict : Dict[str, float]
-            Dictionary of free parameter values
+            Dictionary of free parameter values, GP hyperparameters included
 
         Returns
         -------
         float
             Log posterior probability (log likelihood + log prior)
         """
-        # Fast fail for invalid jitter (before expensive prior/likelihood calculations)
-        # We have to check jitter specifically because all other params will ultimately
-        # get checked/raise Exceptions when they are used to calculate an RV.
-        # Jitter doesn't directly contribute to calculated RV, so needs to be checked manually.
-        _all_params_for_ll = self.fixed_params | free_params_dict
-        for inst in self.unique_instruments:
-            if _all_params_for_ll[f"jit_{inst}"] < 0:
-                return -np.inf
-
         # Fast fail for invalid GP hyperparameters
         # This is a check for unphysical values, not for if they are within their priors or not
         try:
-            self.gp_kernel._validate_hyperparams_values(_all_params_for_ll)
+            self.gp_kernel._validate_hyperparams_values(self.fixed_params | free_params_dict)
         except ValueError:
             return -np.inf
 
-        # Evaluate priors on the free parameters. If any parameters are outside priors
-        # (i.e. priors are infinite), then fail fast by returning -inf early (before expensive likelihood calc).
-        # We attempt to convert free parameters (if needed) for prior evaluation
-        # This is for if the user is fitting in transformed parameterisation,
-        # but defining their priors in the default parameterisation
-        try:
-            params_for_prior = self._convert_params_for_prior_evaluation(free_params_dict)
-            lp = self.log_prior(params_for_prior)
-        except ValueError:
-            # Invalid parameter conversion (e.g., unphysical eccentricity)
-            return -np.inf
-        if not np.isfinite(lp):
-            return -np.inf
-
-        # Calculate GP log-likelihood with all parameters
-        ll = self.gp_log_likelihood(_all_params_for_ll)
-
-        # Return combined log-posterior (log-likelihood + log-prior),
-        # plus the constant per-planet Jacobian/prior-renormalisation corrections
-        # needed for evidence-correct (u, v) parameterisation sampling. These are
-        # constants so they cancel in the MCMC acceptance ratio and only matter
-        # for Bayesian evidence estimation (e.g. via harmonic/LHME).
-        logprob = ll + lp
-        logprob += self._logprob_jacobian_correction
-        logprob += self._logprob_prior_renorm_correction
-        return logprob
-
-    def _negative_log_probability_for_MAP(self, free_params_vals: list[float]) -> float:
-        """For MAP: run __call__ only passing in a list, not dict, of params.
-
-        Because scipy.optimize.minimise only takes list of values, not a dict,
-        we need to assign the values back to their corresponding keys, and pass
-        that to __call__().
-
-        This does not check that the values are in the correct order, it is
-        assumed. As we're dealing with dicts, this hopefully is the case.
-
-        Parameters
-        ----------
-        free_params_vals : list
-            float values of the free parameters
-        """
-        # Create dicts from the names and values
-        # (Assumes the order of names matches the order of values)
-        free_params_dict = dict(zip(self.free_params_names, free_params_vals))
-
-        # Calculate *negative* log_probability (MAP is backwards from MCMC)
-        logprob = self.log_probability(free_params_dict)
-        neg_logprob = -logprob
-
-        # Handle -inf log_probability to prevent scipy RuntimeWarnings during optimisation
-        # scipy's optimizer can't handle -inf values in arithmetic operations
-        # (This does mean there is a non-zero chance we could end up returning a solution that doesn't satisfy the prior functions)
-        if not np.isfinite(neg_logprob):
-            return 1e30  # Very large finite number instead of +inf
-
-        return neg_logprob
+        return super().log_probability(free_params_dict)
 
 
 class GPLogLikelihood:
