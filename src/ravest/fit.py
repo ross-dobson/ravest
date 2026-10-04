@@ -586,6 +586,47 @@ class Fitter:
         """Fixed parameters as dict mapping names to just the values."""
         return dict(zip(self.fixed_params_names, self.fixed_params_values))
 
+    def _build_log_posterior(self) -> "LogPosterior":
+        """Build the log posterior from the fitter's current params, priors and data.
+
+        Returns
+        -------
+        LogPosterior
+            A new log posterior, reflecting any changes since the last one was built.
+        """
+        return LogPosterior(
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            priors=self.priors,
+            fixed_params=self.fixed_params_values_dict,
+            free_params_names=self.free_params_names,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
+        )
+
+    def _build_log_likelihood(self) -> "LogLikelihood":
+        """Build the log likelihood from the fitter's model and data.
+
+        Returns
+        -------
+        LogLikelihood
+            A new log likelihood, called with a full params dict.
+        """
+        return LogLikelihood(
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
+        )
+
     def find_map_estimate(self, method: str = "Powell") -> scipy.optimize.OptimizeResult:
         """Find Maximum A Posteriori (MAP) estimate of parameters.
 
@@ -609,19 +650,7 @@ class Fitter:
         self._validate_before_fit()
 
         # Initialize log-posterior object
-        lp = LogPosterior(
-            planet_letters=self.planet_letters,
-            parameterisation=self.parameterisation,
-            priors=self.priors,
-            fixed_params=self.fixed_params_values_dict,
-            free_params_names=self.free_params_names,
-            time=self.time,
-            vel=self.vel,
-            velerr=self.velerr,
-            instrument=self.instrument,
-            unique_instruments=self.unique_instruments,
-            t0=self.t0,
-        )
+        lp = self._build_log_posterior()
 
         initial_guess = self.free_params_values
 
@@ -798,19 +827,7 @@ class Fitter:
         # Built once, outside the walker loop: every argument is fitter-level
         # (priors, data, parameterisation), so the object is identical for every
         # walker and only its log_prior call depends on the position.
-        lp = LogPosterior(
-            planet_letters=self.planet_letters,
-            parameterisation=self.parameterisation,
-            priors=self.priors,
-            fixed_params=self.fixed_params_values_dict,
-            free_params_names=self.free_params_names,
-            time=self.time,
-            vel=self.vel,
-            velerr=self.velerr,
-            instrument=self.instrument,
-            unique_instruments=self.unique_instruments,
-            t0=self.t0,
-        )
+        lp = self._build_log_posterior()
 
         for walker_idx in range(nwalkers):
             attempts = 0
@@ -987,19 +1004,7 @@ class Fitter:
             self._validate_astrophysical_validity(all_params_dict)
 
             # Check prior compliance
-            lp = LogPosterior(
-                planet_letters=self.planet_letters,
-                parameterisation=self.parameterisation,
-                priors=self.priors,
-                fixed_params=self.fixed_params_values_dict,
-                free_params_names=self.free_params_names,
-                time=self.time,
-                vel=self.vel,
-                velerr=self.velerr,
-                instrument=self.instrument,
-                unique_instruments=self.unique_instruments,
-                t0=self.t0,
-            )
+            lp = self._build_log_posterior()
             params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
             log_prior = lp.log_prior(params_for_prior)
             if not np.isfinite(log_prior):
@@ -1193,19 +1198,7 @@ class Fitter:
         self._validate_before_fit()
 
         # Initialize log-posterior object for MCMC sampling
-        lp = LogPosterior(
-            planet_letters=self.planet_letters,
-            parameterisation=self.parameterisation,
-            priors=self.priors,
-            fixed_params=self.fixed_params_values_dict,
-            free_params_names=self.free_params_names,
-            time=self.time,
-            vel=self.vel,
-            velerr=self.velerr,
-            instrument=self.instrument,
-            unique_instruments=self.unique_instruments,
-            t0=self.t0,
-        )
+        lp = self._build_log_posterior()
 
         # Enforce minimum number of walkers (though users ideally should have many more than this)
         if nwalkers < 2 * self.ndim:
@@ -1547,17 +1540,7 @@ class Fitter:
         float
             The log-likelihood value
         """
-        # Create LogLikelihood object (same as in find_map_estimate and run_mcmc)
-        log_likelihood = LogLikelihood(
-            planet_letters=self.planet_letters,
-            parameterisation=self.parameterisation,
-            time=self.time,
-            vel=self.vel,
-            velerr=self.velerr,
-            instrument=self.instrument,
-            unique_instruments=self.unique_instruments,
-            t0=self.t0,
-        )
+        log_likelihood = self._build_log_likelihood()
         return log_likelihood(params_dict)
 
     def build_params_dict(self, free_params: np.ndarray | list | Dict[str, float]) -> Dict[str, float]:
@@ -1652,16 +1635,7 @@ class Fitter:
                 \chi^2 = \sum_i \frac{(d_i - m_i)^2}{\sigma_i^2 + \sigma_{\text{jit}}^2}
         """
         # Create LogLikelihood instance to reuse RV model calculation
-        ll = LogLikelihood(
-            planet_letters=self.planet_letters,
-            parameterisation=self.parameterisation,
-            time=self.time,
-            vel=self.vel,
-            velerr=self.velerr,
-            instrument=self.instrument,
-            unique_instruments=self.unique_instruments,
-            t0=self.t0,
-        )
+        ll = self._build_log_likelihood()
 
         # Get log-likelihood
         log_like = ll(params_dict)
@@ -4434,6 +4408,49 @@ class GPFitter:
         """Fixed parameters as dict mapping names to just the values."""
         return dict(zip(self.fixed_params_names, self.fixed_params_values))
 
+    def _build_log_posterior(self) -> "GPLogPosterior":
+        """Build the GP log posterior from the fitter's current params, priors and data.
+
+        Returns
+        -------
+        GPLogPosterior
+            A new GP log posterior, reflecting any changes since the last one was built.
+        """
+        return GPLogPosterior(
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            gp_kernel=self.gp_kernel,
+            priors=self.priors,
+            fixed_params=self.fixed_params_values_dict,
+            free_params_names=self.free_params_names,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
+        )
+
+    def _build_log_likelihood(self) -> "GPLogLikelihood":
+        """Build the GP log likelihood from the fitter's model, kernel and data.
+
+        Returns
+        -------
+        GPLogLikelihood
+            A new GP log likelihood, called with a full params dict (GP hyperparameters included).
+        """
+        return GPLogLikelihood(
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            gp_kernel=self.gp_kernel,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
+        )
+
     def find_map_estimate(self, method: str = "Powell") -> scipy.optimize.OptimizeResult:
         """Find Maximum A Posteriori (MAP) estimate of parameters and hyperparameters.
 
@@ -4457,20 +4474,7 @@ class GPFitter:
         self._validate_before_fit()
 
         # Initialize log-posterior object
-        gp_lp = GPLogPosterior(
-            planet_letters=self.planet_letters,
-            parameterisation=self.parameterisation,
-            gp_kernel=self.gp_kernel,
-            priors=self.priors,
-            fixed_params=self.fixed_params_values_dict,
-            free_params_names=self.free_params_names,
-            time=self.time,
-            vel=self.vel,
-            velerr=self.velerr,
-            instrument=self.instrument,
-            unique_instruments=self.unique_instruments,
-            t0=self.t0,
-        )
+        gp_lp = self._build_log_posterior()
 
         initial_guess = self.free_params_values
 
@@ -4647,20 +4651,7 @@ class GPFitter:
         # Built once, outside the walker loop: every argument is fitter-level
         # (priors, kernel, data), so the object is identical for every
         # walker and only its log_prior call depends on the position.
-        lp = GPLogPosterior(
-            planet_letters=self.planet_letters,
-            parameterisation=self.parameterisation,
-            gp_kernel=self.gp_kernel,
-            priors=self.priors,
-            fixed_params=self.fixed_params_values_dict,
-            free_params_names=self.free_params_names,
-            time=self.time,
-            vel=self.vel,
-            velerr=self.velerr,
-            instrument=self.instrument,
-            unique_instruments=self.unique_instruments,
-            t0=self.t0,
-        )
+        lp = self._build_log_posterior()
 
         for walker_idx in range(nwalkers):
             attempts = 0
@@ -4837,20 +4828,7 @@ class GPFitter:
             self._validate_astrophysical_validity(all_params_dict)
 
             # Check prior compliance
-            lp = GPLogPosterior(
-                planet_letters=self.planet_letters,
-                parameterisation=self.parameterisation,
-                gp_kernel=self.gp_kernel,
-                priors=self.priors,
-                fixed_params=self.fixed_params_values_dict,
-                free_params_names=self.free_params_names,
-                time=self.time,
-                vel=self.vel,
-                velerr=self.velerr,
-                instrument=self.instrument,
-                unique_instruments=self.unique_instruments,
-                t0=self.t0,
-            )
+            lp = self._build_log_posterior()
             params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
             log_prior = lp.log_prior(params_for_prior)
             if not np.isfinite(log_prior):
@@ -5044,20 +5022,7 @@ class GPFitter:
         self._validate_before_fit()
 
         # Initialize log-posterior object for MCMC sampling
-        gp_lp = GPLogPosterior(
-            planet_letters=self.planet_letters,
-            parameterisation=self.parameterisation,
-            gp_kernel=self.gp_kernel,
-            priors=self.priors,
-            fixed_params=self.fixed_params_values_dict,
-            free_params_names=self.free_params_names,
-            time=self.time,
-            vel=self.vel,
-            velerr=self.velerr,
-            instrument=self.instrument,
-            unique_instruments=self.unique_instruments,
-            t0=self.t0,
-        )
+        gp_lp = self._build_log_posterior()
 
         # Enforce minimum number of walkers (though users ideally should have many more than this)
         if nwalkers < 2 * self.ndim:
@@ -5399,18 +5364,7 @@ class GPFitter:
         float
             The log-likelihood value
         """
-        # Create GPLogLikelihood object (same as in find_map_estimate and run_mcmc)
-        gp_log_likelihood = GPLogLikelihood(
-            planet_letters=self.planet_letters,
-            parameterisation=self.parameterisation,
-            gp_kernel=self.gp_kernel,
-            time=self.time,
-            vel=self.vel,
-            velerr=self.velerr,
-            instrument=self.instrument,
-            unique_instruments=self.unique_instruments,
-            t0=self.t0,
-        )
+        gp_log_likelihood = self._build_log_likelihood()
         return gp_log_likelihood(params_dict)
 
     def build_params_dict(self, free_params: np.ndarray | list | Dict[str, float]) -> Dict[str, float]:
@@ -5551,17 +5505,7 @@ class GPFitter:
             Chi-squared value
         """
         # Create GPLogLikelihood instance to reuse mean model calculation
-        gp_ll = GPLogLikelihood(
-            planet_letters=self.planet_letters,
-            parameterisation=self.parameterisation,
-            gp_kernel=self.gp_kernel,
-            time=self.time,
-            vel=self.vel,
-            velerr=self.velerr,
-            instrument=self.instrument,
-            unique_instruments=self.unique_instruments,
-            t0=self.t0,
-        )
+        gp_ll = self._build_log_likelihood()
 
         # Calculate mean model using GPLogLikelihood method
         mean_model = gp_ll._calculate_mean_model(params_dict)

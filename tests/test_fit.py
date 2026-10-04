@@ -3651,3 +3651,88 @@ class TestPointOfUseValidation:
 
         assert fitter.priors is priors
         assert fitter.priors == before
+
+
+class TestLogProbFactories:
+    """Fitters build their posteriors and likelihoods through two factory methods.
+
+    _build_log_posterior() and _build_log_likelihood() build from the fitter as it is now; on a
+    GPFitter they build the GP classes. Every entry point that needs one calls the factory.
+    """
+
+    POSTERIOR = {"Fitter": LogPosterior, "GPFitter": GPLogPosterior}
+    LIKELIHOOD = {"Fitter": LogLikelihood, "GPFitter": GPLogLikelihood}
+    DATA = ["time", "vel", "velerr", "instrument", "unique_instruments", "t0"]
+    FACTORY_USERS = [
+        ("find_map_estimate", "_build_log_posterior"),
+        ("random", "_build_log_posterior"),
+        ("around_point", "_build_log_posterior"),
+        ("run_mcmc", "_build_log_posterior"),
+        ("calculate_log_likelihood", "_build_log_likelihood"),
+        ("calculate_chi2", "_build_log_likelihood"),
+    ]
+
+    @pytest.fixture(params=["Fitter", "GPFitter"])
+    def fitter(self, request, test_data, test_circular_params, test_simple_priors,
+               test_gp_data, test_gp_all_params, test_gp_all_priors):
+        """Each fitter class, fully set up through the setters."""
+        return TestPointOfUseValidation._fitter(request.param, test_data, test_circular_params,
+                                                test_simple_priors, test_gp_data, test_gp_all_params,
+                                                test_gp_all_priors)
+
+    def test_build_log_posterior_type(self, fitter) -> None:
+        """Exactly LogPosterior on a Fitter, GPLogPosterior on a GPFitter."""
+        assert type(fitter._build_log_posterior()) is self.POSTERIOR[type(fitter).__name__]
+
+    def test_build_log_likelihood_type(self, fitter) -> None:
+        """Exactly LogLikelihood on a Fitter, GPLogLikelihood on a GPFitter."""
+        assert type(fitter._build_log_likelihood()) is self.LIKELIHOOD[type(fitter).__name__]
+
+    def test_build_log_posterior_reads_current_state(self, fitter) -> None:
+        """Built from the fitter as it is now: an in-place edit and new priors show up."""
+        fitter.params["P_b"].value = 2.5
+        fitter.priors = {"K_b": ravest.prior.Uniform(0, 30)}
+
+        lp = fitter._build_log_posterior()
+
+        assert lp.fixed_params == fitter.fixed_params_values_dict
+        assert lp.fixed_params["P_b"] == 2.5
+        assert lp.priors is fitter.priors
+        assert lp.free_params_names == fitter.free_params_names
+        assert lp.planet_letters == fitter.planet_letters
+        assert lp.parameterisation is fitter.parameterisation
+        for name in self.DATA:
+            assert getattr(lp, name) is getattr(fitter, name)
+        if isinstance(fitter, GPFitter):
+            assert lp.gp_kernel is fitter.gp_kernel
+
+    def test_build_log_likelihood_reads_current_state(self, fitter) -> None:
+        """Built from the fitter's model and data."""
+        ll = fitter._build_log_likelihood()
+
+        assert ll.planet_letters == fitter.planet_letters
+        assert ll.parameterisation is fitter.parameterisation
+        for name in self.DATA:
+            assert getattr(ll, name) is getattr(fitter, name)
+        if isinstance(fitter, GPFitter):
+            assert ll.gp_kernel is fitter.gp_kernel
+
+    @pytest.mark.parametrize("entry_point, factory", FACTORY_USERS, ids=[e for e, _ in FACTORY_USERS])
+    def test_entry_point_builds_through_factory(self, fitter, monkeypatch, entry_point, factory) -> None:
+        """Each entry point gets its posterior or likelihood from the factory."""
+        original = getattr(type(fitter), factory)
+        built = []
+
+        def spy():
+            obj = original(fitter)
+            built.append(obj)
+            return obj
+
+        monkeypatch.setattr(fitter, factory, spy)
+        if entry_point in ("calculate_log_likelihood", "calculate_chi2"):
+            point = fitter.build_params_dict(free_params=fitter.free_params_values)
+            getattr(fitter, entry_point)(params_dict=point)
+        else:
+            TestPointOfUseValidation._call(fitter, entry_point, np.array(fitter.free_params_values))
+
+        assert built
