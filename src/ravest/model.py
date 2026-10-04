@@ -697,8 +697,8 @@ class Star:
         gamma_offsets = self.gamma_offsets(instrument)
         ydata_corrected = ydata - gamma_offsets
 
-        # Get unique instruments and assign colours
-        unique_instruments = np.unique(instrument)
+        # Get unique instruments (case-insensitive order, as in the fitters) and assign colours
+        unique_instruments = sorted(np.unique(instrument), key=str.lower)
         colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
         inst_colors = {inst: colors[i % len(colors)]
                        for i, inst in enumerate(unique_instruments)}

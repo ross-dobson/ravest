@@ -112,7 +112,7 @@ class Fitter:
         self.vel = np.ascontiguousarray(vel)
         self.velerr = np.ascontiguousarray(velerr)
         self.instrument = np.asarray(instrument)
-        self.unique_instruments = np.unique(self.instrument)
+        self.unique_instruments = np.array(sorted(np.unique(self.instrument), key=str.lower))  # case-insensitive
         self.t0 = t0
 
     @property
@@ -143,7 +143,7 @@ class Fitter:
             The keys of this dictionary should match the parameter names expected
             by the Fitter object: all required parameters for the
             chosen parameterisation, with planet letters (not required for
-            Trend or jitter parameters.)
+            trend or jitter parameters).
 
         Raises
         ------
@@ -157,11 +157,8 @@ class Fitter:
         # Validate the complete parameter set
         self._validate_complete_params(merged_params)
 
-        # If validation passes, update the actual params
-        self._params.update(new_params)
-
-        # Update ndim based on new free parameters
-        self.ndim = len(self.free_params_values)
+        # If validation passes, store the params in the fixed order
+        self._params = {name: merged_params[name] for name in self._param_order()}
 
         if self.ndim == 0:
             warnings.warn(
@@ -203,6 +200,19 @@ class Fitter:
         """
         self._set_priors_with_validation(new_priors)
 
+    def _param_order(self) -> list[str]:
+        """Every parameter name, in the fixed order used for params, priors and the chain's columns.
+
+        Planets sorted by letter, each in the parameterisation's order; then g and jit per
+        instrument, in ``unique_instruments`` order; then the trend's gd and gdd.
+        """
+        order = [f"{par_name}_{planet_letter}"
+                 for planet_letter in sorted(self.planet_letters)
+                 for par_name in self.parameterisation.pars]
+        for inst in self.unique_instruments:
+            order += [f"g_{inst}", f"jit_{inst}"]
+        return order + ["gd", "gdd"]
+
     def _validate_complete_params(self, params: Dict[str, Parameter]) -> None:
         """Validate that params dict has required parameters, astrophysically valid values."""
         # Require add_data() to have been called first (need unique_instruments)
@@ -212,21 +222,7 @@ class Fitter:
                 "(need instrument list for per-instrument parameters)"
             )
 
-        # Build complete set of expected parameters
-        expected_params = set()
-
-        # Add planetary parameters
-        for planet_letter in self.planet_letters:
-            for par_name in self.parameterisation.pars:
-                expected_params.add(f"{par_name}_{planet_letter}")
-
-        # Add trend parameters (system-wide, no gamma offset here)
-        expected_params.update(["gd", "gdd"])
-
-        # Add per-instrument gamma offset and jitter parameters
-        for inst in self.unique_instruments:
-            expected_params.add(f"g_{inst}")
-            expected_params.add(f"jit_{inst}")
+        expected_params = set(self._param_order())
 
         # Convert to sets for easy comparison
         provided_params = set(params.keys())
@@ -257,6 +253,14 @@ class Fitter:
                 f"Missing required parameters: {missing_params}. "
                 f"Expected {len(expected_params)} parameters, got {len(provided_params)}"
             )
+
+        # Check every fixed flag is exactly True or False (the Parameter constructor checks
+        # this, but an in-place edit of .fixed would not be)
+        for name, param in params.items():
+            if type(param.fixed) is not bool:
+                raise TypeError(
+                    f"{name}: fixed must be True or False, not {param.fixed!r} of type {type(param.fixed)!r}."
+                )
 
         # Validate astrophysical validity of all parameters
         params_values = {name: param.value for name, param in params.items()}
@@ -328,7 +332,28 @@ class Fitter:
         # Create merged priors dict (in case user is only updating some priors, not all)
         merged_priors_dict = dict(self._priors)  # get existing priors
         merged_priors_dict.update(new_priors)  # overwrite with newer functions, if supplied
-        provided_prior_param_names = set(merged_priors_dict.keys())
+
+        # Store the priors in the fixed order, once they pass validation
+        self._priors = self._validate_priors(merged_priors_dict)
+
+    def _validate_priors(self, priors_dict: dict[str, Callable[[float], float]]) -> dict[str, Callable[[float], float]]:
+        """Check a complete priors dict against the current params, without storing it.
+
+        Used by the priors setter, and again before fitting (in-place edits of
+        ``params`` or ``priors`` skip the setter).
+
+        Returns
+        -------
+        dict
+            The priors, in the fixed parameter order.
+
+        Raises
+        ------
+        ValueError
+            If any required priors are missing, conflicting or unexpected, or an
+            initial parameter value is outside its prior.
+        """
+        provided_prior_param_names = set(priors_dict.keys())
 
         # There are two possibilities for priors:
         # 1. The prior has been given for the parameter, in the current parameterisation
@@ -341,11 +366,12 @@ class Fitter:
         conflicts = []
 
         # in the current parameterisation, which (free) parameters do we expect priors for?
-        current_parameterisation_free_param_names = set(self.free_params_names)
+        # (walked in the fixed order, so validated_priors is built in that order)
+        current_parameterisation_free_param_names = self.free_params_names
         for free_param_name in current_parameterisation_free_param_names:
             if free_param_name in provided_prior_param_names:
                 # Prior was provided for the param in the current parameterisation
-                validated_priors[free_param_name] = merged_priors_dict[free_param_name]
+                validated_priors[free_param_name] = priors_dict[free_param_name]
 
                 # Check if user ALSO provided equivalent default priors (conflict!)
                 default_parameterisation_equivalent_free_param_names = self._get_default_parameterisation_equivalent_free_param_name(free_param_name)
@@ -362,7 +388,7 @@ class Fitter:
                 if default_parameterisation_equivalent_free_param_names and all(eq in provided_prior_param_names for eq in default_parameterisation_equivalent_free_param_names):
                     # Found all required default equivalents
                     for equiv in default_parameterisation_equivalent_free_param_names:
-                        validated_priors[equiv] = merged_priors_dict[equiv]
+                        validated_priors[equiv] = priors_dict[equiv]
                 else:
                     # Missing prior for a free parameter in both the current parameterisation, and its equivalent in the default parameterisation
                     if default_parameterisation_equivalent_free_param_names:
@@ -390,8 +416,9 @@ class Fitter:
         # Check parameter values work with priors
         self._check_params_values_against_priors(validated_priors, current_parameterisation_free_param_names)
 
-        # Update the priors with the new values
-        self._priors.update(new_priors)
+        # Every supplied prior is in validated_priors (any extra would have been rejected
+        # above), now in the fixed parameter order
+        return validated_priors
 
     def _get_default_parameterisation_equivalent_free_param_name(self, free_param: str) -> Optional[list[str]]:
         """Get the names of the default parameterisation equivalent parameter(s), for a single free parameter from the current parameterisation.
@@ -531,6 +558,11 @@ class Fitter:
         return list(self.free_params_dict.keys())
 
     @property
+    def ndim(self) -> int:
+        """Number of free parameters: the number of columns in the MCMC chain."""
+        return len(self.free_params_names)
+
+    @property
     def fixed_params_dict(self) -> Dict[str, Parameter]:
         """Fixed parameters as dict, mapping names to Parameter objects."""
         fixed_pars = {}
@@ -574,7 +606,7 @@ class Fitter:
         Warning
             If MAP optimization fails to converge
         """
-        self._validate_free_params_have_priors()
+        self._validate_before_fit()
 
         # Initialize log-posterior object
         lp = LogPosterior(
@@ -657,6 +689,32 @@ class Fitter:
 
         return via_equivalents
 
+    def _validate_before_fit(self) -> dict[str, list[str]]:
+        """Re-check params and priors before fitting.
+
+        The ``params`` and ``priors`` getters return the live dicts, so an in-place
+        edit (e.g. ``fitter.params["K_b"].value = ...``) skips the setters' checks.
+        Every method that fits calls this first.
+
+        Returns
+        -------
+        dict[str, list[str]]
+            As ``_validate_free_params_have_priors``: the free parameters constrained
+            only through their default-parameterisation equivalents.
+
+        Raises
+        ------
+        ValueError
+            If a free parameter has no prior, the params are incomplete or invalid,
+            or the priors are unexpected or exclude a starting value.
+        TypeError
+            If a parameter's ``fixed`` is not exactly True or False.
+        """
+        via_equivalents = self._validate_free_params_have_priors()
+        self._validate_complete_params(self.params)
+        self._validate_priors(self.priors)
+        return via_equivalents
+
     def generate_initial_walker_positions_random(self, nwalkers: int, verbose: bool = False, max_attempts: int = 1000) -> np.ndarray:
         """Generate random initial walker positions that satisfy priors and are astrophysically valid.
 
@@ -712,7 +770,7 @@ class Fitter:
 
         Examples
         --------
-        >>> # Generate positions for 40 walkers
+        >>> # Generate positions for 10 walkers per free parameter
         >>> nwalkers = 10 * len(fitter.free_params_names)
         >>> initial_positions = fitter.generate_initial_walker_positions_random(nwalkers)
         >>> fitter.run_mcmc(initial_positions, nwalkers, max_steps=2000)
@@ -727,7 +785,7 @@ class Fitter:
             print("Free parameters:", self.free_params_names)
 
         # Checked once, before the walker loop, rather than on every draw.
-        via_equivalents = self._validate_free_params_have_priors()
+        via_equivalents = self._validate_before_fit()
         for param_name, equivalents in via_equivalents.items():
             logging.debug(
                 f"{param_name} has no prior of its own; its prior was given on "
@@ -739,8 +797,7 @@ class Fitter:
 
         # Built once, outside the walker loop: every argument is fitter-level
         # (priors, data, parameterisation), so the object is identical for every
-        # walker and only its log_prior call depends on the position. Building it
-        # per attempt repeated that work up to nwalkers*max_attempts times.
+        # walker and only its log_prior call depends on the position.
         lp = LogPosterior(
             self.planet_letters,
             self.parameterisation,
@@ -786,7 +843,7 @@ class Fitter:
                         else:
                             raise ValueError(f"Unsupported prior type for walker generation: {type(prior)}")
 
-                    else:
+                    elif param_name in via_equivalents:
                         # No prior of its own: the prior was given on the default-parameterisation
                         # equivalents (e.g. e/w while fitting secosw/sesinw). Start from a ball
                         # around the current value.
@@ -800,6 +857,11 @@ class Fitter:
                         # Add small random perturbation (10% of current value + small fixed amount for near-zero values)
                         perturbation = np.random.normal(0, abs(centre_val) * 0.1 + 0.01)
                         walker_position.append(centre_val + perturbation)
+
+                    else:
+                        # Unreachable after the check above, but without it a free parameter with
+                        # no prior anywhere would silently start in the ball as if it had one.
+                        raise ValueError(f"No prior for free parameter {param_name}")
 
                 # Check astrophysical validity and prior compliance
                 try:
@@ -902,7 +964,7 @@ class Fitter:
                 "At least one parameter must be set as free (fixed=False)."
             )
 
-        self._validate_free_params_have_priors()
+        self._validate_before_fit()
 
         centre = np.asarray(centre)
 
@@ -1075,6 +1137,8 @@ class Fitter:
                 "At least one parameter must be set as free (fixed=False)."
             )
 
+        self._validate_before_fit()
+
         return self.generate_initial_walker_positions_around_point(
             centre=map_result.x,
             nwalkers=nwalkers,
@@ -1084,17 +1148,17 @@ class Fitter:
             max_attempts=max_attempts
         )
 
-    def run_mcmc(self, initial_positions : np.ndarray, nwalkers: int, max_steps: int = 5000, progress: bool = True, multiprocessing: bool = False, check_convergence: bool = False, convergence_check_interval: int = 1000, convergence_check_start: int = 0) -> None:
+    def run_mcmc(self, initial_positions: np.ndarray, nwalkers: int, max_steps: int = 5000, progress: bool = True, multiprocessing: bool = False, check_convergence: bool = False, convergence_check_interval: int = 1000, convergence_check_start: int = 0) -> None:
         """Run MCMC sampling from given initial walker positions.
 
         Parameters
         ----------
-        initial_positions  : np.ndarray
+        initial_positions : np.ndarray
             Starting positions for all MCMC walkers. Shape must be (nwalkers, ndim)
             where ndim is the number of free parameters. Each row represents the
             starting position for one walker in the order of free_params_names.
         nwalkers : int
-            Number of MCMC walkers (must match first dimension of initial_positions )
+            Number of MCMC walkers (must match first dimension of initial_positions)
         max_steps : int, optional
             Maximum number of MCMC steps to run. If check_convergence=False, runs for
             exactly this many steps. If check_convergence=True, runs up to this many
@@ -1126,7 +1190,7 @@ class Fitter:
                 "At least one parameter must be set as free (fixed=False)."
             )
 
-        self._validate_free_params_have_priors()
+        self._validate_before_fit()
 
         # Initialize log-posterior object for MCMC sampling
         lp = LogPosterior(
@@ -1149,12 +1213,12 @@ class Fitter:
         self.nwalkers = nwalkers
 
         # Validate walker positions shape
-        if initial_positions .shape != (nwalkers, self.ndim):
-            raise ValueError(f"initial_positions  must have shape ({nwalkers}, {self.ndim}), got {initial_positions .shape}")
+        if initial_positions.shape != (nwalkers, self.ndim):
+            raise ValueError(f"initial_positions must have shape ({nwalkers}, {self.ndim}), got {initial_positions.shape}")
 
         # Validate every walker position for astrophysical validity and prior compliance
         # (we don't want to start any chains in invalid parameter space)
-        for i, walker_position in enumerate(initial_positions ):
+        for i, walker_position in enumerate(initial_positions):
             walker_params_dict = dict(zip(self.free_params_names, walker_position))
             all_params_dict = self.fixed_params_values_dict | walker_params_dict
 
@@ -3849,8 +3913,6 @@ class GPFitter:
         # Initialize parameter storage
         self._params: Dict[str, Parameter] = {}
         self._priors: Dict[str, Callable[[float], float]]= {}
-        self._hyperparams: Dict[str, Parameter] = {}
-        self._hyperpriors: Dict[str, Callable[[float], float]] = {}
 
     def add_data(
         self,
@@ -3885,23 +3947,19 @@ class GPFitter:
         self.vel = np.ascontiguousarray(vel)
         self.velerr = np.ascontiguousarray(velerr)
         self.instrument = np.asarray(instrument)
-        self.unique_instruments = np.unique(self.instrument)
+        self.unique_instruments = np.array(sorted(np.unique(self.instrument), key=str.lower))  # case-insensitive
         self.t0 = t0
 
     @property
     def params(self) -> Dict[str, Parameter]:
         """Parameters dictionary, both free and fixed. Set via: gpfitter.params = param_dict.
 
-        Holds every parameter of the chosen parameterisation, whether free
-        (``fixed=False``) or fixed (``fixed=True``), but **not** the GP
-        hyperparameters, which are held separately in ``hyperparams``.
-
-        So ``params`` does not describe the sampled dimensions. The MCMC
-        chain's columns are ``free_params_names + free_hyperparams_names``, in
-        that order (see ``get_samples_df``). Note that ``len(params)`` equals
-        ``ndim`` whenever the number of fixed parameters happens to equal the
-        number of free hyperparameters, which is common in practice, so a
-        matching length does not mean ``params`` lines up with the chain.
+        Holds every parameter of the chosen parameterisation and the GP kernel's
+        hyperparameters (e.g. ``gp_amp``), whether free (``fixed=False``) or fixed
+        (``fixed=True``), so ``len(params)`` is not the number of sampled
+        dimensions whenever any parameter is fixed. Only the free parameters are
+        sampled: the MCMC chain's columns are ``free_params_names``, in that order
+        (see ``get_samples_df``).
         """
         return self._params
 
@@ -3921,7 +3979,8 @@ class GPFitter:
             The keys of this dictionary should match the parameter names expected
             by the GPFitter object: all required parameters for the
             chosen parameterisation, with planet letters (not required for
-            Trend or jitter parameters.)
+            trend or jitter parameters), and the GP kernel's hyperparameters
+            (e.g. ``gp_amp``, ``gp_lambda_e``, ``gp_lambda_p``, ``gp_period``).
 
         Raises
         ------
@@ -3935,45 +3994,14 @@ class GPFitter:
         # Validate the complete parameter set
         self._validate_complete_params(merged_params)
 
-        # If validation passes, update the actual params
-        self._params.update(new_params)
-
-        # Update ndim to total free params + hyperparams (no hyperparams yet counts as 0)
-        self.ndim = len(self.free_params_values) + len(self.free_hyperparams_values)
+        # If validation passes, store the params in the fixed order
+        self._params = {name: merged_params[name] for name in self._param_order()}
 
         if self.ndim == 0:
             warnings.warn(
-                "All parameters are fixed. MCMC methods require at least one "
-                "free parameter or hyperparameter (fixed=False).",
-                UserWarning,
-                stacklevel=2
-            )
-
-    @property
-    def hyperparams(self) -> Dict[str, Parameter]:
-        """Hyperparameters dictionary. Set via: gpfitter.hyperparams = hyperparam_dict."""
-        return self._hyperparams
-
-    @hyperparams.setter
-    def hyperparams(self, new_hyperparams: Dict[str, Parameter]) -> None:
-        """Set hyperparameters with validation."""
-        # Update the current _hyperparams dict with the new entries
-        merged_hyperparams = dict(self._hyperparams)
-        merged_hyperparams.update(new_hyperparams)
-
-        # Validate using GPKernel (as the params required depend on the specific kernel)
-        self.gp_kernel.validate_hyperparams(merged_hyperparams)
-
-        # If validation passes, update the actual hyperparams
-        self._hyperparams.update(new_hyperparams)
-
-        # Update ndim to include hyperparameters (total free params + hyperparams)
-        self.ndim = len(self.free_params_values) + len(self.free_hyperparams_values)
-
-        if self.ndim == 0:
-            warnings.warn(
-                "All parameters and hyperparameters are fixed. MCMC methods require "
-                "at least one free parameter or hyperparameter (fixed=False).",
+                "All parameters are fixed. MCMC methods (find_map_estimate, "
+                "generate_initial_walker_positions_*, run_mcmc) require at least one "
+                "free parameter (fixed=False).",
                 UserWarning,
                 stacklevel=2
             )
@@ -3995,47 +4023,38 @@ class GPFitter:
         new_priors : dict
             Dictionary of prior functions to set. Keys should be parameter names
             that match free parameters, values should be callable prior functions.
+            Free GP kernel hyperparameters (e.g. ``gp_amp``) need priors too.
 
         Examples
         --------
         >>> from ravest.prior import Uniform
-        >>> gpfitter.priors = {"K_b": Uniform(0, 100), "P_b": Uniform(1, 30)}
+        >>> gpfitter.priors = {"K_b": Uniform(0, 100), "P_b": Uniform(1, 30), "gp_amp": Uniform(0, 10)}
 
         Raises
         ------
         ValueError
-            If any required priors are missing, unexpected prio rs are provided,
+            If any required priors are missing, unexpected priors are provided,
             or initial parameter values are outside prior bounds.
         """
         self._set_priors_with_validation(new_priors)
 
-    @property
-    def hyperpriors(self) -> dict:
-        """Hyperpriors dictionary. Set via: gpfitter.hyperpriors = hyperprior_dict."""
-        return self._hyperpriors
+    def _param_order(self) -> list[str]:
+        """Every parameter name, in the fixed order used for params, priors and the chain's columns.
 
-    @hyperpriors.setter
-    def hyperpriors(self, new_hyperpriors: dict[str, Callable[[float], float]]) -> None:
-        """Set hyperprior functions with validation."""
-        self._set_hyperpriors_with_validation(new_hyperpriors)
+        Planets sorted by letter, each in the parameterisation's order; then g and jit per
+        instrument, in ``unique_instruments`` order; then the trend's gd and gdd; then the
+        GP kernel's hyperparameters, in the kernel's order.
+        """
+        order = [f"{par_name}_{planet_letter}"
+                 for planet_letter in sorted(self.planet_letters)
+                 for par_name in self.parameterisation.pars]
+        for inst in self.unique_instruments:
+            order += [f"g_{inst}", f"jit_{inst}"]
+        return order + ["gd", "gdd"] + self.gp_kernel.get_expected_hyperparams()
 
     def _validate_complete_params(self, params: Dict[str, Parameter]) -> None:
         """Validate that params dict has required parameters, astrophysically valid values."""
-        # Build complete set of expected parameters
-        expected_params = set()
-
-        # Add planetary parameters
-        for planet_letter in self.planet_letters:
-            for par_name in self.parameterisation.pars:
-                expected_params.add(f"{par_name}_{planet_letter}")
-
-        # Add trend parameters (no gamma - that's per-instrument)
-        expected_params.update(["gd", "gdd"])
-
-        # Add per-instrument gamma offset and jitter parameters
-        for inst in self.unique_instruments:
-            expected_params.add(f"g_{inst}")
-            expected_params.add(f"jit_{inst}")
+        expected_params = set(self._param_order())
 
         # Validate same as Fitter
         provided_params = set(params.keys())
@@ -4066,6 +4085,14 @@ class GPFitter:
                 f"Missing required parameters: {missing_params}. "
                 f"Expected {len(expected_params)} parameters, got {len(provided_params)}"
             )
+
+        # Check every fixed flag is exactly True or False (the Parameter constructor checks
+        # this, but an in-place edit of .fixed would not be)
+        for name, param in params.items():
+            if type(param.fixed) is not bool:
+                raise TypeError(
+                    f"{name}: fixed must be True or False, not {param.fixed!r} of type {type(param.fixed)!r}."
+                )
 
         # Validate astrophysical validity of all parameters
         params_values = {name: param.value for name, param in params.items()}
@@ -4110,6 +4137,9 @@ class GPFitter:
             if params_values[jit_key] < 0:
                 raise ValueError(f"Invalid jitter {jit_key}: {params_values[jit_key]} < 0")
 
+        # Validate GP hyperparameters (the kernel knows its own constraints, e.g. positivity)
+        self.gp_kernel._validate_hyperparams_values(params_values)
+
     def _validate_parameter_coupling(self, params: Dict[str, Parameter]) -> None:
         """Validate parameter coupling constraints (e.g., secosw/sesinw must both be free or both fixed)."""
         for planet_letter in self.planet_letters:
@@ -4137,7 +4167,28 @@ class GPFitter:
         # Create merged priors dict (in case user is only updating some priors, not all)
         merged_priors_dict = dict(self._priors)  # get existing priors
         merged_priors_dict.update(new_priors)  # overwrite with newer functions, if supplied
-        provided_prior_param_names = set(merged_priors_dict.keys())
+
+        # Store the priors in the fixed order, once they pass validation
+        self._priors = self._validate_priors(merged_priors_dict)
+
+    def _validate_priors(self, priors_dict: dict[str, Callable[[float], float]]) -> dict[str, Callable[[float], float]]:
+        """Check a complete priors dict against the current params, without storing it.
+
+        Used by the priors setter, and again before fitting (in-place edits of
+        ``params`` or ``priors`` skip the setter).
+
+        Returns
+        -------
+        dict
+            The priors, in the fixed parameter order.
+
+        Raises
+        ------
+        ValueError
+            If any required priors are missing, conflicting or unexpected, or an
+            initial parameter value is outside its prior.
+        """
+        provided_prior_param_names = set(priors_dict.keys())
 
         # There are two possibilities for priors:
         # 1. The prior has been given for the parameter, in the current parameterisation
@@ -4150,11 +4201,12 @@ class GPFitter:
         conflicts = []
 
         # in the current parameterisation, which (free) parameters do we expect priors for?
-        current_parameterisation_free_param_names = set(self.free_params_names)
+        # (walked in the fixed order, so validated_priors is built in that order)
+        current_parameterisation_free_param_names = self.free_params_names
         for free_param_name in current_parameterisation_free_param_names:
             if free_param_name in provided_prior_param_names:
                 # Prior was provided for the param in the current parameterisation
-                validated_priors[free_param_name] = merged_priors_dict[free_param_name]
+                validated_priors[free_param_name] = priors_dict[free_param_name]
 
                 # Check if user ALSO provided equivalent default priors (conflict!)
                 default_parameterisation_equivalent_free_param_names = self._get_default_parameterisation_equivalent_free_param_name(free_param_name)
@@ -4171,7 +4223,7 @@ class GPFitter:
                 if default_parameterisation_equivalent_free_param_names and all(eq in provided_prior_param_names for eq in default_parameterisation_equivalent_free_param_names):
                     # Found all required default equivalents
                     for equiv in default_parameterisation_equivalent_free_param_names:
-                        validated_priors[equiv] = merged_priors_dict[equiv]
+                        validated_priors[equiv] = priors_dict[equiv]
                 else:
                     # Missing prior for a free parameter in both the current parameterisation, and its equivalent in the default parameterisation
                     if default_parameterisation_equivalent_free_param_names:
@@ -4199,8 +4251,9 @@ class GPFitter:
         # Check parameter values work with priors
         self._check_params_values_against_priors(validated_priors, current_parameterisation_free_param_names)
 
-        # Update the priors with the new values
-        self._priors.update(new_priors)
+        # Every supplied prior is in validated_priors (any extra would have been rejected
+        # above), now in the fixed parameter order
+        return validated_priors
 
 
     def _get_default_parameterisation_equivalent_free_param_name(self, free_param: str) -> Optional[list[str]]:
@@ -4218,8 +4271,12 @@ class GPFitter:
         Raises
         ------
         ValueError
-            If `free_param` is not a recognised planet, instrument, or trend parameter.
+            If `free_param` is not a recognised planet, instrument, trend or GP parameter.
         """
+        # GP hyperparameters are the same in all parameterisations
+        if free_param in self.gp_kernel.get_expected_hyperparams():
+            return None
+
         # No underscore (expected to be a system trend parameter)
         if '_' not in free_param:
             if free_param in ['gd', 'gdd']:
@@ -4322,41 +4379,6 @@ class GPFitter:
 
         raise ValueError(f"Cannot convert parameter {default_param_name} to default parameterisation")
 
-    def _set_hyperpriors_with_validation(self, new_hyperpriors: dict[str, Callable[[float], float]]) -> None:
-        """Set hyperpriors with validation."""
-        # Create merged hyperpriors dict
-        merged_hyperpriors_dict = dict(self._hyperpriors)
-        merged_hyperpriors_dict.update(new_hyperpriors)
-        provided_hyperprior_param_names = set(merged_hyperpriors_dict.keys())
-
-        # Check that hyperpriors are provided for all free hyperparameters
-        free_hyperparam_names = set(self.free_hyperparams_names)
-        missing_hyperpriors = free_hyperparam_names - provided_hyperprior_param_names
-        if missing_hyperpriors:
-            raise ValueError(f"Missing hyperpriors for hyperparameters: {missing_hyperpriors}")
-
-        # Check for unexpected hyperpriors
-        unexpected_hyperprior_param_names = provided_hyperprior_param_names - free_hyperparam_names
-        if unexpected_hyperprior_param_names:
-            raise ValueError(
-                f"Unexpected hyperpriors supplied for hyperparameters: {unexpected_hyperprior_param_names}. "
-                f"Hyperpriors expected only for hyperparameters: {free_hyperparam_names}"
-            )
-
-        # Check hyperparameter values work with hyperpriors
-        self._check_hyperparams_values_against_hyperpriors(merged_hyperpriors_dict, free_hyperparam_names)
-
-        # Update the hyperpriors with the new values
-        self._hyperpriors.update(new_hyperpriors)
-
-    def _check_hyperparams_values_against_hyperpriors(self, validated_hyperpriors: dict[str, Callable[[float], float]], current_free_hyperparam_names: list[str]) -> None:
-        """Check hyperparameter values against hyperpriors."""
-        for hyperprior_param_name, hyperprior_function in validated_hyperpriors.items():
-            hyperparam_value = self.hyperparams[hyperprior_param_name].value
-            log_hyperprior_probability = hyperprior_function(hyperparam_value)
-            if not np.isfinite(log_hyperprior_probability):
-                raise ValueError(f"Initial value {hyperparam_value} of hyperparameter {hyperprior_param_name} is invalid for hyperprior {hyperprior_function}.")
-
     @property
     def free_params_dict(self) -> Dict[str, Parameter]:
         """Free parameters as dict."""
@@ -4375,6 +4397,11 @@ class GPFitter:
     def free_params_names(self) -> list[str]:
         """Names of free parameters as list."""
         return list(self.free_params_dict.keys())
+
+    @property
+    def ndim(self) -> int:
+        """Number of free parameters: the number of columns in the MCMC chain."""
+        return len(self.free_params_names)
 
     @property
     def fixed_params_dict(self) -> Dict[str, Parameter]:
@@ -4400,49 +4427,6 @@ class GPFitter:
         """Fixed parameters as dict mapping names to just the values."""
         return dict(zip(self.fixed_params_names, self.fixed_params_values))
 
-    @property
-    def free_hyperparams_dict(self) -> Dict[str, Parameter]:
-        """Free hyperparameters as dict."""
-        free_hyperpars = {}
-        for hyperpar in self.hyperparams:
-            if self.hyperparams[hyperpar].fixed is False:
-                free_hyperpars[hyperpar] = self.hyperparams[hyperpar]
-        return free_hyperpars
-
-    @property
-    def free_hyperparams_values(self) -> list[float]:
-        """Values of free hyperparameters as list."""
-        return [hyperparam.value for hyperparam in self.free_hyperparams_dict.values()]
-
-    @property
-    def free_hyperparams_names(self) -> list[str]:
-        """Names of free hyperparameters as list."""
-        return list(self.free_hyperparams_dict.keys())
-
-    @property
-    def fixed_hyperparams_dict(self) -> Dict[str, Parameter]:
-        """Fixed hyperparameters as dict, mapping names to Parameter objects."""
-        fixed_hyperpars = {}
-        for hyperpar in self.hyperparams:
-            if self.hyperparams[hyperpar].fixed is True:
-                fixed_hyperpars[hyperpar] = self.hyperparams[hyperpar]
-        return fixed_hyperpars
-
-    @property
-    def fixed_hyperparams_values_dict(self) -> Dict[str, float]:
-        """Fixed hyperparameters as dict mapping names to just the values."""
-        return dict(zip(self.fixed_hyperparams_names, self.fixed_hyperparams_values))
-
-    @property
-    def fixed_hyperparams_names(self) -> list[str]:
-        """Names of fixed hyperparameters, as list."""
-        return list(self.fixed_hyperparams_dict.keys())
-
-    @property
-    def fixed_hyperparams_values(self) -> list[float]:
-        """Values of fixed hyperparameters, as list."""
-        return [hyperparam.value for hyperparam in self.fixed_hyperparams_dict.values()]
-
     def find_map_estimate(self, method: str = "Powell") -> scipy.optimize.OptimizeResult:
         """Find Maximum A Posteriori (MAP) estimate of parameters and hyperparameters.
 
@@ -4459,13 +4443,11 @@ class GPFitter:
         Raises
         ------
         ValueError
-            If a free parameter has no prior, or a free hyperparameter has no
-            hyperprior
+            If a free parameter has no prior
         Warning
             If MAP optimization fails to converge
         """
-        self._validate_free_params_have_priors()
-        self._validate_free_hyperparams_have_hyperpriors()
+        self._validate_before_fit()
 
         # Initialize log-posterior object
         gp_lp = GPLogPosterior(
@@ -4473,11 +4455,8 @@ class GPFitter:
             self.parameterisation,
             self.gp_kernel,
             self.priors,
-            self.hyperpriors,
             self.fixed_params_values_dict,
-            self.fixed_hyperparams_values_dict,
             self.free_params_names,
-            self.free_hyperparams_names,
             self.time,
             self.vel,
             self.velerr,
@@ -4486,13 +4465,12 @@ class GPFitter:
             self.unique_instruments,
         )
 
-        # Combine free params and free hyperparams for initial guess
-        initial_guess = self.free_params_values + self.free_hyperparams_values
+        initial_guess = self.free_params_values
 
         if len(initial_guess) == 0:
             raise ValueError(
-                "Cannot run MAP optimisation: no free parameters or hyperparameters to optimise. "
-                "At least one parameter or hyperparameter must be set as free (fixed=False) before calling find_map_estimate()."
+                "Cannot run MAP optimisation: no free parameters to optimise. "
+                "At least one parameter must be set as free (fixed=False) before calling find_map_estimate()."
             )
 
         # Perform MAP optimization
@@ -4503,18 +4481,11 @@ class GPFitter:
 
         if map_results.success is False:
             print(map_results)
-            warnings.warn("MAP did not succeed. Check the initial values of the parameters and hyperparameters, and the prior/hyperprior functions.")
+            warnings.warn("MAP did not succeed. Check the initial values of the parameters, and the prior functions.")
 
-        # Split results back into params and hyperparams
-        n_params = len(self.free_params_names)
-        param_values = map_results.x[:n_params]
-        hyperparam_values = map_results.x[n_params:]
-
-        # Print results as dictionary (to show params/hyperparams names too)
-        map_results_dict = dict(zip(self.free_params_names, param_values))
-        map_hyperresults_dict = dict(zip(self.free_hyperparams_names, hyperparam_values))
+        # Print results as dictionary (to show param names too)
+        map_results_dict = dict(zip(self.free_params_names, map_results.x))
         print("MAP parameter results:", map_results_dict)
-        print("MAP hyperparameter results:", map_hyperresults_dict)
 
         # Return the scipy OptimizeResult object so that user can inspect fully if needed
         return map_results
@@ -4560,24 +4531,31 @@ class GPFitter:
 
         return via_equivalents
 
-    def _validate_free_hyperparams_have_hyperpriors(self) -> None:
-        """Check that every free hyperparameter has a hyperprior.
+    def _validate_before_fit(self) -> dict[str, list[str]]:
+        """Re-check params and priors before fitting.
 
-        The hyperpriors setter checks this when hyperpriors are assigned, but
-        re-assigning ``hyperparams`` afterwards can free a hyperparameter that has no
-        hyperprior, so it is checked again before fitting.
+        The ``params`` and ``priors`` getters return the live dicts, so an in-place
+        edit (e.g. ``fitter.params["K_b"].value = ...``) skips the setters' checks.
+        Every method that fits calls this first.
+
+        Returns
+        -------
+        dict[str, list[str]]
+            As ``_validate_free_params_have_priors``: the free parameters constrained
+            only through their default-parameterisation equivalents.
 
         Raises
         ------
         ValueError
-            If any free hyperparameter has no hyperprior.
+            If a free parameter has no prior, the params are incomplete or invalid,
+            or the priors are unexpected or exclude a starting value.
+        TypeError
+            If a parameter's ``fixed`` is not exactly True or False.
         """
-        missing = [name for name in self.free_hyperparams_names if name not in self.hyperpriors]
-        if missing:
-            raise ValueError(
-                f"No hyperprior for free hyperparameter(s) {missing}. "
-                f"Set a hyperprior for every free hyperparameter before fitting."
-            )
+        via_equivalents = self._validate_free_params_have_priors()
+        self._validate_complete_params(self.params)
+        self._validate_priors(self.priors)
+        return via_equivalents
 
     def generate_initial_walker_positions_random(self, nwalkers: int, verbose: bool = False, max_attempts: int = 1000) -> np.ndarray:
         """Generate random initial walker positions that satisfy priors and are astrophysically valid.
@@ -4598,16 +4576,16 @@ class GPFitter:
         Returns
         -------
         np.ndarray
-            Array of shape (nwalkers, ndim) where ndim is the number of free parameters
-            + hyperparameters. Each row represents the starting position for one walker
-            in the order of free_params_names + free_hyperparams_names.
+            Array of shape (nwalkers, ndim) where ndim is the number of free parameters.
+            Each row represents the starting position for one walker in the order of
+            free_params_names.
 
         Raises
         ------
         ValueError
-            If a free parameter has no prior or a free hyperparameter has no
-            hyperprior, if a prior type is not supported for walker generation, or
-            if unable to generate valid positions after max_attempts
+            If a free parameter has no prior, if a prior type is not supported for
+            walker generation, or if unable to generate valid positions after
+            max_attempts
 
         Notes
         -----
@@ -4622,9 +4600,6 @@ class GPFitter:
         - ``Normal`` -> ``N(mean, std)``
         - ``HalfNormal`` -> ``|N(0, std)|``
 
-        Free hyperparameters are drawn from their hyperpriors by the same rules. Every
-        free hyperparameter must have a hyperprior.
-
         A free parameter whose prior was given on its default-parameterisation
         equivalents (priors on ``e``/``w`` while fitting ``secosw``/``sesinw`` or
         ``ecosw``/``esinw``, or on ``Tp`` while fitting ``Tc``) has no prior of its own
@@ -4637,24 +4612,22 @@ class GPFitter:
 
         Examples
         --------
-        >>> # Generate positions for 40 walkers
-        >>> nwalkers = 10 * len(gpfitter.free_params_names + gpfitter.free_hyperparams_names)
+        >>> # Generate positions for 10 walkers per free parameter
+        >>> nwalkers = 10 * len(gpfitter.free_params_names)
         >>> initial_positions = gpfitter.generate_initial_walker_positions_random(nwalkers)
         >>> gpfitter.run_mcmc(initial_positions, nwalkers, max_steps=2000)
         """
-        if len(self.free_params_values) + len(self.free_hyperparams_values) == 0:
+        if len(self.free_params_values) == 0:
             raise ValueError(
-                "Cannot generate walker positions: no free parameters or hyperparameters to sample. "
-                "At least one parameter or hyperparameter must be set as free (fixed=False)."
+                "Cannot generate walker positions: no free parameters to sample. "
+                "At least one parameter must be set as free (fixed=False)."
             )
 
         if verbose:
             print("Free parameters:", self.free_params_names)
-            print("Free hyperparameters:", self.free_hyperparams_names)
 
         # Checked once, before the walker loop, rather than on every draw.
-        via_equivalents = self._validate_free_params_have_priors()
-        self._validate_free_hyperparams_have_hyperpriors()
+        via_equivalents = self._validate_before_fit()
         for param_name, equivalents in via_equivalents.items():
             logging.debug(
                 f"{param_name} has no prior of its own; its prior was given on "
@@ -4662,24 +4635,18 @@ class GPFitter:
                 f"ball around its current value."
             )
 
-        param_init = []
-        hyperparam_init = []
+        mcmc_init = []
 
         # Built once, outside the walker loop: every argument is fitter-level
-        # (priors, kernel, data), so the object is identical for every walker and
-        # only its log_prior/log_hyperprior calls depend on the position. Building
-        # it per attempt rebuilt the whole GP likelihood up to
-        # nwalkers*max_attempts times.
+        # (priors, kernel, data), so the object is identical for every
+        # walker and only its log_prior call depends on the position.
         lp = GPLogPosterior(
             self.planet_letters,
             self.parameterisation,
             self.gp_kernel,
             self.priors,
-            self.hyperpriors,
             self.fixed_params_values_dict,
-            self.fixed_hyperparams_values_dict,
             self.free_params_names,
-            self.free_hyperparams_names,
             self.time,
             self.vel,
             self.velerr,
@@ -4691,10 +4658,7 @@ class GPFitter:
         for walker_idx in range(nwalkers):
             attempts = 0
             while attempts < max_attempts:
-                param_walker_position = []
-                hyperparam_walker_position = []
-
-                # Generate parameter positions
+                walker_position = []
                 for param_name in self.free_params_names:
                     # Check if we have a direct prior for this parameter
                     # (because user may be fitting in a transformed parameterisation, but gave priors in the default parameterisation instead)
@@ -4702,27 +4666,27 @@ class GPFitter:
                         prior = self.priors[param_name]
 
                         if isinstance(prior, ravest.prior.Normal):
-                            param_walker_position.append(np.random.normal(loc=prior.mean, scale=prior.std))
+                            walker_position.append(np.random.normal(loc=prior.mean, scale=prior.std))
 
                         elif isinstance(prior, ravest.prior.HalfNormal):
-                            param_walker_position.append(np.abs(np.random.normal(loc=0, scale=prior.std)))
+                            walker_position.append(np.abs(np.random.normal(loc=0, scale=prior.std)))
 
                         elif isinstance(prior, ravest.prior.Uniform):
-                            param_walker_position.append(np.random.uniform(low=prior.lower, high=prior.upper))
+                            walker_position.append(np.random.uniform(low=prior.lower, high=prior.upper))
 
                         elif isinstance(prior, ravest.prior.TruncatedNormal):
-                            param_walker_position.append(np.random.uniform(low=prior.lower, high=prior.upper))
+                            walker_position.append(np.random.uniform(low=prior.lower, high=prior.upper))
 
                         elif isinstance(prior, ravest.prior.Beta):
-                            param_walker_position.append(np.random.uniform(low=0, high=1))
+                            walker_position.append(np.random.uniform(low=0, high=1))
 
                         elif isinstance(prior, ravest.prior.EccentricityUniform):
-                            param_walker_position.append(np.random.uniform(low=0, high=prior.upper))
+                            walker_position.append(np.random.uniform(low=0, high=prior.upper))
 
                         else:
                             raise ValueError(f"Unsupported prior type for walker generation: {type(prior)}")
 
-                    else:
+                    elif param_name in via_equivalents:
                         # No prior of its own: the prior was given on the default-parameterisation
                         # equivalents (e.g. e/w while fitting secosw/sesinw). Start from a ball
                         # around the current value.
@@ -4735,56 +4699,21 @@ class GPFitter:
                         centre_val = self.params[param_name].value
                         # Add small random perturbation (10% of current value + small fixed amount for near-zero values)
                         perturbation = np.random.normal(0, abs(centre_val) * 0.1 + 0.01)
-                        param_walker_position.append(centre_val + perturbation)
-
-                # Generate hyperparameter positions
-                for hyperparam_name in self.free_hyperparams_names:
-                    if hyperparam_name in self.hyperpriors:
-                        hyperprior = self.hyperpriors[hyperparam_name]
-
-                        if isinstance(hyperprior, ravest.prior.Normal):
-                            hyperparam_walker_position.append(np.random.normal(loc=hyperprior.mean, scale=hyperprior.std))
-
-                        elif isinstance(hyperprior, ravest.prior.HalfNormal):
-                            hyperparam_walker_position.append(np.abs(np.random.normal(loc=0, scale=hyperprior.std)))
-
-                        elif isinstance(hyperprior, ravest.prior.Uniform):
-                            hyperparam_walker_position.append(np.random.uniform(low=hyperprior.lower, high=hyperprior.upper))
-
-                        elif isinstance(hyperprior, ravest.prior.TruncatedNormal):
-                            hyperparam_walker_position.append(np.random.uniform(low=hyperprior.lower, high=hyperprior.upper))
-
-                        elif isinstance(hyperprior, ravest.prior.Beta):
-                            hyperparam_walker_position.append(np.random.uniform(low=0, high=1))
-
-                        elif isinstance(hyperprior, ravest.prior.EccentricityUniform):
-                            hyperparam_walker_position.append(np.random.uniform(low=0, high=hyperprior.upper))
-
-                        else:
-                            raise ValueError(f"Unsupported hyperprior type for walker generation: {type(hyperprior)}")
+                        walker_position.append(centre_val + perturbation)
 
                     else:
-                        # Unreachable after the check above, but without it a missing
-                        # hyperprior appended nothing, so names and values were silently
-                        # mis-paired below and the failure surfaced as a KeyError naming
-                        # the wrong hyperparameter.
-                        raise ValueError(f"No hyperprior for free hyperparameter {hyperparam_name}")
+                        # Unreachable after the check above, but without it a free parameter with
+                        # no prior anywhere would silently start in the ball as if it had one.
+                        raise ValueError(f"No prior for free parameter {param_name}")
 
                 # Check astrophysical validity and prior compliance
                 try:
                     # Convert walker position to full parameter dict (free + fixed)
-                    free_params_dict = dict(zip(self.free_params_names, param_walker_position))
+                    free_params_dict = dict(zip(self.free_params_names, walker_position))
                     all_params_dict = self.fixed_params_values_dict | free_params_dict
 
                     # Check astrophysical validity
                     self._validate_astrophysical_validity(all_params_dict)
-
-                    # Convert hyperparameter position to full hyperparameter dict (free + fixed)
-                    free_hyperparams_dict = dict(zip(self.free_hyperparams_names, hyperparam_walker_position))
-                    all_hyperparams_dict = self.fixed_hyperparams_values_dict | free_hyperparams_dict
-
-                    # Check hyperparameter validity using GPKernel (internal method for float values)
-                    self.gp_kernel._validate_hyperparams_values(all_hyperparams_dict)
 
                     # Check prior compliance using GPLogPosterior (built above), rather than
                     # calling priors direct (because it handles Transformed->Default
@@ -4792,45 +4721,29 @@ class GPFitter:
                     # Check the log-prior probability is finite (i.e. proposed initial values are within prior bounds)
                     params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
                     log_prior = lp.log_prior(params_for_prior)
-                    log_hyperprior = lp.log_hyperprior(free_hyperparams_dict)
                     if not np.isfinite(log_prior):
                         raise ValueError(f"Outside prior bounds (log_prior = {log_prior})")
-                    if not np.isfinite(log_hyperprior):
-                        raise ValueError(f"Outside hyperprior bounds (log_hyperprior = {log_hyperprior})")
 
-                    # If all validations pass, we have a valid walker position
+                    # If both astrophysical and priors validations pass, we have a valid walker position
                     break
                 except ValueError:
-                    # Validation failed, try again
+                    # Validation failed. Generate a new set of values and try again.
                     attempts += 1
                     continue
 
             if attempts >= max_attempts:
                 raise ValueError(f"Could not generate astrophysically valid walker {walker_idx} after {max_attempts} attempts. "
-                               f"Consider relaxing priors/hyperpriors or checking parameter constraints.")
+                               f"Consider relaxing priors or checking parameter constraints.")
 
             if verbose:
-                print(f"Walker {walker_idx} param position: {param_walker_position}")
-                print(f"Walker {walker_idx} hyperparam position: {hyperparam_walker_position}")
-                print(f"(valid after {attempts + 1} attempts)")
-            param_init.append(param_walker_position)
-            hyperparam_init.append(hyperparam_walker_position)
+                print(f"Walker {walker_idx} position: {walker_position} (valid after {attempts + 1} attempts)")
+            mcmc_init.append(walker_position)
 
-        param_init = np.array(param_init)
-        hyperparam_init = np.array(hyperparam_init)
-
-        # Combine parameter and hyperparameter positions into single array
-        if hyperparam_init.size > 0:
-            initial_positions = np.concatenate([param_init, hyperparam_init], axis=1)
-        else:
-            initial_positions = param_init
-
+        mcmc_init = np.array(mcmc_init)
         if verbose:
-            print(f"Generated MCMC initial param positions with shape: {param_init.shape}")
-            print(f"Generated MCMC initial hyperparam positions with shape: {hyperparam_init.shape}")
-            print(f"Combined initial positions shape: {initial_positions.shape}")
+            print(f"Generated MCMC initial positions with shape: {mcmc_init.shape}")
 
-        return initial_positions
+        return mcmc_init
 
     def generate_initial_walker_positions_around_point(
         self,
@@ -4846,14 +4759,13 @@ class GPFitter:
         Creates starting positions for MCMC walkers clustered around a centre point
         (e.g., MAP estimate). Each walker is generated by adding small random perturbations
         to the centre values. Validates that both the centre point and all generated
-        walker positions satisfy priors/hyperpriors and are astrophysically valid.
+        walker positions satisfy priors and are astrophysically valid.
 
         Parameters
         ----------
         centre : np.ndarray or list
             Centre point for walker positions. Must have length equal to the number
-            of free parameters + free hyperparameters and be in the order of
-            free_params_names + free_hyperparams_names.
+            of free parameters and be in the order of free_params_names.
         nwalkers : int
             Number of MCMC walkers to generate positions for
         scale : float, default 1e-4
@@ -4869,16 +4781,16 @@ class GPFitter:
         Returns
         -------
         np.ndarray
-            Array of shape (nwalkers, ndim) where ndim is the number of free parameters
-            + free hyperparameters. Each row represents the starting position for one
-            walker in the order of free_params_names + free_hyperparams_names.
+            Array of shape (nwalkers, ndim) where ndim is the number of free parameters.
+            Each row represents the starting position for one walker in the order of
+            free_params_names.
 
         Raises
         ------
         ValueError
-            If a free parameter has no prior or a free hyperparameter has no
-            hyperprior, if centre has wrong length, if centre point is invalid, or
-            if unable to generate valid positions after max_attempts
+            If a free parameter has no prior, if centre has wrong length, if centre
+            point is invalid, or if unable to generate valid positions after
+            max_attempts
 
         Examples
         --------
@@ -4889,60 +4801,42 @@ class GPFitter:
         ... )
         >>> gpfitter.run_mcmc(initial_positions, nwalkers=40, max_steps=2000)
         """
-        if len(self.free_params_values) + len(self.free_hyperparams_values) == 0:
+        if len(self.free_params_values) == 0:
             raise ValueError(
-                "Cannot generate walker positions: no free parameters or hyperparameters to sample. "
-                "At least one parameter or hyperparameter must be set as free (fixed=False)."
+                "Cannot generate walker positions: no free parameters to sample. "
+                "At least one parameter must be set as free (fixed=False)."
             )
 
-        self._validate_free_params_have_priors()
-        self._validate_free_hyperparams_have_hyperpriors()
+        self._validate_before_fit()
 
         centre = np.asarray(centre)
-        expected_length = len(self.free_params_names) + len(self.free_hyperparams_names)
 
-        if len(centre) != expected_length:
+        if len(centre) != len(self.free_params_names):
             raise ValueError(
-                f"Centre must have length {expected_length} "
-                f"({len(self.free_params_names)} free params + {len(self.free_hyperparams_names)} free hyperparams), "
-                f"got {len(centre)}"
+                f"Centre must have length {len(self.free_params_names)} "
+                f"(number of free parameters), got {len(centre)}"
             )
 
         if verbose:
             print("Free parameters:", self.free_params_names)
-            print("Free hyperparameters:", self.free_hyperparams_names)
             print(f"Centre values: {centre}")
-
-        # Split centre into params and hyperparams
-        n_params = len(self.free_params_names)
-        centre_params = centre[:n_params]
-        centre_hyperparams = centre[n_params:]
 
         # Validate centre point first
         try:
-            free_params_dict = dict(zip(self.free_params_names, centre_params))
+            free_params_dict = dict(zip(self.free_params_names, centre))
             all_params_dict = self.fixed_params_values_dict | free_params_dict
 
             # Check astrophysical validity
             self._validate_astrophysical_validity(all_params_dict)
 
-            free_hyperparams_dict = dict(zip(self.free_hyperparams_names, centre_hyperparams))
-            all_hyperparams_dict = self.fixed_hyperparams_values_dict | free_hyperparams_dict
-
-            # Check hyperparameter validity
-            self.gp_kernel._validate_hyperparams_values(all_hyperparams_dict)
-
-            # Check prior/hyperprior compliance
+            # Check prior compliance
             lp = GPLogPosterior(
                 self.planet_letters,
                 self.parameterisation,
                 self.gp_kernel,
                 self.priors,
-                self.hyperpriors,
                 self.fixed_params_values_dict,
-                self.fixed_hyperparams_values_dict,
                 self.free_params_names,
-                self.free_hyperparams_names,
                 self.time,
                 self.vel,
                 self.velerr,
@@ -4952,26 +4846,20 @@ class GPFitter:
             )
             params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
             log_prior = lp.log_prior(params_for_prior)
-            log_hyperprior = lp.log_hyperprior(free_hyperparams_dict)
-
             if not np.isfinite(log_prior):
                 raise ValueError(f"Centre point outside prior bounds (log_prior = {log_prior})")
-            if not np.isfinite(log_hyperprior):
-                raise ValueError(f"Centre point outside hyperprior bounds (log_hyperprior = {log_hyperprior})")
 
             if verbose:
-                print(f"Centre point validated (log_prior = {log_prior}, log_hyperprior = {log_hyperprior})")
+                print(f"Centre point validated (log_prior = {log_prior})")
 
         except ValueError as e:
             raise ValueError(f"Supplied centre point is not valid: {e}")
 
         # Generate walker positions around centre
-        param_init = []
-        hyperparam_init = []
+        mcmc_init = []
 
         if verbose and relative and np.any(centre == 0.0):
-            all_names = self.free_params_names + self.free_hyperparams_names
-            zero_names = [all_names[i] for i in range(len(centre)) if centre[i] == 0.0]
+            zero_names = [self.free_params_names[i] for i in range(len(centre)) if centre[i] == 0.0]
             print(f"Note: centre value is exactly 0.0 for {zero_names}; "
                   f"using absolute perturbation (scale={scale}) for these parameters.")
 
@@ -4999,32 +4887,20 @@ class GPFitter:
                     perturbation = scale * random_vals
 
                 walker_position = centre + perturbation
-                walker_params = walker_position[:n_params]
-                walker_hyperparams = walker_position[n_params:]
 
                 # Validate this walker position
                 try:
-                    free_params_dict = dict(zip(self.free_params_names, walker_params))
+                    free_params_dict = dict(zip(self.free_params_names, walker_position))
                     all_params_dict = self.fixed_params_values_dict | free_params_dict
 
                     # Check astrophysical validity
                     self._validate_astrophysical_validity(all_params_dict)
 
-                    free_hyperparams_dict = dict(zip(self.free_hyperparams_names, walker_hyperparams))
-                    all_hyperparams_dict = self.fixed_hyperparams_values_dict | free_hyperparams_dict
-
-                    # Check hyperparameter validity
-                    self.gp_kernel._validate_hyperparams_values(all_hyperparams_dict)
-
-                    # Check prior/hyperprior compliance
+                    # Check prior compliance
                     params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
                     log_prior = lp.log_prior(params_for_prior)
-                    log_hyperprior = lp.log_hyperprior(free_hyperparams_dict)
-
                     if not np.isfinite(log_prior):
                         raise ValueError(f"Outside prior bounds (log_prior = {log_prior})")
-                    if not np.isfinite(log_hyperprior):
-                        raise ValueError(f"Outside hyperprior bounds (log_hyperprior = {log_hyperprior})")
 
                     # If validation passes, we have a valid walker position
                     break
@@ -5040,28 +4916,14 @@ class GPFitter:
                 )
 
             if verbose:
-                print(f"Walker {walker_idx} param position: {walker_params}")
-                print(f"Walker {walker_idx} hyperparam position: {walker_hyperparams}")
-                print(f"(valid after {attempts + 1} attempts)")
+                print(f"Walker {walker_idx} position: {walker_position} (valid after {attempts + 1} attempts)")
+            mcmc_init.append(walker_position)
 
-            param_init.append(walker_params)
-            hyperparam_init.append(walker_hyperparams)
-
-        param_init = np.array(param_init)
-        hyperparam_init = np.array(hyperparam_init)
-
-        # Combine parameter and hyperparameter positions into single array
-        if hyperparam_init.size > 0:
-            initial_positions = np.concatenate([param_init, hyperparam_init], axis=1)
-        else:
-            initial_positions = param_init
-
+        mcmc_init = np.array(mcmc_init)
         if verbose:
-            print(f"Generated MCMC initial param positions with shape: {param_init.shape}")
-            print(f"Generated MCMC initial hyperparam positions with shape: {hyperparam_init.shape}")
-            print(f"Combined initial positions shape: {initial_positions.shape}")
+            print(f"Generated MCMC initial positions with shape: {mcmc_init.shape}")
 
-        return initial_positions
+        return mcmc_init
 
     def generate_initial_walker_positions_from_map(
         self,
@@ -5075,7 +4937,7 @@ class GPFitter:
         """Generate initial walker positions around MAP estimate.
 
         Convenience function that generates walker positions clustered around
-        MAP parameter and hyperparameter estimates from a pre-computed MAP result.
+        MAP parameter estimates from a pre-computed MAP result.
 
         Parameters
         ----------
@@ -5096,8 +4958,8 @@ class GPFitter:
         Returns
         -------
         np.ndarray
-            Array of shape (nwalkers, ndim) where ndim is the number of free parameters
-            + free hyperparameters. Each row represents the starting position for one walker.
+            Array of shape (nwalkers, ndim) where ndim is the number of free parameters.
+            Each row represents the starting position for one walker.
 
         Raises
         ------
@@ -5113,11 +4975,13 @@ class GPFitter:
         ... )
         >>> gpfitter.run_mcmc(initial_positions, nwalkers=40, max_steps=2000)
         """
-        if len(self.free_params_values) + len(self.free_hyperparams_values) == 0:
+        if len(self.free_params_values) == 0:
             raise ValueError(
-                "Cannot generate walker positions: no free parameters or hyperparameters to sample. "
-                "At least one parameter or hyperparameter must be set as free (fixed=False)."
+                "Cannot generate walker positions: no free parameters to sample. "
+                "At least one parameter must be set as free (fixed=False)."
             )
+
+        self._validate_before_fit()
 
         return self.generate_initial_walker_positions_around_point(
             centre=map_result.x,
@@ -5135,9 +4999,8 @@ class GPFitter:
         ----------
         initial_positions : np.ndarray
             Starting positions for all MCMC walkers. Shape must be (nwalkers, ndim)
-            where ndim is the number of free parameters + hyperparameters. Each row
-            represents the starting position for one walker in the order of
-            free_params_names + free_hyperparams_names.
+            where ndim is the number of free parameters. Each row represents the
+            starting position for one walker in the order of free_params_names.
         nwalkers : int
             Number of MCMC walkers (must match first dimension of initial_positions)
         max_steps : int, optional
@@ -5162,18 +5025,16 @@ class GPFitter:
         Raises
         ------
         ValueError
-            If there are no free parameters, if a free parameter has no prior, if
-            a free hyperparameter has no hyperprior, or if nwalkers is less than
-            2 * ndim
+            If there are no free parameters, if a free parameter has no prior, or if
+            nwalkers is less than 2 * ndim
         """
-        if len(self.free_params_values) + len(self.free_hyperparams_values) == 0:
+        if len(self.free_params_values) == 0:
             raise ValueError(
-                "Cannot run MCMC: no free parameters or hyperparameters to sample. "
-                "At least one parameter or hyperparameter must be set as free (fixed=False)."
+                "Cannot run MCMC: no free parameters to sample. "
+                "At least one parameter must be set as free (fixed=False)."
             )
 
-        self._validate_free_params_have_priors()
-        self._validate_free_hyperparams_have_hyperpriors()
+        self._validate_before_fit()
 
         # Initialize log-posterior object for MCMC sampling
         gp_lp = GPLogPosterior(
@@ -5181,11 +5042,8 @@ class GPFitter:
             self.parameterisation,
             self.gp_kernel,
             self.priors,
-            self.hyperpriors,
             self.fixed_params_values_dict,
-            self.fixed_hyperparams_values_dict,
             self.free_params_names,
-            self.free_hyperparams_names,
             self.time,
             self.vel,
             self.velerr,
@@ -5205,17 +5063,9 @@ class GPFitter:
 
         # Validate every walker position for astrophysical validity and prior compliance
         # (we don't want to start any chains in invalid parameter space)
-        n_params = len(self.free_params_names)
         for i, walker_position in enumerate(initial_positions):
-            # Split walker position into parameters and hyperparameters
-            param_position = walker_position[:n_params]
-            hyperparam_position = walker_position[n_params:] if n_params < len(walker_position) else []
-
-            walker_params_dict = dict(zip(self.free_params_names, param_position))
-            walker_hyperparams_dict = dict(zip(self.free_hyperparams_names, hyperparam_position))
-
+            walker_params_dict = dict(zip(self.free_params_names, walker_position))
             all_params_dict = self.fixed_params_values_dict | walker_params_dict
-            all_hyperparams_dict = self.fixed_hyperparams_values_dict | walker_hyperparams_dict
 
             # Check astrophysical validity
             try:
@@ -5223,25 +5073,12 @@ class GPFitter:
             except ValueError as e:
                 raise ValueError(f"Walker {i} has invalid astrophysical parameters: {e}") from e
 
-            # Check hyperparameter validity using GPKernel (internal method for float values)
-            try:
-                self.gp_kernel._validate_hyperparams_values(all_hyperparams_dict)
-            except ValueError as e:
-                raise ValueError(f"Walker {i} has invalid hyperparameters: {e}") from e
-
             # Check prior compliance
             params_for_prior = gp_lp._convert_params_for_prior_evaluation(walker_params_dict)
             log_prior = gp_lp.log_prior(params_for_prior)
             if not np.isfinite(log_prior):
                 raise ValueError(f"Walker {i} is outside prior bounds (log_prior = {log_prior})")
 
-            # Check hyperprior compliance
-            log_hyperprior = gp_lp.log_hyperprior(walker_hyperparams_dict)
-            if not np.isfinite(log_hyperprior):
-                raise ValueError(f"Walker {i} is outside hyperprior bounds (log_hyperprior = {log_hyperprior})")
-
-        # Combine parameter names for sampler (needs it as one argument)
-        all_param_names = self.free_params_names + self.free_hyperparams_names
         # TODO: parameter_names argument does slightly impact performance - but not sure if it can be avoided, we do need the names
         # and I'm not sure constructing the dictionary later ourselves manually is any quicker than passing parameter_names argument
 
@@ -5249,11 +5086,11 @@ class GPFitter:
         if multiprocessing:
             pool = mp.get_context("spawn").Pool()  # Use 'spawn' instead of 'fork' to avoid issues on some Linux platforms
             sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, gp_lp.log_probability,
-                                            parameter_names=all_param_names,
+                                            parameter_names=self.free_params_names,
                                             pool=pool)
         else:
             sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, gp_lp.log_probability,
-                                            parameter_names=all_param_names)
+                                            parameter_names=self.free_params_names)
 
         # Warn if convergence arguments provided but convergence checking disabled
         if not check_convergence:
@@ -5411,8 +5248,8 @@ class GPFitter:
     def get_samples_df(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> pd.DataFrame:
         """Return a pandas DataFrame of flattened MCMC samples.
 
-        Each row represents one sample, each column represents one parameter or hyperparameter.
-        Built on get_samples_np().
+        Each row represents one sample, each column represents one free
+        parameter. Built on get_samples_np().
 
         Parameters
         ----------
@@ -5427,15 +5264,15 @@ class GPFitter:
         -------
         pd.DataFrame
             DataFrame with shape (nsteps_after_discard_thin * nwalkers, ndim).
-            Columns are parameter and hyperparameter names.
+            Columns are free_params_names, in that order.
         """
         flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
-        return pd.DataFrame(flat_samples, columns=self.free_params_names + self.free_hyperparams_names)
+        return pd.DataFrame(flat_samples, columns=self.free_params_names)
 
     def get_samples_dict(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> Dict[str, np.ndarray]:
         """Return a dict of flattened MCMC samples.
 
-        Each parameter and hyperparameter gets a 1D (flattened) contiguous array of all its samples.
+        Each free parameter gets a 1D (flattened) contiguous array of all its samples.
 
         Parameters
         ----------
@@ -5449,8 +5286,8 @@ class GPFitter:
         Returns
         -------
         dict
-            Dictionary mapping parameter and hyperparameter names to 1D arrays of samples.
-            Each array has shape (nsteps_after_discard_thin * nwalkers,)
+            Dictionary mapping free parameter names to 1D arrays of samples, in
+            free_params_names order. Each array has shape (nsteps_after_discard_thin * nwalkers,)
 
         Examples
         --------
@@ -5459,10 +5296,9 @@ class GPFitter:
         >>> gp_amp_samples = samples_dict['gp_amp']  # All samples for GP amplitude
         """
         flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
-        param_names = self.free_params_names + self.free_hyperparams_names
 
         # Direct numpy slicing - much faster than pandas operations
-        return {name: flat_samples[:, i] for i, name in enumerate(param_names)}
+        return {name: flat_samples[:, i] for i, name in enumerate(self.free_params_names)}
 
     def get_sampler_lnprob(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, flat: bool = False) -> np.ndarray:
         """Returns the log probability at each step of the sampler.
@@ -5532,27 +5368,24 @@ class GPFitter:
         Returns
         -------
         dict
-            Dictionary of all parameters and hyperparameters:
+            Dictionary of all parameters:
             - Fixed parameters: single float values
             - Free parameters: 1D arrays of MCMC samples with shape (nsteps_after_discard_thin * nwalkers,)
-            - Fixed hyperparameters: single float values
-            - Free hyperparameters: 1D arrays of MCMC samples with shape (nsteps_after_discard_thin * nwalkers,)
         """
         fixed_params_dict = self.fixed_params_values_dict
-        fixed_hyperparams_dict = self.fixed_hyperparams_values_dict
         free_samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
-        return fixed_params_dict | fixed_hyperparams_dict | free_samples_dict
+        return fixed_params_dict | free_samples_dict
 
-    def calculate_log_likelihood(self, params_hyperparams_dict: Dict[str, float]) -> float:
-        """Calculate log-likelihood for given parameter and hyperparameter values.
+    def calculate_log_likelihood(self, params_dict: Dict[str, float]) -> float:
+        """Calculate log-likelihood for given parameter values.
 
         Note this does not include (log-)prior probabilities, this is just the
         (log-) *likelihood* primarily for use in AICc & BIC calculation.
 
         Parameters
         ----------
-        params_hyperparams_dict : dict
-            Dictionary of all parameter and hyperparameter values (both fixed and free)
+        params_dict : dict
+            Dictionary of all parameter values (both fixed and free)
 
         Returns
         -------
@@ -5571,35 +5404,31 @@ class GPFitter:
             parameterisation=self.parameterisation,
             gp_kernel=self.gp_kernel,
         )
+        return gp_log_likelihood(params_dict)
 
-        # Split combined dict into params and hyperparams
-        all_param_names = self.free_params_names + self.fixed_params_names
-        all_hyperparam_names = self.free_hyperparams_names + self.fixed_hyperparams_names
+    def build_params_dict(self, free_params: np.ndarray | list | Dict[str, float]) -> Dict[str, float]:
+        """Build a params dict by providing free param vals, combine with fixed param vals.
 
-        params = {name: params_hyperparams_dict[name] for name in all_param_names}
-        hyperparams = {name: params_hyperparams_dict[name] for name in all_hyperparam_names}
+        Takes free parameter float values (from any source e.g. MAP results,
+        MCMC posteriors, or any custom values) and combines them with the fixed
+        parameter values to create a complete parameter dictionary. This dict is
+        ideal for calculating chi2, log-likelihood, AICc, and BIC.
 
-        return gp_log_likelihood(params=params, hyperparams=hyperparams)
-
-    def build_params_dict(self, free_params_hyperparams: np.ndarray | list | Dict[str, float]) -> Dict[str, float]:
-        """Build complete parameter dictionary by combining free and fixed parameters and hyperparameters.
-
-        Takes free parameter and hyperparameter values from various sources (MAP results,
-        MCMC samples, or custom values) and combines them with the fixed parameter and
-        hyperparameter values to create a complete dictionary suitable for calculating
-        log-likelihood, chi2, AICc, and BIC.
+        This is designed for a single value per parameter. For combining the MCMC posterior
+        chains for free parameters and the fixed values for fixed parameters, use
+        `get_mcmc_posterior_dict` method.
 
         Parameters
         ----------
-        free_params_hyperparams : list, np.ndarray, or dict
-            Free parameter and hyperparameter values from any source:
-            - list/array: values in order of self.free_params_names + self.free_hyperparams_names
-            - dict: mapping of free param/hyperparam names to values
+        free_params : list, np.ndarray, or dict
+            Free parameter values from any source:
+            - list/array: values in order of self.free_params_names
+            - dict: mapping of free param names to values
 
         Returns
         -------
         Dict[str, float]
-            Complete parameters and hyperparameters dict with both free and fixed values
+            Complete parameters dict with both free and fixed parameter values
 
         Examples
         --------
@@ -5613,41 +5442,36 @@ class GPFitter:
         >>> params = gpfitter.build_params_dict(best_sample)
         >>> bic = gpfitter.calculate_bic(params)
         >>>
-        >>> # From custom array (params then hyperparams, in order of names)
-        >>> custom_values = [5.0, 50.0, 0.1, 0.0, 2450000.0,  # params
-        ...                  10.0, 5.0, 0.5, 30.0]              # hyperparams
+        >>> # From custom array of values (in order of free_params_names, GP hyperparameters last)
+        >>> custom_values = [5.0, 50.0, 0.1, 0.0, 2450000.0, 10.0, 5.0, 0.5, 30.0]  # example values
         >>> params = gpfitter.build_params_dict(custom_values)
         >>> log_like = gpfitter.calculate_log_likelihood(params)
         """
-        if isinstance(free_params_hyperparams, dict):
-            # Validate that all expected free parameters and hyperparameters are present
-            expected_params = set(self.free_params_names)
-            expected_hyperparams = set(self.free_hyperparams_names)
-            expected_names = expected_params | expected_hyperparams
-            provided_names = set(free_params_hyperparams.keys())
+        if isinstance(free_params, dict):
+            # Validate that all expected free parameters are present
+            expected_names = set(self.free_params_names)
+            provided_names = set(free_params.keys())
 
             missing = expected_names - provided_names
             if missing:
-                raise ValueError(f"Missing required free parameters/hyperparameters: {missing}")
+                raise ValueError(f"Missing required free parameters: {missing}")
 
             extra = provided_names - expected_names
             if extra:
-                raise ValueError(f"Unexpected parameters/hyperparameters provided: {extra}")
+                raise ValueError(f"Unexpected parameters provided: {extra}")
 
-            return self.fixed_params_values_dict | self.fixed_hyperparams_values_dict | free_params_hyperparams
+            return self.fixed_params_values_dict | free_params
         else:
             # Validate that array/list has correct length
-            expected_length = len(self.free_params_names) + len(self.free_hyperparams_names)
-            if len(free_params_hyperparams) != expected_length:
+            if len(free_params) != len(self.free_params_names):
                 raise ValueError(
-                    f"Expected {expected_length} free parameter and hyperparameter values "
-                    f"but got {len(free_params_hyperparams)} "
-                    f"(expecting values for {self.free_params_names} + {self.free_hyperparams_names})"
+                    f"Expected {len(self.free_params_names)} free parameter values "
+                    f"but got {len(free_params)} "
+                    f"(expecting {len(self.free_params_names)} values for {self.free_params_names})"
                 )
 
-            all_free_names = self.free_params_names + self.free_hyperparams_names
-            free_dict = dict(zip(all_free_names, free_params_hyperparams))
-            return self.fixed_params_values_dict | self.fixed_hyperparams_values_dict | free_dict
+            free_dict = dict(zip(self.free_params_names, free_params))
+            return self.fixed_params_values_dict | free_dict
 
     @staticmethod
     @jax.jit
@@ -5694,8 +5518,8 @@ class GPFitter:
         alpha = gp._get_alpha(residuals)  # L^(-1) @ residuals, where K = L @ L^T
         return jnp.dot(alpha, alpha)  # r^T @ K^(-1) @ r = alpha^T @ alpha
 
-    def calculate_chi2(self, params_hyperparams_dict: Dict[str, float]) -> float:
-        r"""Calculate chi-squared for given parameter and hyperparameter values.
+    def calculate_chi2(self, params_dict: Dict[str, float]) -> float:
+        r"""Calculate chi-squared for given parameter values.
 
         For GP models, this calculates:
 
@@ -5711,8 +5535,8 @@ class GPFitter:
 
         Parameters
         ----------
-        params_hyperparams_dict : dict
-            Dictionary of all parameter and hyperparameter values (both fixed and free)
+        params_dict : dict
+            Dictionary of all parameter values (both fixed and free)
 
         Returns
         -------
@@ -5732,21 +5556,14 @@ class GPFitter:
             gp_kernel=self.gp_kernel
         )
 
-        # Extract parameter and hyperparameter dicts
-        all_param_names = self.free_params_names + self.fixed_params_names
-        params = {name: params_hyperparams_dict[name] for name in all_param_names}
-
-        all_hyperparam_names = self.free_hyperparams_names + self.fixed_hyperparams_names
-        hyperparams = {name: params_hyperparams_dict[name] for name in all_hyperparam_names}
-
         # Calculate mean model using GPLogLikelihood method
-        mean_model = gp_ll._calculate_mean_model(params)
+        mean_model = gp_ll._calculate_mean_model(params_dict)
 
         # Calculate residuals
         residuals = gp_ll.jax_vel - mean_model
 
         # Build GP kernel with hyperparameters
-        kernel = self.gp_kernel.build_kernel(hyperparams)
+        kernel = self.gp_kernel.build_kernel(params_dict)
 
         # Add jitter to observational uncertainties
         # jit_value = params["jit"]
@@ -5754,27 +5571,27 @@ class GPFitter:
         velerr_jitter_squared = np.zeros_like(self.velerr)
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
-            jit = params_hyperparams_dict[f"jit_{inst}"]
+            jit = params_dict[f"jit_{inst}"]
             velerr_jitter_squared[mask] = self.velerr[mask]**2 + jit**2
 
         # Calculate chi^2 = r^T K^(-1) r using full covariance matrix
         return float(self._compute_gp_chi2(kernel, gp_ll.jax_time, velerr_jitter_squared, residuals))
 
-    def calculate_aicc(self, params_hyperparams_dict: Dict[str, float]) -> float:
+    def calculate_aicc(self, params_dict: Dict[str, float]) -> float:
         r"""Calculate corrected Akaike Information Criterion (AICc).
 
         .. math::
 
             \text{AICc} = 2k - 2\ln\mathcal{L} + \frac{2k^2 + 2k}{n - k - 1}
 
-        where :math:`k` is the number of free parameters and hyperparameters,
+        where :math:`k` is the number of free parameters,
         :math:`n` is the number of observations, and :math:`\mathcal{L}` is
         the likelihood. Converges to AIC for large :math:`n`.
 
         Parameters
         ----------
-        params_hyperparams_dict : dict
-            Dictionary of all parameter and hyperparameter values (both fixed and free)
+        params_dict : dict
+            Dictionary of all parameter values (both fixed and free)
 
         Returns
         -------
@@ -5783,37 +5600,37 @@ class GPFitter:
         """
         k = self.ndim
         n = len(self.time)
-        log_like = self.calculate_log_likelihood(params_hyperparams_dict)
+        log_like = self.calculate_log_likelihood(params_dict)
         aic = 2 * k - 2 * log_like  # traditional AIC
         correction = (2 * k**2 + 2 * k) / (n - k - 1)  # small-sample correction
         return aic + correction
 
-    def calculate_bic(self, params_hyperparams_dict: Dict[str, float]) -> float:
-        r"""Calculate Bayesian Information Criterion (BIC) for given parameters and hyperparameters.
+    def calculate_bic(self, params_dict: Dict[str, float]) -> float:
+        r"""Calculate Bayesian Information Criterion (BIC) for given parameters.
 
         .. math::
 
             \text{BIC} = k \ln n - 2 \ln \mathcal{L}
 
-        where :math:`k` is the number of free parameters and hyperparameters,
+        where :math:`k` is the number of free parameters,
         :math:`n` is the number of observations, and :math:`\mathcal{L}` is
         the likelihood.
 
         Parameters
         ----------
-        params_hyperparams_dict : dict
-            Dictionary of all parameter and hyperparameter values (both fixed and free)
+        params_dict : dict
+            Dictionary of all parameter values (both fixed and free)
 
         Returns
         -------
         float
             BIC value
         """
-        log_like = self.calculate_log_likelihood(params_hyperparams_dict)
+        log_like = self.calculate_log_likelihood(params_dict)
         return self.ndim * np.log(len(self.time)) - 2 * log_like
 
     def get_sample_with_best_lnprob(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> Dict[str, float]:
-        """Get parameter and hyperparameter values from the MCMC sample with the highest log probability.
+        """Get free parameter values from the MCMC sample with the highest log probability.
 
         Parameters
         ----------
@@ -5827,7 +5644,7 @@ class GPFitter:
         Returns
         -------
         Dict[str, float]
-            Dictionary of parameter and hyperparameter names to values from the best sample
+            Dictionary of free parameter names to values from the best sample
         """
         # Get samples and log probabilities
         samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
@@ -5842,14 +5659,12 @@ class GPFitter:
         # Get parameter values at that index
         best_values = samples[best_idx]
 
-        # Return as dictionary (samples include both params and hyperparams)
-        all_param_names = self.free_params_names + self.free_hyperparams_names
-        return dict(zip(all_param_names, best_values))
+        # Return as dictionary
+        return dict(zip(self.free_params_names, best_values))
 
     def plot_autocorr_estimates(
         self,
         params: list[str] | None = None,
-        hyperparams: list[str] | None = None,
         plot_mean: bool = False,
         show_legend: bool = True,
         title: str | None = "Autocorrelation Time Estimates",
@@ -5870,11 +5685,9 @@ class GPFitter:
         ----------
         params : list[str] or None, optional
             List of parameter names to plot. If None, plots all free parameters (default: None)
-        hyperparams : list[str] or None, optional
-            List of hyperparameter names to plot. If None, plots all free hyperparameters (default: None)
         plot_mean : bool, optional
-            If True, plot mean tau instead of individual parameter/hyperparameter taus.
-            Overrides params and hyperparams arguments (default: False)
+            If True, plot mean tau instead of individual parameter taus.
+            Overrides params argument (default: False)
         show_legend : bool, optional
             Whether to show legend (default: True)
         title : str or None, optional
@@ -5905,7 +5718,7 @@ class GPFitter:
 
         iterations = np.array(list(self.autocorr_history.keys()))
         max_iteration = np.max(iterations)
-        tau_history = np.array(list(self.autocorr_history.values()))  # Shape: (n_checks, n_params + n_hyperparams)
+        tau_history = np.array(list(self.autocorr_history.values()))  # Shape: (n_checks, n_params)
 
         # Create plot
         fig, ax = plt.subplots(1, figsize=(10, 6))
@@ -5921,45 +5734,24 @@ class GPFitter:
             mean_tau = np.mean(tau_history, axis=1)
             ax.plot(iterations, mean_tau, linewidth=2, label=r"Mean $\tau$")
         else:
-            # Determine which parameters/hyperparameters to plot
-            names_to_plot = []
-            indices_to_plot = []
-
-            # Handle parameters
+            # Determine which parameters to plot
             if params is None:
-                # Include all free params
-                for i, param_name in enumerate(self.free_params_names):
-                    names_to_plot.append(param_name)
-                    indices_to_plot.append(i)
+                params_to_plot = self.free_params_names
+                indices_to_plot = range(len(self.free_params_names))
             else:
-                # Include only specified params
+                params_to_plot = []
+                indices_to_plot = []
                 for param in params:
                     if param in self.free_params_names:
                         idx = self.free_params_names.index(param)
-                        names_to_plot.append(param)
+                        params_to_plot.append(param)
                         indices_to_plot.append(idx)
                     else:
                         logging.warning(f"Parameter '{param}' not found in free parameters, skipping")
 
-            # Handle hyperparameters
-            if hyperparams is None:
-                # Include all free hyperparams
-                for i, hyperparam_name in enumerate(self.free_hyperparams_names):
-                    names_to_plot.append(hyperparam_name)
-                    indices_to_plot.append(len(self.free_params_names) + i)
-            else:
-                # Include only specified hyperparams
-                for hyperparam in hyperparams:
-                    if hyperparam in self.free_hyperparams_names:
-                        idx = len(self.free_params_names) + self.free_hyperparams_names.index(hyperparam)
-                        names_to_plot.append(hyperparam)
-                        indices_to_plot.append(idx)
-                    else:
-                        logging.warning(f"Hyperparameter '{hyperparam}' not found in free hyperparameters, skipping")
-
-            # Plot individual parameter/hyperparameter taus
-            for idx, name in zip(indices_to_plot, names_to_plot):
-                ax.plot(iterations, tau_history[:, idx], alpha=0.7, label=param_key_to_latex(name))
+            # Plot individual parameter taus
+            for i, param_name in zip(indices_to_plot, params_to_plot):
+                ax.plot(iterations, tau_history[:, i], alpha=0.7, label=param_key_to_latex(param_name))
 
         ax.set_xlim(0, iterations.max())
         ax.set_ylim(bottom=0)
@@ -5979,12 +5771,11 @@ class GPFitter:
         plt.show()
 
     def plot_chains(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, truths: list = None, title: str | None = "Chains plot", xlabel: str | None = "Step number", save: bool = False, fname: str = "chains_plot.png", dpi: int = 100) -> None:
-        """Plot MCMC chains for all free parameters and hyperparameters.
+        """Plot MCMC chains for all free parameters.
 
-        Displays the evolution of each free parameter and hyperparameter across MCMC steps
-        for all walkers. Useful for diagnosing convergence, burn-in, and mixing of the
-        MCMC chains. Each parameter/hyperparameter gets its own subplot showing all walker traces.
-        For GP fitting, this includes both planetary/trend parameters and GP kernel hyperparameters.
+        Displays the evolution of each free parameter across MCMC steps for all walkers.
+        Useful for diagnosing convergence, burn-in, and mixing of the MCMC chains.
+        Each parameter gets its own subplot showing all walker traces.
 
         Parameters
         ----------
@@ -5995,9 +5786,9 @@ class GPFitter:
         thin : int, optional
             Use only every `thin` steps from the chain (default: 1)
         truths : list, optional
-            List of true parameter/hyperparameter values to overplot as horizontal lines.
-            Must match the number of free parameters + hyperparameters. Use None for
-            parameters without known truth values (default: None)
+            List of true parameter values to overplot as horizontal lines.
+            Must match the number of free parameters. Use None for parameters
+            without known truth values (default: None)
         title : str or None, optional
             Plot title (default: "Chains plot"). Set to None or "" to skip.
         xlabel : str or None, optional
@@ -6021,20 +5812,19 @@ class GPFitter:
 
         if truths is not None:
             if not len(truths) == self.ndim:
-                raise ValueError(f"Length of truths ({len(truths)}) must match number of free parameters and hyperparameters ({self.ndim})")
+                raise ValueError(f"Length of truths ({len(truths)}) must match number of free parameters ({self.ndim})")
 
         samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=False)
-        param_names = self.free_params_names + self.free_hyperparams_names
         for i in range(self.ndim):
             ax = axes[i]
-            to_plot = samples[:, :, i]
-
-            ax.plot(to_plot, "k", alpha=0.3)
             ax.set_xlim(0, len(samples))
-            ax.set_ylabel(param_key_to_latex(param_names[i]))
+            ax.set_ylabel(param_key_to_latex(self.free_params_names[i]))
 
+            to_plot = samples[:, :, i]
+            ax.plot(to_plot, "k", alpha=0.3)
             if truths is not None and truths[i] is not None:
                 ax.axhline(truths[i], color="tab:blue")
+
         fig.align_ylabels(axes)
         if xlabel:
             axes[-1].set_xlabel(xlabel)
@@ -6117,7 +5907,7 @@ class GPFitter:
             Resolution for saving (default: 100)
         """
         flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
-        param_labels = [param_key_to_latex(n) for n in self.free_params_names + self.free_hyperparams_names]
+        param_labels = [param_key_to_latex(n) for n in self.free_params_names]
         fig = corner.corner(
             flat_samples, labels=param_labels, show_titles=True,
             plot_datapoints=plot_datapoints, quantiles=[0.1585, 0.5, 0.8415],
@@ -6129,7 +5919,7 @@ class GPFitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def _plot_rv(self, params_hyperparams: Dict[str, float], title: str = "RV Model", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "rv_plot.png", dpi: int = 100) -> None:
+    def _plot_rv(self, params: Dict[str, float], title: str = "RV Model", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "rv_plot.png", dpi: int = 100) -> None:
         """Helper function to plot RV model with given parameters.
 
         For GP fitting, this plots both the mean model (planets + trend)
@@ -6179,13 +5969,13 @@ class GPFitter:
             planet_params = {}
             for par_name in self.parameterisation.pars:
                 key = f"{par_name}_{letter}"
-                planet_params[par_name] = params_hyperparams[key]
+                planet_params[par_name] = params[key]
 
             planet = ravest.model.Planet(letter, self.parameterisation, planet_params)
             rv_mean_smooth += planet.radial_velocity(tsmooth)
 
         # Add the system Trend at smooth times (gd, gdd only - no gamma)
-        trend_params = {"gd": params_hyperparams["gd"], "gdd": params_hyperparams["gdd"]}
+        trend_params = {"gd": params["gd"], "gdd": params["gdd"]}
         trend = ravest.model.Trend(params=trend_params, t0=self.t0)
         rv_trend_smooth = trend.radial_velocity(tsmooth)
         rv_mean_smooth += rv_trend_smooth
@@ -6201,7 +5991,7 @@ class GPFitter:
             planet_params = {}
             for par_name in self.parameterisation.pars:
                 key = f"{par_name}_{letter}"
-                planet_params[par_name] = params_hyperparams[key]
+                planet_params[par_name] = params[key]
 
             planet = ravest.model.Planet(letter, self.parameterisation, planet_params)
             rv_mean_obs += planet.radial_velocity(self.time)
@@ -6213,18 +6003,17 @@ class GPFitter:
         vel_corrected = self.vel.copy()
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
-            vel_corrected[mask] -= params_hyperparams[f"g_{inst}"]
+            vel_corrected[mask] -= params[f"g_{inst}"]
 
 
         # Step 3: Set up GP for prediction
-        hyperparams = {hp: params_hyperparams[hp] for hp in self.gp_kernel.expected_hyperparams}
-        kernel = self.gp_kernel.build_kernel(hyperparams)
+        kernel = self.gp_kernel.build_kernel(params)
 
         # Calculate per-instrument jitter for GP diagonal
         jit2_verr2 = np.zeros(len(self.time))
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
-            jit = params_hyperparams[f"jit_{inst}"]
+            jit = params[f"jit_{inst}"]
             jit2_verr2[mask] = self.velerr[mask]**2 + jit**2
 
         # Create GP conditioned on gamma-corrected residuals
@@ -6249,7 +6038,7 @@ class GPFitter:
         velerr_with_jit = np.zeros_like(self.velerr)
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
-            jit = params_hyperparams[f"jit_{inst}"]
+            jit = params[f"jit_{inst}"]
             velerr_with_jit[mask] = np.sqrt(self.velerr[mask]**2 + jit**2)
 
         # Calculate residuals for residuals subplot (gamma-corrected data - model - GP)
@@ -6345,7 +6134,7 @@ class GPFitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def _plot_phase(self, planet_letter: str, params_hyperparams: Dict[str, float], title: str = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "phase_plot.png", dpi: int = 100, n_smooth: int = 1000) -> None:
+    def _plot_phase(self, planet_letter: str, params: Dict[str, float], title: str = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "phase_plot.png", dpi: int = 100, n_smooth: int = 1000) -> None:
         """Helper function to plot phase-folded RV model for a single planet with given parameters.
 
         For GP fitting, this handles the challenge that the GP component cannot be
@@ -6385,23 +6174,23 @@ class GPFitter:
         velerr_with_jit = np.zeros_like(self.velerr)
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
-            jit = params_hyperparams[f"jit_{inst}"]
+            jit = params[f"jit_{inst}"]
             velerr_with_jit[mask] = np.sqrt(self.velerr[mask]**2 + jit**2)
 
         # Get period and time of conjunction for this planet
-        P = params_hyperparams[f"P_{planet_letter}"]
+        P = params[f"P_{planet_letter}"]
 
         # Convert to tc if needed
         if "Tc" in self.parameterisation.pars:
-            Tc = params_hyperparams[f"Tc_{planet_letter}"]
+            Tc = params[f"Tc_{planet_letter}"]
         elif "e" in self.parameterisation.pars and "w" in self.parameterisation.pars:
-            _e = params_hyperparams[f"e_{planet_letter}"]
-            _w = params_hyperparams[f"w_{planet_letter}"]
-            _Tp = params_hyperparams[f"Tp_{planet_letter}"]
+            _e = params[f"e_{planet_letter}"]
+            _w = params[f"w_{planet_letter}"]
+            _Tp = params[f"Tp_{planet_letter}"]
             Tc = self.parameterisation.convert_tp_to_tc(_Tp, P, _e, _w)
         else:
             # Fall back to default parameterisation conversion
-            planet_params = {par: params_hyperparams[f"{par}_{planet_letter}"] for par in self.parameterisation.pars}
+            planet_params = {par: params[f"{par}_{planet_letter}"] for par in self.parameterisation.pars}
             default_params = self.parameterisation.convert_pars_to_default_parameterisation(planet_params)
             Tc = self.parameterisation.convert_tp_to_tc(default_params["Tp"], P, default_params["e"], default_params["w"])
 
@@ -6415,7 +6204,7 @@ class GPFitter:
         tsmooth_fold_sorted, smooth_inds = ravest.model.fold_time_series(tsmooth, P, Tc)
 
         # Calculate RV contribution from this planet only (for model curve)
-        planet_params = {par: params_hyperparams[f"{par}_{planet_letter}"] for par in self.parameterisation.pars}
+        planet_params = {par: params[f"{par}_{planet_letter}"] for par in self.parameterisation.pars}
         planet = ravest.model.Planet(planet_letter, self.parameterisation, planet_params)
 
         planet_rv_obs = planet.radial_velocity(self.time)
@@ -6426,7 +6215,7 @@ class GPFitter:
         vel_corrected = self.vel.copy()
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
-            vel_corrected[mask] -= params_hyperparams[f"g_{inst}"]
+            vel_corrected[mask] -= params[f"g_{inst}"]
 
         # Now we need to calculate all the other RV, that needs to be subtracted from the observed data
         # All others planets + system Trend + GP mean
@@ -6435,12 +6224,12 @@ class GPFitter:
         # Calculate all other Planets at observed times
         for other_letter in self.planet_letters:
             if other_letter != planet_letter:
-                other_params = {par: params_hyperparams[f"{par}_{other_letter}"] for par in self.parameterisation.pars}
+                other_params = {par: params[f"{par}_{other_letter}"] for par in self.parameterisation.pars}
                 other_planet = ravest.model.Planet(other_letter, self.parameterisation, other_params)
                 other_rv_obs += other_planet.radial_velocity(self.time)
 
         # Calculate trend (gd, gdd only - no gamma)
-        trend_params = {"gd": params_hyperparams["gd"], "gdd": params_hyperparams["gdd"]}
+        trend_params = {"gd": params["gd"], "gdd": params["gdd"]}
         trend = ravest.model.Trend(params=trend_params, t0=self.t0)
         other_rv_obs += trend.radial_velocity(self.time)
 
@@ -6448,14 +6237,13 @@ class GPFitter:
         rv_mean_obs = other_rv_obs + planet_rv_obs
 
         # Set up GP for prediction
-        hyperparams = {hp: params_hyperparams[hp] for hp in self.gp_kernel.expected_hyperparams}
-        kernel = self.gp_kernel.build_kernel(hyperparams)
+        kernel = self.gp_kernel.build_kernel(params)
 
         # Calculate per-instrument jitter for GP diagonal
         jit2_verr2 = np.zeros(len(self.time))
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
-            jit = params_hyperparams[f"jit_{inst}"]
+            jit = params[f"jit_{inst}"]
             jit2_verr2[mask] = self.velerr[mask]**2 + jit**2
 
         # Create GP conditioned on gamma-corrected residuals
@@ -6510,7 +6298,7 @@ class GPFitter:
         ax1.tick_params(axis='y', which='minor', direction='in', length=3)
 
         # Annotate with planet info
-        K_value = params_hyperparams[f"K_{planet_letter}"]
+        K_value = params[f"K_{planet_letter}"]
         P_label = param_key_to_latex(f"P_{planet_letter}")
         K_label = param_key_to_latex(f"K_{planet_letter}")
         s = f"Planet {planet_letter}\n{P_label}={P:.2f} d\n{K_label}={K_value:.2f} m/s"
@@ -6605,10 +6393,10 @@ class GPFitter:
         _trange = _tmax - _tmin
         tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, n_smooth)
 
-        # Get samples for free parameters/hyperparameters and combine with fixed values
+        # Get samples for free parameters and combine with fixed values
         samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
-        # Combine with fixed parameters and fixed hyperparameters
-        params_hyperparams = samples_dict | self.fixed_params_values_dict | self.fixed_hyperparams_values_dict
+        # Combine with fixed parameters
+        params = samples_dict | self.fixed_params_values_dict
 
         # Report number of effective samples
         n_samples = len(samples_dict[list(samples_dict.keys())[0]])
@@ -6636,10 +6424,10 @@ class GPFitter:
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
             g_key = f"g_{inst}"
-            if isinstance(params_hyperparams[g_key], np.ndarray):
-                vel_corrected[mask] -= np.median(params_hyperparams[g_key])
+            if isinstance(params[g_key], np.ndarray):
+                vel_corrected[mask] -= np.median(params[g_key])
             else:
-                vel_corrected[mask] -= params_hyperparams[g_key]
+                vel_corrected[mask] -= params[g_key]
 
         # Calculate GP mean at obs times and smooth times (conditioned on gamma-corrected residuals)
         residuals_matrix_obs = vel_corrected - rv_all_planets_trend_matrix_obs
@@ -6650,10 +6438,10 @@ class GPFitter:
             # Extract hyperparameters for this sample
             sample_hyperparams = {}
             for hp in self.gp_kernel.expected_hyperparams:
-                if isinstance(params_hyperparams[hp], np.ndarray):
-                    sample_hyperparams[hp] = params_hyperparams[hp][i]
+                if isinstance(params[hp], np.ndarray):
+                    sample_hyperparams[hp] = params[hp][i]
                 else:
-                    sample_hyperparams[hp] = params_hyperparams[hp]
+                    sample_hyperparams[hp] = params[hp]
 
             # Build GP kernel for this sample
             kernel = self.gp_kernel.build_kernel(sample_hyperparams)
@@ -6663,10 +6451,10 @@ class GPFitter:
             for inst in self.unique_instruments:
                 mask = (self.instrument == inst)
                 jit_key = f"jit_{inst}"
-                if isinstance(params_hyperparams[jit_key], np.ndarray):
-                    jit_value = params_hyperparams[jit_key][i]
+                if isinstance(params[jit_key], np.ndarray):
+                    jit_value = params[jit_key][i]
                 else:
-                    jit_value = params_hyperparams[jit_key]
+                    jit_value = params[jit_key]
                 jit2_verr2[mask] = self.velerr[mask]**2 + jit_value**2
 
             # Create GP once for this sample
@@ -6696,10 +6484,10 @@ class GPFitter:
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
             jit_key = f"jit_{inst}"
-            if isinstance(params_hyperparams[jit_key], np.ndarray):
-                jit_median = np.median(params_hyperparams[jit_key])
+            if isinstance(params[jit_key], np.ndarray):
+                jit_median = np.median(params[jit_key])
             else:
-                jit_median = params_hyperparams[jit_key]
+                jit_median = params[jit_key]
             velerr_with_jit[mask] = np.sqrt(self.velerr[mask]**2 + jit_median**2)
 
         # Create figure with subplots (same layout as Fitter)
@@ -6851,10 +6639,10 @@ class GPFitter:
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 5), gridspec_kw={'height_ratios': [3, 1], 'hspace': 0})
         fig.align_ylabels([ax1, ax2])
 
-        # Get samples for free parameters/hyperparameters and combine with fixed values
+        # Get samples for free parameters and combine with fixed values
         samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
-        # Combine with fixed parameters and fixed hyperparameters
-        params_hyperparams = samples_dict | self.fixed_params_values_dict | self.fixed_hyperparams_values_dict
+        # Combine with fixed parameters
+        params = samples_dict | self.fixed_params_values_dict
 
         # Report number of effective samples
         n_samples = len(samples_dict[list(samples_dict.keys())[0]])
@@ -6865,10 +6653,10 @@ class GPFitter:
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
             jit_key = f"jit_{inst}"
-            if isinstance(params_hyperparams[jit_key], np.ndarray):
-                jit_median = np.median(params_hyperparams[jit_key])
+            if isinstance(params[jit_key], np.ndarray):
+                jit_median = np.median(params[jit_key])
             else:
-                jit_median = params_hyperparams[jit_key]
+                jit_median = params[jit_key]
             velerr_with_jit[mask] = np.sqrt(self.velerr[mask]**2 + jit_median**2)
 
         # Subtract per-instrument gamma offsets from data (using median gamma values)
@@ -6876,16 +6664,16 @@ class GPFitter:
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
             g_key = f"g_{inst}"
-            if isinstance(params_hyperparams[g_key], np.ndarray):
-                vel_corrected[mask] -= np.median(params_hyperparams[g_key])
+            if isinstance(params[g_key], np.ndarray):
+                vel_corrected[mask] -= np.median(params[g_key])
             else:
-                vel_corrected[mask] -= params_hyperparams[g_key]
+                vel_corrected[mask] -= params[g_key]
 
         # Per-planet parameter samples for the target planet, with any frozen
         # values substituted in. A frozen parameter replaces its sample array
         # with the fixed scalar, so the fold reference below matches the
         # (frozen) per-sample model curve and data folds identically.
-        planet_params = {par: params_hyperparams[f"{par}_{planet_letter}"] for par in self.parameterisation.pars}
+        planet_params = {par: params[f"{par}_{planet_letter}"] for par in self.parameterisation.pars}
         if resolved_freeze:
             for par in self.parameterisation.pars:
                 key = f"{par}_{planet_letter}"
@@ -6972,12 +6760,12 @@ class GPFitter:
             # Extract hyperparameters for this sample
             sample_hyperparams = {}
             for hp in self.gp_kernel.expected_hyperparams:
-                if isinstance(params_hyperparams[hp], np.ndarray):
+                if isinstance(params[hp], np.ndarray):
                     # Free hyperparameter - take i-th sample
-                    sample_hyperparams[hp] = params_hyperparams[hp][i]
+                    sample_hyperparams[hp] = params[hp][i]
                 else:
                     # Fixed hyperparameter - use scalar value
-                    sample_hyperparams[hp] = params_hyperparams[hp]
+                    sample_hyperparams[hp] = params[hp]
             # Build GP kernel for this sample
             kernel = self.gp_kernel.build_kernel(sample_hyperparams)
             # Get per-instrument jitter values for this sample
@@ -6985,10 +6773,10 @@ class GPFitter:
             for inst in self.unique_instruments:
                 mask = (self.instrument == inst)
                 jit_key = f"jit_{inst}"
-                if isinstance(params_hyperparams[jit_key], np.ndarray):
-                    jit_value = params_hyperparams[jit_key][i]
+                if isinstance(params[jit_key], np.ndarray):
+                    jit_value = params[jit_key][i]
                 else:
-                    jit_value = params_hyperparams[jit_key]
+                    jit_value = params[jit_key]
                 jit2_verr2[mask] = self.velerr[mask]**2 + jit_value**2
             # Create GP conditioned on residuals for this sample
             gp_obs = GaussianProcess(kernel=kernel, X=jnp.array(self.time), diag=jnp.array(jit2_verr2))
@@ -7125,13 +6913,11 @@ class GPFitter:
         dpi : int, optional
             Resolution for saving (default: 100)
         """
-        # Get MAP parameter and hyperparameter values from the optimization result
-        # map_result.x contains both free parameters and free hyperparameters
-        all_free_names = self.free_params_names + self.free_hyperparams_names
-        map_params_and_hyperparams = dict(zip(all_free_names, map_result.x))
+        # Get MAP parameter values from the optimization result
+        map_params = dict(zip(self.free_params_names, map_result.x))
 
-        # Combine with fixed parameters and fixed hyperparameters
-        all_params = map_params_and_hyperparams | self.fixed_params_values_dict | self.fixed_hyperparams_values_dict
+        # Combine with fixed parameters
+        all_params = map_params | self.fixed_params_values_dict
 
         # Use helper function to create the plot
         self._plot_rv(all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
@@ -7168,13 +6954,11 @@ class GPFitter:
         dpi : int, optional
             Resolution for saving (default: 100)
         """
-        # Get MAP parameter and hyperparameter values from the optimization result
-        # map_result.x contains both free parameters and free hyperparameters
-        all_free_names = self.free_params_names + self.free_hyperparams_names
-        map_params_and_hyperparams = dict(zip(all_free_names, map_result.x))
+        # Get MAP parameter values from the optimization result
+        map_params = dict(zip(self.free_params_names, map_result.x))
 
-        # Combine with fixed parameters and fixed hyperparameters
-        all_params = map_params_and_hyperparams | self.fixed_params_values_dict | self.fixed_hyperparams_values_dict
+        # Combine with fixed parameters
+        all_params = map_params | self.fixed_params_values_dict
 
         # Set default title if not provided
         if title is None:
@@ -7183,7 +6967,7 @@ class GPFitter:
         # Use helper function to create the plot
         self._plot_phase(planet_letter, all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
-    def plot_custom_rv(self, params_hyperparams: dict, title: str | None = "Custom GP RV Plot", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "custom_rv.png", dpi: int = 100) -> None:
+    def plot_custom_rv(self, params: dict, title: str | None = "Custom GP RV Plot", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "custom_rv.png", dpi: int = 100) -> None:
         """Plot GP radial velocity data and model using custom parameter and hyperparameter values.
 
         Allows plotting with arbitrary parameter and hyperparameter values for exploring
@@ -7192,7 +6976,7 @@ class GPFitter:
 
         Parameters
         ----------
-        params_hyperparams : dict
+        params : dict
             Dictionary of parameter and hyperparameter values to use for plotting.
             Keys should match parameter and hyperparameter names, values should be floats.
             Must include all required parameters and hyperparameters for the current
@@ -7231,19 +7015,17 @@ class GPFitter:
         ...                          "gp_amp": 15.0, "gp_lambda_e": 50.0,
         ...                          "gp_lambda_p": 0.5, "gp_period": 25.0})
         """
-        # Validate that all required parameters and hyperparameters are present
+        # Validate that all required parameters are present
         expected_params = set(self.free_params_names + list(self.fixed_params_names))
-        expected_hyperparams = set(self.free_hyperparams_names + list(self.fixed_hyperparams_names))
-        expected_all = expected_params | expected_hyperparams
-        provided_params = set(params_hyperparams.keys())
-        missing_params = expected_all - provided_params
+        provided_params = set(params.keys())
+        missing_params = expected_params - provided_params
         if missing_params:
-            raise ValueError(f"Missing required parameters/hyperparameters: {missing_params}")
+            raise ValueError(f"Missing required parameters: {missing_params}")
 
         # Use helper function to create the plot
-        self._plot_rv(params_hyperparams, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, n_smooth=n_smooth, save=save, fname=fname, dpi=dpi)
+        self._plot_rv(params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, n_smooth=n_smooth, save=save, fname=fname, dpi=dpi)
 
-    def plot_custom_phase(self, planet_letter: str, params_hyperparams: dict, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "custom_phase.png", dpi: int = 100) -> None:
+    def plot_custom_phase(self, planet_letter: str, params: dict, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "custom_phase.png", dpi: int = 100) -> None:
         """Plot GP phase-folded radial velocity data and model using custom parameter and hyperparameter values.
 
         Allows plotting phase-folded data with arbitrary parameter and hyperparameter values
@@ -7254,7 +7036,7 @@ class GPFitter:
         ----------
         planet_letter : str
             Letter identifying the planet to plot (e.g., 'b', 'c', 'd')
-        params_hyperparams : dict
+        params : dict
             Dictionary of parameter and hyperparameter values to use for plotting.
             Keys should match parameter and hyperparameter names, values should be floats.
             Must include all required parameters and hyperparameters for the current
@@ -7287,21 +7069,19 @@ class GPFitter:
         ...                                  "gp_amp": 15.0, "gp_lambda_e": 50.0,
         ...                                  "gp_lambda_p": 0.5, "gp_period": 25.0})
         """
-        # Validate that all required parameters and hyperparameters are present
+        # Validate that all required parameters are present
         expected_params = set(self.free_params_names + list(self.fixed_params_names))
-        expected_hyperparams = set(self.free_hyperparams_names + list(self.fixed_hyperparams_names))
-        expected_all = expected_params | expected_hyperparams
-        provided_params = set(params_hyperparams.keys())
-        missing_params = expected_all - provided_params
+        provided_params = set(params.keys())
+        missing_params = expected_params - provided_params
         if missing_params:
-            raise ValueError(f"Missing required parameters/hyperparameters: {missing_params}")
+            raise ValueError(f"Missing required parameters: {missing_params}")
 
         # Set default title if not provided
         if title is None:
             title = f"Custom GP Phase Plot - Planet {planet_letter}"
 
         # Use helper function to create the plot
-        self._plot_phase(planet_letter, params_hyperparams, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
+        self._plot_phase(planet_letter, params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
     def plot_best_sample_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, title: str | None = "Best Sample RV Plot (with GP)", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "best_sample_rv.png", dpi: int = 100) -> None:
         """Plot radial velocity data and model using parameter and hyperparameter values from the MCMC sample with highest log probability.
@@ -7341,11 +7121,11 @@ class GPFitter:
         dpi : int, optional
             Resolution for saving (default: 100)
         """
-        # Get parameter and hyperparameter values from best sample
-        best_sample_params_hyperparams = self.get_sample_with_best_lnprob(discard_start=discard_start, discard_end=discard_end, thin=thin)
+        # Get free parameter values from best sample
+        best_sample_params = self.get_sample_with_best_lnprob(discard_start=discard_start, discard_end=discard_end, thin=thin)
 
-        # Combine with fixed parameters and fixed hyperparameters
-        all_params = best_sample_params_hyperparams | self.fixed_params_values_dict | self.fixed_hyperparams_values_dict
+        # Combine with fixed parameters
+        all_params = best_sample_params | self.fixed_params_values_dict
 
         # Use helper function to create the plot
         self._plot_rv(all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
@@ -7386,11 +7166,11 @@ class GPFitter:
         dpi : int, optional
             Resolution for saving (default: 100)
         """
-        # Get parameter and hyperparameter values from best sample
-        best_sample_params_hyperparams = self.get_sample_with_best_lnprob(discard_start=discard_start, discard_end=discard_end, thin=thin)
+        # Get free parameter values from best sample
+        best_sample_params = self.get_sample_with_best_lnprob(discard_start=discard_start, discard_end=discard_end, thin=thin)
 
-        # Combine with fixed parameters and fixed hyperparameters
-        all_params = best_sample_params_hyperparams | self.fixed_params_values_dict | self.fixed_hyperparams_values_dict
+        # Combine with fixed parameters
+        all_params = best_sample_params | self.fixed_params_values_dict
 
         # Set default title if not provided
         if title is None:
@@ -7555,7 +7335,7 @@ class GPFitter:
 
         iterator = tqdm(enumerate(samples), total=len(samples), disable=not progress, desc=f"Calculating planet {planet_letter} RV from samples")
         for i, combined_sample in iterator:
-            # Build complete params dict for this sample (includes hyperparams)
+            # Build complete params dict for this sample
             params = self.build_params_dict(combined_sample)
 
             # Substitute any frozen parameter values for this sample
@@ -7597,7 +7377,7 @@ class GPFitter:
 
         iterator = tqdm(enumerate(samples), total=len(samples), disable=not progress, desc="Calculating trend RV from samples")
         for i, combined_sample in iterator:
-            # Build complete params dict for this sample (includes hyperparams)
+            # Build complete params dict for this sample
             params = self.build_params_dict(combined_sample)
 
             # Use custom method
@@ -7643,7 +7423,7 @@ class GPFitter:
 
         iterator = tqdm(enumerate(samples), total=len(samples), disable=not progress, desc="Calculating GP from samples")
         for i, combined_sample in iterator:
-            # Build complete params dict for this sample (includes hyperparams)
+            # Build complete params dict for this sample
             params = self.build_params_dict(combined_sample)
 
             # Use custom method
@@ -7789,11 +7569,8 @@ class GPFitter:
         >>> params = gpfitter.build_params_dict(best_params)
         >>> gp_rv = gpfitter.calculate_rv_gp_custom(times, params)
         """
-        # Separate params and hyperparams
-        hyperparam_values = {name: params[name] for name in self.gp_kernel.expected_hyperparams}
-
         # Build GP kernel with per-instrument jitter
-        kernel = self.gp_kernel.build_kernel(hyperparam_values)
+        kernel = self.gp_kernel.build_kernel(params)
         jit2_verr2 = np.zeros(len(self.time))
         for inst in self.unique_instruments:
             mask = (self.instrument == inst)
@@ -7862,7 +7639,8 @@ class GPFitter:
 class GPLogPosterior:
     """Log posterior probability for GP MCMC sampling.
 
-    Combines GP log likelihood and log priors for both parameters and hyperparameters.
+    Combines GP log likelihood and log priors. GP hyperparameters are parameters like any
+    other here: their names sit in the same priors, fixed_params and free_params_names.
     """
 
     def __init__(
@@ -7871,11 +7649,8 @@ class GPLogPosterior:
         parameterisation: Parameterisation,
         gp_kernel: GPKernel,
         priors: dict[str, Callable[[float], float]],
-        hyperpriors: dict[str, Callable[[float], float]],
         fixed_params: dict[str, float],
-        fixed_hyperparams: dict[str, float],
         free_params_names: list[str],
-        free_hyperparams_names: list[str],
         time: np.ndarray,
         vel: np.ndarray,
         velerr: np.ndarray,
@@ -7895,16 +7670,10 @@ class GPLogPosterior:
             The Gaussian Process kernel to use.
         priors : dict[str, Callable[[float], float]]
             Dictionary mapping parameter names to their prior probability functions.
-        hyperpriors : dict[str, Callable[[float], float]]
-            Dictionary mapping hyperparameter names to their prior probability functions.
         fixed_params : dict[str, float]
             Dictionary of fixed parameter values.
-        fixed_hyperparams : dict[str, float]
-            Dictionary of fixed hyperparameter values.
         free_params_names : list[str]
             List of free parameter names to sample.
-        free_hyperparams_names : list[str]
-            List of free hyperparameter names to sample.
         time : np.ndarray
             Time of each observation [days].
         vel : np.ndarray
@@ -7922,11 +7691,8 @@ class GPLogPosterior:
         self.parameterisation = parameterisation
         self.gp_kernel = gp_kernel
         self.priors = priors
-        self.hyperpriors = hyperpriors
         self.fixed_params = fixed_params
-        self.fixed_hyperparams = fixed_hyperparams
         self.free_params_names = free_params_names
-        self.free_hyperparams_names = free_hyperparams_names
         self.time = time
         self.vel = vel
         self.velerr = velerr
@@ -7947,9 +7713,8 @@ class GPLogPosterior:
             gp_kernel=self.gp_kernel,
         )
 
-        # Create LogPrior objects for parameters and hyperparameters
+        # Create LogPrior object (covers the GP hyperparameters' priors too)
         self.log_prior = LogPrior(self.priors)
-        self.log_hyperprior = LogPrior(self.hyperpriors)
 
         (
             self._logprob_jacobian_correction,
@@ -8105,22 +7870,19 @@ class GPLogPosterior:
 
             return params_for_prior
 
-    def log_probability(self, combined_params_hyperparams: Dict[str, float]) -> float:
-        """Calculate log posterior probability for given free parameters and hyperparameters.
+    def log_probability(self, free_params_dict: Dict[str, float]) -> float:
+        """Calculate log posterior probability for given free parameters.
 
         Parameters
         ----------
-        combined_params_hyperparams : Dict[str, float]
-            Combined dictionary of free parameters and hyperparameters
+        free_params_dict : Dict[str, float]
+            Dictionary of free parameter values
 
         Returns
         -------
         float
-            Log posterior probability (log likelihood + log prior + log hyperprior)
+            Log posterior probability (log likelihood + log prior)
         """
-        # Split the combined dictionary into parameters and hyperparameters
-        free_params_dict = {name: combined_params_hyperparams[name] for name in self.free_params_names}
-        free_hyperparams_dict = {name: combined_params_hyperparams[name] for name in self.free_hyperparams_names}
         # Fast fail for invalid jitter (before expensive prior/likelihood calculations)
         # We have to check jitter specifically because all other params will ultimately
         # get checked/raise Exceptions when they are used to calculate an RV.
@@ -8131,10 +7893,9 @@ class GPLogPosterior:
                 return -np.inf
 
         # Fast fail for invalid GP hyperparameters
-        # This is a check for unphysical values, not for if they are within the hyperpriors or not
+        # This is a check for unphysical values, not for if they are within their priors or not
         try:
-            all_hyperparams_values = self.fixed_hyperparams | free_hyperparams_dict
-            self.gp_kernel._validate_hyperparams_values(all_hyperparams_values)
+            self.gp_kernel._validate_hyperparams_values(_all_params_for_ll)
         except ValueError:
             return -np.inf
 
@@ -8152,27 +7913,20 @@ class GPLogPosterior:
         if not np.isfinite(lp):
             return -np.inf
 
-        # Evaluate hyperpriors on the free hyperparameters - fail fast if any hyperparameters are outside priors
-        lhp = self.log_hyperprior(free_hyperparams_dict)
-        if not np.isfinite(lhp):
-            return -np.inf
+        # Calculate GP log-likelihood with all parameters
+        ll = self.gp_log_likelihood(_all_params_for_ll)
 
-        # Calculate GP log-likelihood with all parameters and hyperparameters
-        all_params = self.fixed_params | free_params_dict
-        all_hyperparams = self.fixed_hyperparams | free_hyperparams_dict
-        ll = self.gp_log_likelihood(params=all_params, hyperparams=all_hyperparams)
-
-        # Return combined log-posterior (log-likelihood + log-prior + log-hyperprior),
+        # Return combined log-posterior (log-likelihood + log-prior),
         # plus the constant per-planet Jacobian/prior-renormalisation corrections
         # needed for evidence-correct (u, v) parameterisation sampling. These are
         # constants so they cancel in the MCMC acceptance ratio and only matter
         # for Bayesian evidence estimation (e.g. via harmonic/LHME).
-        logprob = ll + lp + lhp
+        logprob = ll + lp
         logprob += self._logprob_jacobian_correction
         logprob += self._logprob_prior_renorm_correction
         return logprob
 
-    def _negative_log_probability_for_MAP(self, combined_free_params_hyperparams_vals: list[float]) -> float:
+    def _negative_log_probability_for_MAP(self, free_params_vals: list[float]) -> float:
         """For MAP: run __call__ only passing in a list, not dict, of params.
 
         Because scipy.optimize.minimise only takes list of values, not a dict,
@@ -8184,22 +7938,15 @@ class GPLogPosterior:
 
         Parameters
         ----------
-        combined_free_params_hyperparams_vals : list
-            Combined list of free parameter and free hyperparameter values
+        free_params_vals : list
+            float values of the free parameters
         """
-        # Split the list back into params values and hyperparams values
-        n_params = len(self.free_params_names)
-        params_values = combined_free_params_hyperparams_vals[:n_params]
-        hyperparams_values = combined_free_params_hyperparams_vals[n_params:]
-
-        # Create combined dict from the names and values
+        # Create dicts from the names and values
         # (Assumes the order of names matches the order of values)
-        params_dict = dict(zip(self.free_params_names, params_values))
-        hyperparams_dict = dict(zip(self.free_hyperparams_names, hyperparams_values))
-        combined_dict = params_dict | hyperparams_dict
+        free_params_dict = dict(zip(self.free_params_names, free_params_vals))
 
         # Calculate *negative* log_probability (MAP is backwards from MCMC)
-        logprob = self.log_probability(combined_dict)
+        logprob = self.log_probability(free_params_dict)
         neg_logprob = -logprob
 
         # Handle -inf log_probability to prevent scipy RuntimeWarnings during optimisation
@@ -8331,15 +8078,13 @@ class GPLogLikelihood:
         residuals = vel_array - mean_model
         return gp.log_probability(y=residuals)
 
-    def __call__(self, params: Dict[str, float], hyperparams: Dict[str, float]) -> float:
-        """Calculate GP log likelihood for given parameters and hyperparameters.
+    def __call__(self, params: Dict[str, float]) -> float:
+        """Calculate GP log likelihood for given parameters.
 
         Parameters
         ----------
         params : Dict[str, float]
-            Dictionary of all parameter values
-        hyperparams : Dict[str, float]
-            Dictionary of all hyperparameter values
+            Dictionary of all parameter values, including the GP hyperparameters
 
         Returns
         -------
@@ -8355,7 +8100,7 @@ class GPLogLikelihood:
             return -np.inf
 
         # Build GP kernel with hyperparameters
-        kernel = self.gp_kernel.build_kernel(hyperparams)
+        kernel = self.gp_kernel.build_kernel(params)
 
         # Add per-instrument jitter to observational uncertainties using vectorised fancy indexing.
         # Each instrument has its own jitter value. We need to pair each of the N observations
