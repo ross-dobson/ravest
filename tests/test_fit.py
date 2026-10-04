@@ -3116,7 +3116,7 @@ class TestPriorPresenceValidation:
             fitter.params = test_gp_all_params | {"gp_amp": Parameter(1.0, fixed=True)}
             fitter.priors = {k: v for k, v in test_gp_all_priors.items() if k != "gp_amp"}
             fitter.params = {"gp_amp": Parameter(1.0, fixed=False)}  # now free, with no prior
-        monkeypatch.setattr(fitter, "_validate_free_params_have_priors", lambda: {})
+        monkeypatch.setattr(fitter, "_validate_before_fit", lambda: {})
 
         with pytest.raises(ValueError, match=f"No prior for free parameter {name}"):
             fitter.generate_initial_walker_positions_random(nwalkers=2 * fitter.ndim)
@@ -3413,3 +3413,164 @@ class TestParamOrder:
         fitter = self._gpfitter()
 
         assert fitter.ndim == len(fitter.free_params_names) == 14 + 3
+
+
+def _set_value(name, value):
+    def edit(fitter):
+        fitter.params[name].value = value
+    return edit
+
+
+def _set_fixed(name, fixed):
+    def edit(fitter):
+        fitter.params[name].fixed = fixed
+    return edit
+
+
+def _replace_param(name, param):
+    def edit(fitter):
+        fitter.params[name] = param
+    return edit
+
+
+def _delete_param(name):
+    def edit(fitter):
+        del fitter.params[name]
+    return edit
+
+
+def _replace_prior(name, prior):
+    def edit(fitter):
+        fitter.priors[name] = prior
+    return edit
+
+
+def _delete_prior(name):
+    def edit(fitter):
+        del fitter.priors[name]
+    return edit
+
+
+# (id, edit, exception, match): in-place edits that skip the params/priors setters
+IN_PLACE_EDITS = [
+    ("value_outside_prior", _set_value("K_b", 25.0), ValueError,
+     "Initial value 25.0 of parameter K_b is invalid"),
+    ("value_unphysical", _set_value("jit_HARPS", -1.0), ValueError, "Invalid jitter jit_HARPS"),
+    ("fixed_not_bool", _set_fixed("K_b", np.False_), TypeError, "fixed"),
+    ("param_replaced_as_fixed", _replace_param("K_b", Parameter(5.0, fixed=True)), ValueError,
+     "Unexpected priors.*K_b"),
+    ("param_deleted", _delete_param("gd"), ValueError, "Missing required parameters.*gd"),
+    ("param_added", _replace_param("foo", Parameter(1.0, fixed=True)), ValueError,
+     "Unexpected parameters.*foo"),
+    ("prior_excludes_value", _replace_prior("K_b", ravest.prior.Uniform(10, 20)), ValueError,
+     "Initial value 5.0 of parameter K_b is invalid"),
+    ("prior_deleted", _delete_prior("K_b"), ValueError, "(No prior|Missing priors).*K_b"),
+    ("prior_on_fixed_param", _replace_prior("P_b", ravest.prior.Uniform(1, 5)), ValueError,
+     "Unexpected priors.*P_b"),
+]
+
+GP_IN_PLACE_EDITS = [
+    ("gp_value_unphysical", _set_value("gp_amp", -1.0), ValueError, "gp_amp must be positive"),
+    ("gp_value_outside_prior", _set_value("gp_period", 60.0), ValueError,
+     "Initial value 60.0 of parameter gp_period is invalid"),
+]
+
+ENTRY_POINTS = ["find_map_estimate", "random", "around_point", "from_map", "run_mcmc"]
+
+
+class TestPointOfUseValidation:
+    """Every method that fits re-checks params and priors, so in-place edits cannot skip validation.
+
+    fitter.params and fitter.priors return the live dicts, so editing them in place bypasses the
+    setters' checks. find_map_estimate, run_mcmc and the three walker initialisers run the full
+    params and priors checks first, before anything else (including their own shape checks).
+    """
+
+    @staticmethod
+    def _fitter(kind, test_data, test_circular_params, test_simple_priors,
+                test_gp_data, test_gp_all_params, test_gp_all_priors):
+        """Fitter (free K_b, jit_HARPS) or GPFitter (plus the four free QP hyperparameters)."""
+        if kind == "Fitter":
+            fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+            fitter.add_data(*test_data, t0=2.0)
+            fitter.params = test_circular_params
+            fitter.priors = test_simple_priors
+        else:
+            fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+            fitter.add_data(*test_gp_data, t0=2.0)
+            fitter.params = test_gp_all_params
+            fitter.priors = test_gp_all_priors
+        return fitter
+
+    @staticmethod
+    def _call(fitter, entry_point, centre):
+        """Call one entry point, with inputs sized for the fitter as it was before any edit."""
+        ndim = len(centre)
+        nwalkers = 2 * ndim
+        if entry_point == "find_map_estimate":
+            fitter.find_map_estimate()
+        elif entry_point == "random":
+            fitter.generate_initial_walker_positions_random(nwalkers=nwalkers)
+        elif entry_point == "around_point":
+            fitter.generate_initial_walker_positions_around_point(centre=centre, nwalkers=nwalkers)
+        elif entry_point == "from_map":
+            import types
+            fitter.generate_initial_walker_positions_from_map(types.SimpleNamespace(x=centre),
+                                                              nwalkers=nwalkers)
+        elif entry_point == "run_mcmc":
+            rng = np.random.default_rng(0)
+            positions = centre * (1 + 0.01 * rng.standard_normal((nwalkers, ndim)))
+            fitter.run_mcmc(positions, nwalkers=nwalkers, max_steps=2, progress=False)
+
+    @pytest.fixture(params=["Fitter", "GPFitter"])
+    def fitter(self, request, test_data, test_circular_params, test_simple_priors,
+               test_gp_data, test_gp_all_params, test_gp_all_priors):
+        """Each fitter class, fully set up through the setters."""
+        return self._fitter(request.param, test_data, test_circular_params, test_simple_priors,
+                            test_gp_data, test_gp_all_params, test_gp_all_priors)
+
+    @pytest.mark.parametrize("entry_point", ENTRY_POINTS)
+    @pytest.mark.parametrize("edit_id, edit, exc, match", IN_PLACE_EDITS,
+                             ids=[e[0] for e in IN_PLACE_EDITS])
+    def test_in_place_edit_refused(self, fitter, entry_point, edit_id, edit, exc, match) -> None:
+        """Each in-place edit is caught at each entry point, with the setters' own message."""
+        centre = np.array(fitter.free_params_values)
+        edit(fitter)
+
+        with pytest.raises(exc, match=match):
+            self._call(fitter, entry_point, centre)
+
+    @pytest.mark.parametrize("entry_point", ENTRY_POINTS)
+    @pytest.mark.parametrize("edit_id, edit, exc, match", GP_IN_PLACE_EDITS,
+                             ids=[e[0] for e in GP_IN_PLACE_EDITS])
+    def test_gp_in_place_edit_refused(self, test_data, test_circular_params, test_simple_priors,
+                                      test_gp_data, test_gp_all_params, test_gp_all_priors,
+                                      entry_point, edit_id, edit, exc, match) -> None:
+        """In-place edits to GP hyperparameters are caught the same way."""
+        fitter = self._fitter("GPFitter", test_data, test_circular_params, test_simple_priors,
+                              test_gp_data, test_gp_all_params, test_gp_all_priors)
+        centre = np.array(fitter.free_params_values)
+        edit(fitter)
+
+        with pytest.raises(exc, match=match):
+            self._call(fitter, entry_point, centre)
+
+    @pytest.mark.parametrize("entry_point", ENTRY_POINTS)
+    def test_valid_in_place_edit_accepted(self, fitter, entry_point) -> None:
+        """A valid in-place edit passes the check, and the new value is the one used."""
+        fitter.params["K_b"].value = 6.0
+        centre = np.array(fitter.free_params_values)
+
+        self._call(fitter, entry_point, centre)
+
+        assert fitter.free_params_values[0] == 6.0
+
+    def test_check_does_not_rewrite_priors(self, fitter) -> None:
+        """Checking at fit time leaves the priors dict as it was: same object, same contents."""
+        priors = fitter.priors
+        before = dict(priors)
+
+        fitter.generate_initial_walker_positions_random(nwalkers=2 * fitter.ndim)
+
+        assert fitter.priors is priors
+        assert fitter.priors == before

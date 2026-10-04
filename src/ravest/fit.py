@@ -254,6 +254,14 @@ class Fitter:
                 f"Expected {len(expected_params)} parameters, got {len(provided_params)}"
             )
 
+        # Check every fixed flag is exactly True or False (the Parameter constructor checks
+        # this, but an in-place edit of .fixed would not be)
+        for name, param in params.items():
+            if type(param.fixed) is not bool:
+                raise TypeError(
+                    f"{name}: fixed must be True or False, not {param.fixed!r} of type {type(param.fixed)!r}."
+                )
+
         # Validate astrophysical validity of all parameters
         params_values = {name: param.value for name, param in params.items()}
         self._validate_astrophysical_validity(params_values)
@@ -324,7 +332,28 @@ class Fitter:
         # Create merged priors dict (in case user is only updating some priors, not all)
         merged_priors_dict = dict(self._priors)  # get existing priors
         merged_priors_dict.update(new_priors)  # overwrite with newer functions, if supplied
-        provided_prior_param_names = set(merged_priors_dict.keys())
+
+        # Store the priors in the fixed order, once they pass validation
+        self._priors = self._validate_priors(merged_priors_dict)
+
+    def _validate_priors(self, priors_dict: dict[str, Callable[[float], float]]) -> dict[str, Callable[[float], float]]:
+        """Check a complete priors dict against the current params, without storing it.
+
+        Used by the priors setter, and again before fitting (in-place edits of
+        ``params`` or ``priors`` skip the setter).
+
+        Returns
+        -------
+        dict
+            The priors, in the fixed parameter order.
+
+        Raises
+        ------
+        ValueError
+            If any required priors are missing, conflicting or unexpected, or an
+            initial parameter value is outside its prior.
+        """
+        provided_prior_param_names = set(priors_dict.keys())
 
         # There are two possibilities for priors:
         # 1. The prior has been given for the parameter, in the current parameterisation
@@ -342,7 +371,7 @@ class Fitter:
         for free_param_name in current_parameterisation_free_param_names:
             if free_param_name in provided_prior_param_names:
                 # Prior was provided for the param in the current parameterisation
-                validated_priors[free_param_name] = merged_priors_dict[free_param_name]
+                validated_priors[free_param_name] = priors_dict[free_param_name]
 
                 # Check if user ALSO provided equivalent default priors (conflict!)
                 default_parameterisation_equivalent_free_param_names = self._get_default_parameterisation_equivalent_free_param_name(free_param_name)
@@ -359,7 +388,7 @@ class Fitter:
                 if default_parameterisation_equivalent_free_param_names and all(eq in provided_prior_param_names for eq in default_parameterisation_equivalent_free_param_names):
                     # Found all required default equivalents
                     for equiv in default_parameterisation_equivalent_free_param_names:
-                        validated_priors[equiv] = merged_priors_dict[equiv]
+                        validated_priors[equiv] = priors_dict[equiv]
                 else:
                     # Missing prior for a free parameter in both the current parameterisation, and its equivalent in the default parameterisation
                     if default_parameterisation_equivalent_free_param_names:
@@ -387,8 +416,9 @@ class Fitter:
         # Check parameter values work with priors
         self._check_params_values_against_priors(validated_priors, current_parameterisation_free_param_names)
 
-        # Store the priors in the fixed order (validated_priors holds every merged prior, as none were unexpected)
-        self._priors = validated_priors
+        # Every supplied prior is in validated_priors (any extra would have been rejected
+        # above), now in the fixed parameter order
+        return validated_priors
 
     def _get_default_parameterisation_equivalent_free_param_name(self, free_param: str) -> Optional[list[str]]:
         """Get the names of the default parameterisation equivalent parameter(s), for a single free parameter from the current parameterisation.
@@ -576,7 +606,7 @@ class Fitter:
         Warning
             If MAP optimization fails to converge
         """
-        self._validate_free_params_have_priors()
+        self._validate_before_fit()
 
         # Initialize log-posterior object
         lp = LogPosterior(
@@ -659,6 +689,32 @@ class Fitter:
 
         return via_equivalents
 
+    def _validate_before_fit(self) -> dict[str, list[str]]:
+        """Re-check params and priors before fitting.
+
+        The ``params`` and ``priors`` getters return the live dicts, so an in-place
+        edit (e.g. ``fitter.params["K_b"].value = ...``) skips the setters' checks.
+        Every method that fits calls this first.
+
+        Returns
+        -------
+        dict[str, list[str]]
+            As ``_validate_free_params_have_priors``: the free parameters constrained
+            only through their default-parameterisation equivalents.
+
+        Raises
+        ------
+        ValueError
+            If a free parameter has no prior, the params are incomplete or invalid,
+            or the priors are unexpected or exclude a starting value.
+        TypeError
+            If a parameter's ``fixed`` is not exactly True or False.
+        """
+        via_equivalents = self._validate_free_params_have_priors()
+        self._validate_complete_params(self.params)
+        self._validate_priors(self.priors)
+        return via_equivalents
+
     def generate_initial_walker_positions_random(self, nwalkers: int, verbose: bool = False, max_attempts: int = 1000) -> np.ndarray:
         """Generate random initial walker positions that satisfy priors and are astrophysically valid.
 
@@ -729,7 +785,7 @@ class Fitter:
             print("Free parameters:", self.free_params_names)
 
         # Checked once, before the walker loop, rather than on every draw.
-        via_equivalents = self._validate_free_params_have_priors()
+        via_equivalents = self._validate_before_fit()
         for param_name, equivalents in via_equivalents.items():
             logging.debug(
                 f"{param_name} has no prior of its own; its prior was given on "
@@ -908,7 +964,7 @@ class Fitter:
                 "At least one parameter must be set as free (fixed=False)."
             )
 
-        self._validate_free_params_have_priors()
+        self._validate_before_fit()
 
         centre = np.asarray(centre)
 
@@ -1081,6 +1137,8 @@ class Fitter:
                 "At least one parameter must be set as free (fixed=False)."
             )
 
+        self._validate_before_fit()
+
         return self.generate_initial_walker_positions_around_point(
             centre=map_result.x,
             nwalkers=nwalkers,
@@ -1132,7 +1190,7 @@ class Fitter:
                 "At least one parameter must be set as free (fixed=False)."
             )
 
-        self._validate_free_params_have_priors()
+        self._validate_before_fit()
 
         # Initialize log-posterior object for MCMC sampling
         lp = LogPosterior(
@@ -4028,6 +4086,14 @@ class GPFitter:
                 f"Expected {len(expected_params)} parameters, got {len(provided_params)}"
             )
 
+        # Check every fixed flag is exactly True or False (the Parameter constructor checks
+        # this, but an in-place edit of .fixed would not be)
+        for name, param in params.items():
+            if type(param.fixed) is not bool:
+                raise TypeError(
+                    f"{name}: fixed must be True or False, not {param.fixed!r} of type {type(param.fixed)!r}."
+                )
+
         # Validate astrophysical validity of all parameters
         params_values = {name: param.value for name, param in params.items()}
         self._validate_astrophysical_validity(params_values)
@@ -4101,7 +4167,28 @@ class GPFitter:
         # Create merged priors dict (in case user is only updating some priors, not all)
         merged_priors_dict = dict(self._priors)  # get existing priors
         merged_priors_dict.update(new_priors)  # overwrite with newer functions, if supplied
-        provided_prior_param_names = set(merged_priors_dict.keys())
+
+        # Store the priors in the fixed order, once they pass validation
+        self._priors = self._validate_priors(merged_priors_dict)
+
+    def _validate_priors(self, priors_dict: dict[str, Callable[[float], float]]) -> dict[str, Callable[[float], float]]:
+        """Check a complete priors dict against the current params, without storing it.
+
+        Used by the priors setter, and again before fitting (in-place edits of
+        ``params`` or ``priors`` skip the setter).
+
+        Returns
+        -------
+        dict
+            The priors, in the fixed parameter order.
+
+        Raises
+        ------
+        ValueError
+            If any required priors are missing, conflicting or unexpected, or an
+            initial parameter value is outside its prior.
+        """
+        provided_prior_param_names = set(priors_dict.keys())
 
         # There are two possibilities for priors:
         # 1. The prior has been given for the parameter, in the current parameterisation
@@ -4119,7 +4206,7 @@ class GPFitter:
         for free_param_name in current_parameterisation_free_param_names:
             if free_param_name in provided_prior_param_names:
                 # Prior was provided for the param in the current parameterisation
-                validated_priors[free_param_name] = merged_priors_dict[free_param_name]
+                validated_priors[free_param_name] = priors_dict[free_param_name]
 
                 # Check if user ALSO provided equivalent default priors (conflict!)
                 default_parameterisation_equivalent_free_param_names = self._get_default_parameterisation_equivalent_free_param_name(free_param_name)
@@ -4136,7 +4223,7 @@ class GPFitter:
                 if default_parameterisation_equivalent_free_param_names and all(eq in provided_prior_param_names for eq in default_parameterisation_equivalent_free_param_names):
                     # Found all required default equivalents
                     for equiv in default_parameterisation_equivalent_free_param_names:
-                        validated_priors[equiv] = merged_priors_dict[equiv]
+                        validated_priors[equiv] = priors_dict[equiv]
                 else:
                     # Missing prior for a free parameter in both the current parameterisation, and its equivalent in the default parameterisation
                     if default_parameterisation_equivalent_free_param_names:
@@ -4164,8 +4251,9 @@ class GPFitter:
         # Check parameter values work with priors
         self._check_params_values_against_priors(validated_priors, current_parameterisation_free_param_names)
 
-        # Store the priors in the fixed order (validated_priors holds every merged prior, as none were unexpected)
-        self._priors = validated_priors
+        # Every supplied prior is in validated_priors (any extra would have been rejected
+        # above), now in the fixed parameter order
+        return validated_priors
 
 
     def _get_default_parameterisation_equivalent_free_param_name(self, free_param: str) -> Optional[list[str]]:
@@ -4359,7 +4447,7 @@ class GPFitter:
         Warning
             If MAP optimization fails to converge
         """
-        self._validate_free_params_have_priors()
+        self._validate_before_fit()
 
         # Initialize log-posterior object
         gp_lp = GPLogPosterior(
@@ -4443,6 +4531,32 @@ class GPFitter:
 
         return via_equivalents
 
+    def _validate_before_fit(self) -> dict[str, list[str]]:
+        """Re-check params and priors before fitting.
+
+        The ``params`` and ``priors`` getters return the live dicts, so an in-place
+        edit (e.g. ``fitter.params["K_b"].value = ...``) skips the setters' checks.
+        Every method that fits calls this first.
+
+        Returns
+        -------
+        dict[str, list[str]]
+            As ``_validate_free_params_have_priors``: the free parameters constrained
+            only through their default-parameterisation equivalents.
+
+        Raises
+        ------
+        ValueError
+            If a free parameter has no prior, the params are incomplete or invalid,
+            or the priors are unexpected or exclude a starting value.
+        TypeError
+            If a parameter's ``fixed`` is not exactly True or False.
+        """
+        via_equivalents = self._validate_free_params_have_priors()
+        self._validate_complete_params(self.params)
+        self._validate_priors(self.priors)
+        return via_equivalents
+
     def generate_initial_walker_positions_random(self, nwalkers: int, verbose: bool = False, max_attempts: int = 1000) -> np.ndarray:
         """Generate random initial walker positions that satisfy priors and are astrophysically valid.
 
@@ -4513,7 +4627,7 @@ class GPFitter:
             print("Free parameters:", self.free_params_names)
 
         # Checked once, before the walker loop, rather than on every draw.
-        via_equivalents = self._validate_free_params_have_priors()
+        via_equivalents = self._validate_before_fit()
         for param_name, equivalents in via_equivalents.items():
             logging.debug(
                 f"{param_name} has no prior of its own; its prior was given on "
@@ -4693,7 +4807,7 @@ class GPFitter:
                 "At least one parameter must be set as free (fixed=False)."
             )
 
-        self._validate_free_params_have_priors()
+        self._validate_before_fit()
 
         centre = np.asarray(centre)
 
@@ -4867,6 +4981,8 @@ class GPFitter:
                 "At least one parameter must be set as free (fixed=False)."
             )
 
+        self._validate_before_fit()
+
         return self.generate_initial_walker_positions_around_point(
             centre=map_result.x,
             nwalkers=nwalkers,
@@ -4918,7 +5034,7 @@ class GPFitter:
                 "At least one parameter must be set as free (fixed=False)."
             )
 
-        self._validate_free_params_have_priors()
+        self._validate_before_fit()
 
         # Initialize log-posterior object for MCMC sampling
         gp_lp = GPLogPosterior(
