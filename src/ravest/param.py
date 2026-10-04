@@ -467,7 +467,7 @@ def param_key_to_latex(param_key: str) -> str:
     r"""Convert a parameter key to a LaTeX-formatted label for plotting.
 
     Parameter keys are the flat strings Ravest uses to name parameters: the
-    keys of ``Fitter.params`` and ``GPFitter.hyperparams``, and the column
+    keys of ``Fitter.params`` and ``GPFitter.params``, and the column
     names of the sample dataframes. This function is the single source of the
     labels drawn on every Ravest plot.
 

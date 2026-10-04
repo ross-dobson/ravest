@@ -1503,6 +1503,18 @@ def test_gp_hyperpriors():
 
 
 @pytest.fixture
+def test_gp_all_params(test_gp_circular_params, test_gp_hyperparams):
+    """Every GPFitter parameter: the circular orbit's, then the QP kernel's."""
+    return test_gp_circular_params | test_gp_hyperparams
+
+
+@pytest.fixture
+def test_gp_all_priors(test_gp_priors, test_gp_hyperpriors):
+    """A prior for every free parameter in test_gp_all_params, GP ones included."""
+    return test_gp_priors | test_gp_hyperpriors
+
+
+@pytest.fixture
 def test_gp_data_multi_instrument():
     """Synthetic RV data with two instruments for GP testing."""
     time = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
@@ -1838,8 +1850,6 @@ class TestGPFitter:
         assert fitter.gp_kernel == gp_kernel
         assert fitter.params == {}
         assert fitter.priors == {}
-        assert fitter.hyperparams == {}
-        assert fitter.hyperpriors == {}
 
     def test_gpfitter_init_rejects_string_parameterisation(self) -> None:
         """Passing the parameterisation name as a string (not a Parameterisation) raises."""
@@ -1873,317 +1883,233 @@ class TestGPFitter:
         with pytest.raises(ValueError, match="arrays must be the same length"):
             fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
-    def test_params_property_valid(self, test_gp_data, test_gp_circular_params) -> None:
-        """Test setting valid parameters via property."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
+    @staticmethod
+    def _fitter(data):
+        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+        time, vel, velerr, instrument = data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        params = test_gp_circular_params
-        fitter.params = params
+        return fitter
 
-        assert len(fitter.params) == 9  # 5 planetary + 2 trend params + g_HARPS + jit_HARPS
-        assert "P_b" in fitter.params
-        assert "jit_HARPS" in fitter.params
+    def test_params_property_valid(self, test_gp_data, test_gp_all_params) -> None:
+        """`params` holds every parameter, the GP hyperparameters last in the kernel's order."""
+        fitter = self._fitter(test_gp_data)
+        fitter.params = test_gp_all_params
 
-    def test_hyperparams_property_valid(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams) -> None:
-        """Test setting valid hyperparameters via property."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        params = test_gp_circular_params
-        hyperparams = test_gp_hyperparams
+        assert len(fitter.params) == 13  # 5 planetary + g_HARPS + jit_HARPS + 2 trend + 4 GP
+        assert list(fitter.params)[-4:] == ["gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"]
 
-        fitter.params = params
-        fitter.hyperparams = hyperparams
-
-        assert len(fitter.hyperparams) == 4
-        assert "gp_amp" in fitter.hyperparams
-        assert "gp_period" in fitter.hyperparams
-
-    def test_hyperparams_missing(self, test_gp_data, test_gp_circular_params) -> None:
-        """Test error when required hyperparameters are missing."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        params = test_gp_circular_params
-        fitter.params = params
-
-        # Missing gp_lambda_p and gp_period
-        incomplete_hyperparams = {
+    def test_params_missing_gp_names(self, test_gp_data, test_gp_circular_params) -> None:
+        """The first params assignment must include the GP hyperparameters too."""
+        fitter = self._fitter(test_gp_data)
+        params = test_gp_circular_params | {
             "gp_amp": Parameter(1.0, fixed=False),
             "gp_lambda_e": Parameter(50.0, fixed=False),
         }
 
-        with pytest.raises(ValueError, match="Missing required hyperparameters"):
-            fitter.hyperparams = incomplete_hyperparams
+        with pytest.raises(ValueError, match="Missing required parameters.*gp_"):
+            fitter.params = params
 
-    def test_add_priors_valid(self, test_gp_data, test_gp_circular_params, test_gp_priors) -> None:
-        """Test adding valid priors."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        params = test_gp_circular_params
-        priors = test_gp_priors
+    def test_params_unexpected_gp_name(self, test_gp_data, test_gp_all_params) -> None:
+        """A GP name the kernel does not have is rejected like any unexpected parameter."""
+        fitter = self._fitter(test_gp_data)
+        params = test_gp_all_params | {"gp_scale": Parameter(1.0, fixed=False)}
 
-        fitter.params = params
-        fitter.priors = priors
+        with pytest.raises(ValueError, match="Unexpected parameters.*gp_scale"):
+            fitter.params = params
 
-        assert len(fitter.priors) == 2
-        assert "K_b" in fitter.priors
-        assert "jit_HARPS" in fitter.priors
+    @pytest.mark.parametrize("name, value", [("gp_amp", 0.0), ("gp_lambda_e", -1.0), ("gp_period", np.inf)])
+    def test_params_invalid_gp_value(self, test_gp_data, test_gp_all_params, name, value) -> None:
+        """GP values are checked on assignment: finite and, for the QP kernel, positive."""
+        fitter = self._fitter(test_gp_data)
+        params = test_gp_all_params | {name: Parameter(value, fixed=False)}
 
-    def test_add_hyperpriors_valid(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams, test_gp_priors, test_gp_hyperpriors) -> None:
-        """Test adding valid hyperpriors."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        params = test_gp_circular_params
-        hyperparams = test_gp_hyperparams
-        priors = test_gp_priors
-        hyperpriors = test_gp_hyperpriors
+        with pytest.raises(ValueError, match=name):
+            fitter.params = params
 
-        fitter.params = params
-        fitter.hyperparams = hyperparams
-        fitter.priors = priors
-        fitter.hyperpriors = hyperpriors
+    def test_params_partial_update_of_gp_value(self, test_gp_data, test_gp_all_params) -> None:
+        """After the first full assignment, a GP value can be updated on its own."""
+        fitter = self._fitter(test_gp_data)
+        fitter.params = test_gp_all_params
+        fitter.params = {"gp_period": Parameter(12.0, fixed=True)}
 
-        assert len(fitter.hyperpriors) == 4
-        assert "gp_amp" in fitter.hyperpriors
-        assert "gp_period" in fitter.hyperpriors
+        assert fitter.params["gp_period"].value == 12.0
+        assert "gp_period" in fitter.fixed_params_names
 
-    def test_get_free_params(self, test_gp_data, test_gp_circular_params) -> None:
-        """Test getting free parameters."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        params = test_gp_circular_params
-        fitter.params = params
+    def test_add_priors_valid(self, test_gp_data, test_gp_all_params, test_gp_all_priors) -> None:
+        """`priors` holds a prior for every free parameter, the GP ones included."""
+        fitter = self._fitter(test_gp_data)
+        fitter.params = test_gp_all_params
+        fitter.priors = test_gp_all_priors
 
-        free_params = fitter.free_params_dict
-        free_names = fitter.free_params_names
-        free_vals = fitter.free_params_values
+        assert list(fitter.priors) == ["K_b", "jit_HARPS", "gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"]
 
-        assert len(free_params) == 2  # K_b and jit_HARPS
-        assert "K_b" in free_names
-        assert "jit_HARPS" in free_names
-        assert len(free_vals) == 2
-        assert 5.0 in free_vals  # K_b value
-        assert 1.0 in free_vals  # jit_HARPS value
+    def test_add_priors_missing_gp_prior(self, test_gp_data, test_gp_all_params, test_gp_all_priors) -> None:
+        """A free GP hyperparameter without a prior is reported like any other."""
+        fitter = self._fitter(test_gp_data)
+        fitter.params = test_gp_all_params
+        priors = dict(test_gp_all_priors)
+        del priors["gp_period"]
 
-    def test_get_free_hyperparams(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams) -> None:
-        """Test getting free hyperparameters."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        params = test_gp_circular_params
-        hyperparams = test_gp_hyperparams
+        with pytest.raises(ValueError, match="Missing priors for parameters.*gp_period"):
+            fitter.priors = priors
 
-        fitter.params = params
-        fitter.hyperparams = hyperparams
+    def test_add_priors_for_fixed_gp_param_rejected(self, test_gp_data, test_gp_all_params,
+                                                    test_gp_all_priors) -> None:
+        """A prior on a fixed GP hyperparameter is unexpected, as for any fixed parameter."""
+        fitter = self._fitter(test_gp_data)
+        fitter.params = test_gp_all_params | {"gp_lambda_p": Parameter(0.5, fixed=True)}
 
-        free_hyperparams = fitter.free_hyperparams_dict
-        free_hypernames = fitter.free_hyperparams_names
-        free_hypervals = fitter.free_hyperparams_values
+        with pytest.raises(ValueError, match="Unexpected priors.*gp_lambda_p"):
+            fitter.priors = test_gp_all_priors
 
-        assert len(free_hyperparams) == 4  # All 4 GP hyperparams
-        assert "gp_amp" in free_hypernames
-        assert "gp_period" in free_hypernames
-        assert len(free_hypervals) == 4
+    def test_add_priors_gp_initial_value_outside_prior(self, test_gp_data, test_gp_all_params,
+                                                       test_gp_all_priors) -> None:
+        """A GP starting value outside its prior is rejected when the priors are set."""
+        fitter = self._fitter(test_gp_data)
+        fitter.params = test_gp_all_params | {"gp_period": Parameter(60.0, fixed=False)}
+
+        with pytest.raises(ValueError, match="Initial value 60.0 of parameter gp_period is invalid"):
+            fitter.priors = test_gp_all_priors
+
+    def test_get_free_params(self, test_gp_data, test_gp_all_params) -> None:
+        """free_params_* include the free GP hyperparameters: they are the chain's columns."""
+        fitter = self._fitter(test_gp_data)
+        fitter.params = test_gp_all_params
+
+        assert fitter.free_params_names == ["K_b", "jit_HARPS", "gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"]
+        assert fitter.free_params_values == [5.0, 1.0, 1.0, 50.0, 0.5, 10.0]
+        assert list(fitter.free_params_dict) == fitter.free_params_names
+        assert fitter.ndim == 6
+
+    @pytest.mark.parametrize("name", [
+        "hyperparams", "hyperpriors",
+        "free_hyperparams_dict", "free_hyperparams_names", "free_hyperparams_values",
+        "fixed_hyperparams_dict", "fixed_hyperparams_names", "fixed_hyperparams_values",
+        "fixed_hyperparams_values_dict",
+    ])
+    def test_hyperparams_family_removed(self, test_gp_data, test_gp_all_params, name) -> None:
+        """The separate hyperparameter accessors are gone."""
+        fitter = self._fitter(test_gp_data)
+        fitter.params = test_gp_all_params
+
+        assert not hasattr(fitter, name)
 
     def test_add_data_multi_instrument(self, test_gp_data_multi_instrument) -> None:
         """Test adding data with multiple instruments."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data_multi_instrument
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+        fitter = self._fitter(test_gp_data_multi_instrument)
 
-        np.testing.assert_array_equal(fitter.instrument, instrument)
+        np.testing.assert_array_equal(fitter.instrument, test_gp_data_multi_instrument[3])
         assert set(fitter.unique_instruments) == {"HARPS", "HIRES"}
 
     def test_add_params_wrong_count(self, test_gp_data) -> None:
         """Test error when wrong number of parameters provided."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-
+        fitter = self._fitter(test_gp_data)
         params = {"P_b": Parameter(2.0, fixed=False)}  # Too few params
 
-        with pytest.raises(ValueError, match="Missing required parameters.*Expected 9 parameters, got 1"):
+        with pytest.raises(ValueError, match="Missing required parameters.*Expected 13 parameters, got 1"):
             fitter.params = params
 
-    def test_add_params_missing_planetary_param(self, test_gp_data, test_gp_circular_params) -> None:
+    def test_add_params_missing_planetary_param(self, test_gp_data, test_gp_all_params) -> None:
         """Test error when planetary parameter is missing."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-
-        params = test_gp_circular_params.copy()
+        fitter = self._fitter(test_gp_data)
+        params = dict(test_gp_all_params)
         del params["P_b"]
 
-        with pytest.raises(ValueError, match="Missing required parameters.*Expected 9 parameters, got 8"):
+        with pytest.raises(ValueError, match="Missing required parameters.*Expected 13 parameters, got 12"):
             fitter.params = params
 
-    def test_add_params_unexpected_param(self, test_gp_data, test_gp_circular_params) -> None:
+    def test_add_params_unexpected_param(self, test_gp_data, test_gp_all_params) -> None:
         """Test error when unexpected parameter is provided."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+        fitter = self._fitter(test_gp_data)
+        params = test_gp_all_params | {"invalid_param": Parameter(1.0, fixed=False)}
 
-        params = test_gp_circular_params.copy()
-        params["invalid_param"] = Parameter(1.0, fixed=False)
-
-        with pytest.raises(ValueError, match="Unexpected parameters.*Expected 9 parameters, got 10"):
+        with pytest.raises(ValueError, match="Unexpected parameters.*Expected 13 parameters, got 14"):
             fitter.params = params
 
-    def test_add_priors_missing_prior(self, test_gp_data, test_gp_circular_params) -> None:
+    def test_add_priors_missing_prior(self, test_gp_data, test_gp_all_params, test_gp_hyperpriors) -> None:
         """Test error when prior is missing for free parameter."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        fitter.params = test_gp_circular_params
-
-        priors = {"K_b": ravest.prior.Uniform(0, 20)}  # Missing jit_HARPS prior
+        fitter = self._fitter(test_gp_data)
+        fitter.params = test_gp_all_params
+        priors = {"K_b": ravest.prior.Uniform(0, 20)} | test_gp_hyperpriors  # Missing jit_HARPS prior
 
         with pytest.raises(ValueError, match="Missing priors for parameters.*jit_HARPS"):
             fitter.priors = priors
 
-    def test_add_priors_invalid_initial_value(self, test_gp_data, test_gp_circular_params, test_gp_priors) -> None:
+    def test_add_priors_invalid_initial_value(self, test_gp_data, test_gp_all_params, test_gp_all_priors) -> None:
         """Test error when initial parameter value is outside prior bounds."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-
-        params = test_gp_circular_params.copy()
-        params["K_b"] = Parameter(25.0, fixed=False)  # Outside uniform prior [0, 20]
-        fitter.params = params
+        fitter = self._fitter(test_gp_data)
+        fitter.params = test_gp_all_params | {"K_b": Parameter(25.0, fixed=False)}  # Outside uniform prior [0, 20]
 
         with pytest.raises(ValueError, match="Initial value 25.0 of parameter K_b is invalid"):
-            fitter.priors = test_gp_priors
+            fitter.priors = test_gp_all_priors
 
-    def test_add_priors_too_many_warning(self, test_gp_data, test_gp_circular_params) -> None:
+    def test_add_priors_too_many_warning(self, test_gp_data, test_gp_all_params, test_gp_all_priors) -> None:
         """Test error when priors provided for fixed params."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        fitter.params = test_gp_circular_params
-
-        priors = {
-            "K_b": ravest.prior.Uniform(0, 20),
-            "jit_HARPS": ravest.prior.Uniform(0, 5),
-            "P_b": ravest.prior.Uniform(1, 5),  # This is fixed!
-        }
+        fitter = self._fitter(test_gp_data)
+        fitter.params = test_gp_all_params
+        priors = test_gp_all_priors | {"P_b": ravest.prior.Uniform(1, 5)}  # P_b is fixed!
 
         with pytest.raises(ValueError, match="Unexpected priors.*P_b"):
             fitter.priors = priors
 
-    def test_get_fixed_params(self, test_gp_data, test_gp_circular_params) -> None:
+    def test_get_fixed_params(self, test_gp_data, test_gp_all_params) -> None:
         """Test getting fixed parameters."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        fitter.params = test_gp_circular_params
+        fitter = self._fitter(test_gp_data)
+        fitter.params = test_gp_all_params
 
-        fixed_params = fitter.fixed_params_dict
-        fixed_names = fitter.fixed_params_names
-        fixed_vals = fitter.fixed_params_values
+        assert fitter.fixed_params_names == ["P_b", "e_b", "w_b", "Tc_b", "g_HARPS", "gd", "gdd"]
+        assert len(fitter.fixed_params_values) == 7
 
-        assert len(fixed_params) == 7  # All except K_b and jit_HARPS
-        assert "P_b" in fixed_names
-        assert "e_b" in fixed_names
-        assert "g_HARPS" in fixed_names
-        assert len(fixed_vals) == 7
-
-    def test_params_all_fixed_warns(self, test_gp_data, test_gp_circular_params) -> None:
-        """Test that setting all parameters as fixed issues a UserWarning."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-
-        params = {k: Parameter(v.value, fixed=True) for k, v in test_gp_circular_params.items()}
+    def test_params_all_fixed_warns(self, test_gp_data, test_gp_all_params) -> None:
+        """Setting every parameter, GP ones included, as fixed issues a UserWarning."""
+        fitter = self._fitter(test_gp_data)
+        params = {k: Parameter(v.value, fixed=True) for k, v in test_gp_all_params.items()}
 
         with pytest.warns(UserWarning, match="All parameters are fixed"):
             fitter.params = params
 
-    def test_hyperparams_all_fixed_warns(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams) -> None:
-        """Test that setting all hyperparameters as fixed issues a UserWarning."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+    def test_free_gp_param_alone_does_not_warn(self, test_gp_data, test_gp_all_params) -> None:
+        """One free GP hyperparameter is enough to sample, so there is no all-fixed warning."""
+        fitter = self._fitter(test_gp_data)
+        params = {k: Parameter(v.value, fixed=k != "gp_amp") for k, v in test_gp_all_params.items()}
 
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            fitter.params = params
+
+        assert fitter.free_params_names == ["gp_amp"]
+
+    @staticmethod
+    def _all_fixed_fitter(data, all_params):
+        fitter = TestGPFitter._fitter(data)
         with pytest.warns(UserWarning):
-            fitter.params = {k: Parameter(v.value, fixed=True) for k, v in test_gp_circular_params.items()}
+            fitter.params = {k: Parameter(v.value, fixed=True) for k, v in all_params.items()}
+        return fitter
 
-        hyperparams = {k: Parameter(v.value, fixed=True) for k, v in test_gp_hyperparams.items()}
-
-        with pytest.warns(UserWarning, match="All parameters and hyperparameters are fixed"):
-            fitter.hyperparams = hyperparams
-
-    def test_find_map_estimate_all_fixed_raises(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams) -> None:
-        """Test that find_map_estimate raises a clear error when all parameters and hyperparameters are fixed.
+    def test_find_map_estimate_all_fixed_raises(self, test_gp_data, test_gp_all_params) -> None:
+        """Test that find_map_estimate raises a clear error when all parameters are fixed.
 
         scipy.minimize cannot handle a zero-dimensional parameter space and produces
         a cryptic _MaxFuncCallError. We guard against this with an explicit ValueError.
         """
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+        fitter = self._all_fixed_fitter(test_gp_data, test_gp_all_params)
 
-        params = {k: Parameter(v.value, fixed=True) for k, v in test_gp_circular_params.items()}
-        hyperparams = {k: Parameter(v.value, fixed=True) for k, v in test_gp_hyperparams.items()}
-        with pytest.warns(UserWarning):
-            fitter.params = params
-        with pytest.warns(UserWarning):
-            fitter.hyperparams = hyperparams
-
-        with pytest.raises(ValueError, match="no free parameters or hyperparameters to optimise"):
+        with pytest.raises(ValueError, match="no free parameters to optimise"):
             fitter.find_map_estimate()
 
-    def test_generate_walker_positions_random_all_fixed_raises(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams) -> None:
-        """Test that generate_initial_walker_positions_random raises when all params and hyperparams are fixed."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
+    def test_generate_walker_positions_random_all_fixed_raises(self, test_gp_data, test_gp_all_params) -> None:
+        """Test that generate_initial_walker_positions_random raises when all parameters are fixed."""
+        fitter = self._all_fixed_fitter(test_gp_data, test_gp_all_params)
 
-        with pytest.warns(UserWarning):
-            fitter.params = {k: Parameter(v.value, fixed=True) for k, v in test_gp_circular_params.items()}
-        with pytest.warns(UserWarning):
-            fitter.hyperparams = {k: Parameter(v.value, fixed=True) for k, v in test_gp_hyperparams.items()}
-
-        with pytest.raises(ValueError, match="no free parameters or hyperparameters to sample"):
+        with pytest.raises(ValueError, match="no free parameters to sample"):
             fitter.generate_initial_walker_positions_random(nwalkers=10)
 
-    def test_run_mcmc_all_fixed_raises(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams) -> None:
-        """Test that run_mcmc raises a clear error when all parameters and hyperparameters are fixed."""
-        gp_kernel = GPKernel("Quasiperiodic")
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-
-        with pytest.warns(UserWarning):
-            fitter.params = {k: Parameter(v.value, fixed=True) for k, v in test_gp_circular_params.items()}
-        with pytest.warns(UserWarning):
-            fitter.hyperparams = {k: Parameter(v.value, fixed=True) for k, v in test_gp_hyperparams.items()}
+    def test_run_mcmc_all_fixed_raises(self, test_gp_data, test_gp_all_params) -> None:
+        """Test that run_mcmc raises a clear error when all parameters are fixed."""
+        fitter = self._all_fixed_fitter(test_gp_data, test_gp_all_params)
 
         dummy_positions = np.empty((10, 0))
-        with pytest.raises(ValueError, match="no free parameters or hyperparameters to sample"):
+        with pytest.raises(ValueError, match="no free parameters to sample"):
             fitter.run_mcmc(dummy_positions, nwalkers=10, max_steps=10, progress=False)
 
 
@@ -2191,19 +2117,16 @@ class TestGPFitterMCMC:
     """Tests for GPFitter MCMC functionality."""
 
     @pytest.fixture
-    def setup_gpfitter(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
-                       test_gp_priors, test_gp_hyperpriors):
+    def setup_gpfitter(self, test_gp_data, test_gp_all_params, test_gp_all_priors):
         """Setup a fully configured GPFitter for MCMC tests."""
         gp_kernel = GPKernel("Quasiperiodic")
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
         time, vel, velerr, instrument = test_gp_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        fitter.params = test_gp_circular_params
-        fitter.hyperparams = test_gp_hyperparams
-        fitter.priors = test_gp_priors
-        fitter.hyperpriors = test_gp_hyperpriors
+        fitter.params = test_gp_all_params
+        fitter.priors = test_gp_all_priors
 
-        nwalkers = 14  # >= 2 * ndim (ndim=6 for 2 free params + 4 hyperparams)
+        nwalkers = 14  # >= 2 * ndim (ndim=6: 2 free params + 4 free GP hyperparameters)
         map_result = fitter.find_map_estimate()
         initial_positions = fitter.generate_initial_walker_positions_from_map(
             map_result, nwalkers=nwalkers
@@ -2276,8 +2199,8 @@ class TestGPFitterMCMC:
         fitter.run_mcmc(initial_positions, nwalkers=nwalkers, max_steps=50, progress=False)
 
         df = fitter.get_samples_df()
-        expected_cols = set(fitter.free_params_names + fitter.free_hyperparams_names)
-        assert set(df.columns) == expected_cols
+        assert list(df.columns) == fitter.free_params_names
+        assert fitter.free_params_names == ["K_b", "jit_HARPS", "gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"]
         assert len(df) == 50 * nwalkers
 
     def test_sample_retrieval_dict(self, setup_gpfitter):
@@ -2286,29 +2209,24 @@ class TestGPFitterMCMC:
         fitter.run_mcmc(initial_positions, nwalkers=nwalkers, max_steps=50, progress=False)
 
         samples_dict = fitter.get_samples_dict()
-        expected_keys = set(fitter.free_params_names + fitter.free_hyperparams_names)
-        assert set(samples_dict.keys()) == expected_keys
+        assert list(samples_dict) == fitter.free_params_names
         for v in samples_dict.values():
             assert len(v) == 50 * nwalkers
 
     def test_get_mcmc_posterior_dict(self, setup_gpfitter):
-        """Test posterior dict includes fixed + free params and hyperparams."""
+        """Test posterior dict includes fixed + free params, GP hyperparameters among them."""
         fitter, initial_positions, nwalkers = setup_gpfitter
         fitter.run_mcmc(initial_positions, nwalkers=nwalkers, max_steps=50, progress=False)
 
         posterior = fitter.get_mcmc_posterior_dict()
 
-        # Should contain all params + hyperparams
-        all_names = set(fitter.free_params_names + fitter.fixed_params_names +
-                        fitter.free_hyperparams_names + fitter.fixed_hyperparams_names)
-        assert set(posterior.keys()) == all_names
+        # Should contain every parameter
+        assert set(posterior.keys()) == set(fitter.params)
 
         # Fixed params should be floats, free should be arrays
         for name in fitter.fixed_params_names:
             assert isinstance(posterior[name], (float, np.floating))
         for name in fitter.free_params_names:
-            assert isinstance(posterior[name], np.ndarray)
-        for name in fitter.free_hyperparams_names:
             assert isinstance(posterior[name], np.ndarray)
 
 
@@ -2316,17 +2234,14 @@ class TestGPRVCalculations:
     """Tests for GPFitter RV calculation methods."""
 
     @pytest.fixture
-    def setup_gpfitter_for_rv(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
-                              test_gp_priors, test_gp_hyperpriors):
+    def setup_gpfitter_for_rv(self, test_gp_data, test_gp_all_params, test_gp_all_priors):
         """Setup GPFitter with data/params/priors for RV calculations."""
         gp_kernel = GPKernel("Quasiperiodic")
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
         time, vel, velerr, instrument = test_gp_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        fitter.params = test_gp_circular_params
-        fitter.hyperparams = test_gp_hyperparams
-        fitter.priors = test_gp_priors
-        fitter.hyperpriors = test_gp_hyperpriors
+        fitter.params = test_gp_all_params
+        fitter.priors = test_gp_all_priors
         return fitter
 
     def test_calculate_rv_planet_custom(self, setup_gpfitter_for_rv):
@@ -2340,9 +2255,7 @@ class TestGPRVCalculations:
         fitter = setup_gpfitter_for_rv
         times = np.array([0.25, 0.5, 0.75, 1.25])
 
-        params = fitter.build_params_dict(
-            list(fitter.free_params_values) + list(fitter.free_hyperparams_values)
-        )
+        params = fitter.build_params_dict(fitter.free_params_values)
         rv = fitter.calculate_rv_planet_custom('b', times, params)
 
         expected = -5.0 * np.sin(np.pi * times)
@@ -2353,9 +2266,7 @@ class TestGPRVCalculations:
         fitter = setup_gpfitter_for_rv
         times = np.array([0.0, 1.0, 2.0, 3.0])
 
-        params = fitter.build_params_dict(
-            list(fitter.free_params_values) + list(fitter.free_hyperparams_values)
-        )
+        params = fitter.build_params_dict(fitter.free_params_values)
         rv_trend = fitter.calculate_rv_trend_custom(times, params)
 
         np.testing.assert_allclose(rv_trend, 0.0, atol=1e-15)
@@ -2379,15 +2290,11 @@ class TestGPRVCalculations:
             "gdd": Parameter(0.0, fixed=True),
             "jit_HARPS": Parameter(1.0, fixed=False),
         }
-        fitter.params = params
-        fitter.hyperparams = test_gp_hyperparams
-        fitter.priors = {"K_b": ravest.prior.Uniform(0, 20), "jit_HARPS": ravest.prior.Uniform(0, 5)}
-        fitter.hyperpriors = test_gp_hyperpriors
+        fitter.params = params | test_gp_hyperparams
+        fitter.priors = {"K_b": ravest.prior.Uniform(0, 20), "jit_HARPS": ravest.prior.Uniform(0, 5)} | test_gp_hyperpriors
 
         times = np.array([0.0, 1.0, 2.0, 3.0])
-        params_dict = fitter.build_params_dict(
-            list(fitter.free_params_values) + list(fitter.free_hyperparams_values)
-        )
+        params_dict = fitter.build_params_dict(fitter.free_params_values)
         rv_trend = fitter.calculate_rv_trend_custom(times, params_dict)
 
         # trend(t) = gd*(t - t0) + gdd*(t - t0)^2, with gd=0.5, gdd=0.0, t0=2.0
@@ -2399,9 +2306,7 @@ class TestGPRVCalculations:
         fitter = setup_gpfitter_for_rv
         times = np.array([0.25, 0.5, 0.75, 1.25])
 
-        params = fitter.build_params_dict(
-            list(fitter.free_params_values) + list(fitter.free_hyperparams_values)
-        )
+        params = fitter.build_params_dict(fitter.free_params_values)
 
         rv_total = fitter.calculate_rv_total_custom(times, params)
         rv_planet = fitter.calculate_rv_planet_custom('b', times, params)
@@ -2415,9 +2320,7 @@ class TestGPRVCalculations:
         fitter = setup_gpfitter_for_rv
         times = np.array([0.25, 0.5, 0.75, 1.25])
 
-        params = fitter.build_params_dict(
-            list(fitter.free_params_values) + list(fitter.free_hyperparams_values)
-        )
+        params = fitter.build_params_dict(fitter.free_params_values)
         rv_gp = fitter.calculate_rv_gp_custom(times, params)
 
         assert isinstance(rv_gp, np.ndarray)
@@ -2425,15 +2328,13 @@ class TestGPRVCalculations:
         assert np.all(np.isfinite(rv_gp))
 
     def test_build_params_dict_from_array(self, setup_gpfitter_for_rv):
-        """Test building params dict from array includes all params + hyperparams."""
+        """Test building params dict from array includes every parameter, GP ones too."""
         fitter = setup_gpfitter_for_rv
 
-        params = fitter.build_params_dict(
-            list(fitter.free_params_values) + list(fitter.free_hyperparams_values)
-        )
+        params = fitter.build_params_dict(fitter.free_params_values)
 
         assert isinstance(params, dict)
-        # All params (9) + all hyperparams (4)
+        # 9 non-GP params + 4 GP hyperparameters
         assert len(params) == 13
         assert "P_b" in params
         assert "K_b" in params
@@ -2445,11 +2346,7 @@ class TestGPRVCalculations:
         """Test building params dict from dict input."""
         fitter = setup_gpfitter_for_rv
 
-        free_values = {}
-        for k, v in fitter.free_params_dict.items():
-            free_values[k] = v.value
-        for k, v in fitter.free_hyperparams_dict.items():
-            free_values[k] = v.value
+        free_values = {k: v.value for k, v in fitter.free_params_dict.items()}
 
         params = fitter.build_params_dict(free_values)
 
@@ -2559,9 +2456,7 @@ class TestGPRVCalculations:
         # With every planet parameter frozen, the planet RV no longer depends on
         # the sample, so all rows are identical and match a single custom calc.
         assert np.allclose(rv_samples, rv_samples[0:1], atol=1e-12)
-        params = fitter.build_params_dict(
-            list(fitter.free_params_values) + list(fitter.free_hyperparams_values)
-        ) | frozen
+        params = fitter.build_params_dict(fitter.free_params_values) | frozen
         expected = fitter.calculate_rv_planet_custom('b', times, params)
         np.testing.assert_allclose(rv_samples[0], expected, atol=1e-12)
 
@@ -2581,7 +2476,7 @@ class TestGPRVCalculations:
 
 
 class TestGPFitterNdim:
-    """GPFitter.ndim counts free parameters plus free hyperparameters, in any assignment order."""
+    """GPFitter.ndim is the number of free parameters, GP hyperparameters included."""
 
     @staticmethod
     def _fitter(test_gp_data):
@@ -2590,51 +2485,31 @@ class TestGPFitterNdim:
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
         return fitter
 
-    @staticmethod
-    def _expected_ndim(fitter):
-        return len(fitter.free_params_names) + len(fitter.free_hyperparams_names)
-
-    def test_params_then_hyperparams(
-        self, test_gp_data, test_gp_circular_params, test_gp_hyperparams
-    ) -> None:
-        """The usual order counts both."""
+    def test_ndim_counts_free_gp_params(self, test_gp_data, test_gp_all_params) -> None:
+        """Free GP hyperparameters count towards ndim; fixed ones don't."""
         fitter = self._fitter(test_gp_data)
-        fitter.params = test_gp_circular_params
-        fitter.hyperparams = test_gp_hyperparams
+        fitter.params = test_gp_all_params
+        assert fitter.ndim == len(fitter.free_params_names) == 6
 
-        assert fitter.ndim == self._expected_ndim(fitter)
+        fitter.params = {"gp_lambda_p": Parameter(0.5, fixed=True)}
+        assert fitter.ndim == 5
 
-    def test_hyperparams_then_params(
-        self, test_gp_data, test_gp_circular_params, test_gp_hyperparams
-    ) -> None:
-        """Setting params last must not drop the hyperparameters from ndim."""
-        fitter = self._fitter(test_gp_data)
-        fitter.hyperparams = test_gp_hyperparams
-        fitter.params = test_gp_circular_params
-
-        assert fitter.ndim == self._expected_ndim(fitter)
-
-    def test_params_reassigned_after_hyperparams(
-        self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
-        test_gp_priors, test_gp_hyperpriors
-    ) -> None:
+    def test_params_reassigned(self, test_gp_data, test_gp_all_params, test_gp_all_priors) -> None:
         """Re-assigning params keeps ndim, and so BIC and AICc, unchanged.
 
         calculate_bic and calculate_aicc use ndim as the number of free parameters,
-        so a stale ndim changes them silently for the same model and point.
+        so a stale ndim would change them silently for the same model and point.
         """
         fitter = self._fitter(test_gp_data)
-        fitter.params = test_gp_circular_params
-        fitter.hyperparams = test_gp_hyperparams
-        fitter.priors = test_gp_priors
-        fitter.hyperpriors = test_gp_hyperpriors
-        point = {name: p.value for name, p in (fitter.params | fitter.hyperparams).items()}
+        fitter.params = test_gp_all_params
+        fitter.priors = test_gp_all_priors
+        point = {name: p.value for name, p in fitter.params.items()}
         bic_before = fitter.calculate_bic(point)
         aicc_before = fitter.calculate_aicc(point)
 
-        fitter.params = test_gp_circular_params
+        fitter.params = test_gp_all_params
 
-        assert fitter.ndim == self._expected_ndim(fitter)
+        assert fitter.ndim == 6
         assert fitter.calculate_bic(point) == bic_before
         assert fitter.calculate_aicc(point) == aicc_before
 
@@ -2642,8 +2517,7 @@ class TestGPFitterNdim:
 class TestGPFitterIntegration:
     """Integration tests for complete GPFitter workflow."""
 
-    def test_complete_setup(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
-                             test_gp_priors, test_gp_hyperpriors) -> None:
+    def test_complete_setup(self, test_gp_data, test_gp_all_params, test_gp_all_priors) -> None:
         """Test complete GPFitter setup without running MCMC."""
         gp_kernel = GPKernel("Quasiperiodic")
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
@@ -2652,40 +2526,26 @@ class TestGPFitterIntegration:
         time, vel, velerr, instrument = test_gp_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
 
-        # Add parameters and hyperparameters
-        params = test_gp_circular_params
-        hyperparams = test_gp_hyperparams
-        fitter.params = params
-        fitter.hyperparams = hyperparams
-
-        # Add priors and hyperpriors
-        priors = test_gp_priors
-        hyperpriors = test_gp_hyperpriors
-        fitter.priors = priors
-        fitter.hyperpriors = hyperpriors
+        # Add parameters and priors, GP hyperparameters included
+        fitter.params = test_gp_all_params
+        fitter.priors = test_gp_all_priors
 
         # Verify everything is set up correctly
-        assert len(fitter.params) == 9
-        assert len(fitter.hyperparams) == 4
-        assert len(fitter.priors) == 2
-        assert len(fitter.hyperpriors) == 4
-        assert len(fitter.free_params_names) == 2
-        assert len(fitter.free_hyperparams_names) == 4
-        assert fitter.ndim == 6  # 2 free params + 4 free hyperparams
-        assert fitter.unique_instruments == ["HARPS"]
+        assert len(fitter.params) == 13
+        assert len(fitter.priors) == 6
+        assert len(fitter.free_params_names) == 6
+        assert fitter.ndim == 6  # 2 free params + 4 free GP hyperparameters
+        assert list(fitter.unique_instruments) == ["HARPS"]
 
-    def test_complete_workflow(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
-                               test_gp_priors, test_gp_hyperpriors) -> None:
+    def test_complete_workflow(self, test_gp_data, test_gp_all_params, test_gp_all_priors) -> None:
         """Test complete workflow: setup -> MAP -> walkers -> MCMC -> sample retrieval."""
         gp_kernel = GPKernel("Quasiperiodic")
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
 
         time, vel, velerr, instrument = test_gp_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        fitter.params = test_gp_circular_params
-        fitter.hyperparams = test_gp_hyperparams
-        fitter.priors = test_gp_priors
-        fitter.hyperpriors = test_gp_hyperpriors
+        fitter.params = test_gp_all_params
+        fitter.priors = test_gp_all_priors
 
         # MAP
         map_result = fitter.find_map_estimate()
@@ -2702,13 +2562,29 @@ class TestGPFitterIntegration:
         fitter.run_mcmc(initial_positions, nwalkers=nwalkers, max_steps=50, progress=False)
         assert fitter.sampler is not None
 
-        # Sample retrieval
+        # Sample retrieval: the chain's columns are free_params_names, in order
         chain = fitter.get_samples_np(flat=False)
         assert chain.shape == (50, nwalkers, fitter.ndim)
 
         df = fitter.get_samples_df()
         assert len(df) == 50 * nwalkers
-        assert len(df.columns) == fitter.ndim
+        assert list(df.columns) == fitter.free_params_names
+
+    def test_map_prints_one_dict_in_order(self, test_gp_data, test_gp_all_params, test_gp_all_priors,
+                                          capsys) -> None:
+        """find_map_estimate prints one results dict, like Fitter, in free_params_names order."""
+        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+        fitter.add_data(*test_gp_data, t0=2.0)
+        fitter.params = test_gp_all_params
+        fitter.priors = test_gp_all_priors
+
+        fitter.find_map_estimate()
+        out = capsys.readouterr().out
+
+        assert out.count("MAP parameter results:") == 1
+        assert "hyperparameter" not in out
+        positions = [out.index(f"'{name}'") for name in fitter.free_params_names]
+        assert positions == sorted(positions)
 
     def test_multi_planet_setup(self, test_gp_data, test_gp_hyperparams) -> None:
         """Test setup with two planets and GP kernel."""
@@ -2734,12 +2610,74 @@ class TestGPFitterIntegration:
             "gdd": Parameter(0.0, fixed=True),
             "jit_HARPS": Parameter(1.0, fixed=False),
         }
-        fitter.params = params
-        fitter.hyperparams = test_gp_hyperparams
+        fitter.params = params | test_gp_hyperparams
 
-        assert len(fitter.params) == 14  # 5*2 planets + 4 system
-        assert len(fitter.free_params_names) == 3  # K_b, K_c, jit_HARPS
-        assert fitter.ndim == 7  # 3 free params + 4 free hyperparams
+        assert len(fitter.params) == 18  # 5*2 planets + 4 system + 4 GP
+        assert fitter.free_params_names == ["K_b", "K_c", "jit_HARPS",
+                                            "gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"]
+        assert fitter.ndim == 7
+
+
+class TestGPFitterKeywords:
+    """GPFitter's methods take the same keywords as Fitter's; GP hyperparameters are just params."""
+
+    @pytest.mark.parametrize("method", [
+        "calculate_log_likelihood", "calculate_chi2", "calculate_aicc", "calculate_bic",
+        "build_params_dict", "plot_custom_rv", "plot_custom_phase", "plot_autocorr_estimates",
+    ])
+    def test_signature_matches_fitter(self, method) -> None:
+        """Same parameter names, in the same order, as the Fitter method."""
+        import inspect
+        fitter_names = list(inspect.signature(getattr(Fitter, method)).parameters)
+        gpfitter_names = list(inspect.signature(getattr(GPFitter, method)).parameters)
+
+        assert gpfitter_names == fitter_names
+
+    @pytest.fixture
+    def fitter(self, test_gp_data, test_gp_all_params, test_gp_all_priors):
+        """A GPFitter with every parameter and prior set, GP ones included."""
+        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+        fitter.add_data(*test_gp_data, t0=2.0)
+        fitter.params = test_gp_all_params
+        fitter.priors = test_gp_all_priors
+        return fitter
+
+    def test_statistics_take_params_dict(self, fitter) -> None:
+        """calculate_* take params_dict=, one dict with the GP hyperparameters in it."""
+        point = fitter.build_params_dict(free_params=fitter.free_params_values)
+
+        assert point == {name: p.value for name, p in fitter.params.items()}
+        for method in ("calculate_log_likelihood", "calculate_chi2", "calculate_aicc", "calculate_bic"):
+            assert np.isfinite(getattr(fitter, method)(params_dict=point))
+
+    def test_custom_plots_take_params(self, fitter) -> None:
+        """plot_custom_rv and plot_custom_phase take params=, GP hyperparameters included."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        point = fitter.build_params_dict(fitter.free_params_values)
+
+        fitter.plot_custom_rv(params=point, n_smooth=50)
+        fitter.plot_custom_phase("b", params=point)
+        plt.close("all")
+
+    def test_plot_autocorr_estimates_takes_gp_names_in_params(self, fitter) -> None:
+        """plot_autocorr_estimates(params=...) accepts GP names; there is no hyperparams= keyword."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        nwalkers = 2 * fitter.ndim
+        rng = np.random.default_rng(0)
+        centre = np.array(fitter.free_params_values)
+        positions = centre * (1 + 0.01 * rng.standard_normal((nwalkers, fitter.ndim)))
+        fitter.run_mcmc(positions, nwalkers=nwalkers, max_steps=300, progress=False,
+                        check_convergence=True, convergence_check_interval=100,
+                        convergence_check_start=20)
+
+        fitter.plot_autocorr_estimates(params=["K_b", "gp_amp"])
+        with pytest.raises(TypeError):
+            fitter.plot_autocorr_estimates(hyperparams=["gp_amp"])
+        plt.close("all")
 
 
 class TestWalkerInitialisationWidths:
@@ -2819,35 +2757,30 @@ class TestWalkerInitialisationWidths:
         ratio = np.mean(jit_column) / expected_mean
         assert self.LO <= ratio <= self.HI, f"drawn at {ratio:.2f} sigma, expected 1"
 
-    def test_params_and_hyperparams_share_one_width(
+    def test_params_and_gp_params_share_one_width(
         self, test_gp_data, test_gp_hyperparams, test_gp_hyperpriors
     ) -> None:
-        """Parameters and hyperparameters are drawn at the same width in one GP fit.
+        """Planet and GP parameters are drawn at the same width in one GP fit.
 
         This is the invariant the fix establishes: before it, gp_amp started within
-        1 sigma of its hyperprior while K_b started within 2 sigma of its prior.
+        1 sigma of its prior while K_b started within 2 sigma of its prior.
         """
         param_std, hyper_std = 5.0, 1.0
         gp_kernel = GPKernel("Quasiperiodic")
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
         time, vel, velerr, instrument = test_gp_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        fitter.params = self._unbounded_prior_params()
-
-        hyperparams = dict(test_gp_hyperparams)
-        hyperparams["gp_amp"] = Parameter(5.0, fixed=False)
-        fitter.hyperparams = hyperparams
-
-        fitter.priors = {"K_b": ravest.prior.Normal(50.0, param_std),
-                         "jit_HARPS": ravest.prior.Uniform(0, 5)}
-        hyperpriors = dict(test_gp_hyperpriors)
-        hyperpriors["gp_amp"] = ravest.prior.Normal(5.0, hyper_std)
-        fitter.hyperpriors = hyperpriors
+        fitter.params = (self._unbounded_prior_params() | test_gp_hyperparams
+                         | {"gp_amp": Parameter(5.0, fixed=False)})
+        fitter.priors = (test_gp_hyperpriors
+                         | {"K_b": ravest.prior.Normal(50.0, param_std),
+                            "jit_HARPS": ravest.prior.Uniform(0, 5),
+                            "gp_amp": ravest.prior.Normal(5.0, hyper_std)})
 
         np.random.seed(self.SEED)
         positions = fitter.generate_initial_walker_positions_random(self.NWALKERS)
 
-        columns = fitter.free_params_names + fitter.free_hyperparams_names
+        columns = fitter.free_params_names
         param_ratio = np.std(positions[:, columns.index("K_b")], ddof=1) / param_std
         hyper_ratio = np.std(positions[:, columns.index("gp_amp")], ddof=1) / hyper_std
 
@@ -2855,11 +2788,11 @@ class TestWalkerInitialisationWidths:
         assert self.LO <= hyper_ratio <= self.HI
         assert abs(param_ratio - hyper_ratio) < 0.25
 
-    def test_beta_hyperprior_draws_inside_its_support(
+    def test_beta_gp_prior_draws_inside_its_support(
         self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
         test_gp_priors, test_gp_hyperpriors
     ) -> None:
-        """A Beta hyperprior draws from [0, 1], not from its shape parameters.
+        """A Beta prior on a GP hyperparameter draws from [0, 1], not from its shape parameters.
 
         Beta.a and Beta.b are shape parameters, not bounds. Drawing uniform(a, b)
         put every walker outside the support, so every draw scored -inf and walker
@@ -2869,17 +2802,12 @@ class TestWalkerInitialisationWidths:
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), gp_kernel)
         time, vel, velerr, instrument = test_gp_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        fitter.params = test_gp_circular_params
-        fitter.hyperparams = test_gp_hyperparams
-        fitter.priors = test_gp_priors
-
-        hyperpriors = dict(test_gp_hyperpriors)
-        hyperpriors["gp_lambda_p"] = ravest.prior.Beta(2.0, 5.0)
-        fitter.hyperpriors = hyperpriors
+        fitter.params = test_gp_circular_params | test_gp_hyperparams
+        fitter.priors = test_gp_priors | test_gp_hyperpriors | {"gp_lambda_p": ravest.prior.Beta(2.0, 5.0)}
 
         positions = fitter.generate_initial_walker_positions_random(nwalkers=50)
 
-        columns = fitter.free_params_names + fitter.free_hyperparams_names
+        columns = fitter.free_params_names
         lambda_p = positions[:, columns.index("gp_lambda_p")]
         assert np.all((lambda_p >= 0.0) & (lambda_p <= 1.0))
 
@@ -2990,10 +2918,8 @@ class TestWalkerInitialisationWidths:
                           GPKernel("Quasiperiodic"))
         time, vel, velerr, instrument = test_gp_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        fitter.params = self._transformed_params()
-        fitter.hyperparams = test_gp_hyperparams
-        fitter.priors = priors
-        fitter.hyperpriors = test_gp_hyperpriors
+        fitter.params = self._transformed_params() | test_gp_hyperparams
+        fitter.priors = priors | test_gp_hyperpriors
         return fitter
 
     def test_gpfitter_transformed_parameterisation_does_not_warn(
@@ -3029,9 +2955,7 @@ class TestWalkerInitialisationWidths:
                           GPKernel("Quasiperiodic"))
         time, vel, velerr, instrument = test_gp_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        fitter.params = test_gp_circular_params
-        fitter.hyperparams = test_gp_hyperparams
-        fitter.hyperpriors = test_gp_hyperpriors
+        fitter.params = test_gp_circular_params | test_gp_hyperparams
 
         with pytest.raises(ValueError, match="No prior for free parameter") as excinfo:
             fitter.generate_initial_walker_positions_random(nwalkers=8)
@@ -3053,10 +2977,8 @@ class TestWalkerInitialisationWidths:
                           GPKernel("Quasiperiodic"))
         time, vel, velerr, instrument = test_gp_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        fitter.params = params
-        fitter.hyperparams = test_gp_hyperparams
-        fitter.priors = {"K_b": ravest.prior.Uniform(0, 100)}
-        fitter.hyperpriors = test_gp_hyperpriors
+        fitter.params = params | test_gp_hyperparams
+        fitter.priors = {"K_b": ravest.prior.Uniform(0, 100)} | test_gp_hyperpriors
         fitter.params = self._unbounded_prior_params()  # jit_HARPS now free
 
         with pytest.raises(ValueError, match="No prior for free parameter") as excinfo:
@@ -3105,13 +3027,11 @@ class TestPriorPresenceValidation:
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
         time, vel, velerr, instrument = test_gp_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        fitter.hyperparams = test_gp_hyperparams
-        fitter.hyperpriors = test_gp_hyperpriors
         if route == "never_set":
-            fitter.params = self._params()
+            fitter.params = self._params() | test_gp_hyperparams
         else:  # "freed_after"
-            fitter.params = self._params(jit_fixed=True)
-            fitter.priors = {"K_b": ravest.prior.Uniform(0, 20)}
+            fitter.params = self._params(jit_fixed=True) | test_gp_hyperparams
+            fitter.priors = {"K_b": ravest.prior.Uniform(0, 20)} | test_gp_hyperpriors
             fitter.params = self._params()  # jit_HARPS now free, with no prior
         return fitter
 
@@ -3145,77 +3065,61 @@ class TestPriorPresenceValidation:
     ) -> None:
         """GPFitter refuses a free parameter without a prior at every entry point, by either route."""
         fitter = self._gpfitter(test_gp_data, test_gp_hyperparams, test_gp_hyperpriors, route)
-        ndim = len(fitter.free_params_names) + len(fitter.free_hyperparams_names)
 
         with pytest.raises(ValueError, match="No prior for free parameter") as excinfo:
-            self._call(fitter, entry_point, ndim)
+            self._call(fitter, entry_point, fitter.ndim)
 
         assert "jit_HARPS" in str(excinfo.value)
 
-    def _gpfitter_missing_hyperprior(self, test_gp_data, test_gp_circular_params,
-                                     test_gp_hyperparams, test_gp_priors,
-                                     test_gp_hyperpriors, route):
-        """GPFitter whose free gp_amp has no hyperprior, reached by either route.
-
-        gp_amp is the first hyperparameter, so the old code mis-paired names and
-        values rather than only dropping the last one.
-        """
-        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
-        time, vel, velerr, instrument = test_gp_data
-        fitter.add_data(time, vel, velerr, instrument, t0=2.0)
-        fitter.params = test_gp_circular_params
-        fitter.priors = test_gp_priors
-        if route == "never_set":
-            fitter.hyperparams = test_gp_hyperparams
-        else:  # "freed_after"
-            hyperparams = dict(test_gp_hyperparams)
-            hyperparams["gp_amp"] = Parameter(1.0, fixed=True)
-            fitter.hyperparams = hyperparams
-            fitter.hyperpriors = {k: v for k, v in test_gp_hyperpriors.items() if k != "gp_amp"}
-            fitter.hyperparams = test_gp_hyperparams  # gp_amp now free, with no hyperprior
-        return fitter
-
-    @pytest.mark.parametrize("route", ["never_set", "freed_after"])
     @pytest.mark.parametrize(
         "entry_point", ["random", "find_map_estimate", "around_point", "run_mcmc"]
     )
-    def test_gpfitter_raises_for_free_hyperparam_without_hyperprior(
-        self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
-        test_gp_priors, test_gp_hyperpriors, entry_point, route
+    def test_gpfitter_raises_for_free_gp_param_without_prior(
+        self, test_gp_data, test_gp_all_params, test_gp_all_priors, entry_point
     ) -> None:
-        """GPFitter refuses a free hyperparameter without a hyperprior at every entry point."""
-        fitter = self._gpfitter_missing_hyperprior(
-            test_gp_data, test_gp_circular_params, test_gp_hyperparams,
-            test_gp_priors, test_gp_hyperpriors, route,
-        )
-        ndim = len(fitter.free_params_names) + len(fitter.free_hyperparams_names)
+        """A GP hyperparameter freed after priors were set is refused like any other parameter.
 
-        with pytest.raises(ValueError, match="No hyperprior for free hyperparameter") as excinfo:
+        gp_amp is the first GP hyperparameter, so a check that only dropped the last
+        name, or mis-paired names and values, would not pass.
+        """
+        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+        fitter.add_data(*test_gp_data, t0=2.0)
+        fitter.params = test_gp_all_params | {"gp_amp": Parameter(1.0, fixed=True)}
+        fitter.priors = {k: v for k, v in test_gp_all_priors.items() if k != "gp_amp"}
+        fitter.params = {"gp_amp": Parameter(1.0, fixed=False)}  # now free, with no prior
+
+        with pytest.raises(ValueError, match="No prior for free parameter") as excinfo:
             if entry_point == "random":
-                fitter.generate_initial_walker_positions_random(nwalkers=2 * ndim)
+                fitter.generate_initial_walker_positions_random(nwalkers=2 * fitter.ndim)
             else:
-                self._call(fitter, entry_point, ndim)
+                self._call(fitter, entry_point, fitter.ndim)
 
         assert "gp_amp" in str(excinfo.value)
+        assert "K_b" not in str(excinfo.value)
 
-    def test_hyperparameter_loop_names_missing_hyperprior(
-        self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
-        test_gp_priors, test_gp_hyperpriors, monkeypatch
+    @pytest.mark.parametrize("kind, name", [("Fitter", "jit_HARPS"), ("GPFitter", "gp_amp")])
+    def test_walker_loop_refuses_param_without_prior_if_check_bypassed(
+        self, test_data, test_gp_data, test_gp_all_params, test_gp_all_priors, monkeypatch,
+        kind, name
     ) -> None:
-        """The walker loop's own guard names the hyperparameter if the check is bypassed.
+        """The random walker loop names a free parameter with no prior, even past the up-front check.
 
-        Unreachable through the public API once the up-front check runs; this keeps the
-        guard honest, since without it the loop silently mis-paired names and values and
-        failed later with a KeyError naming the wrong thing.
+        Unreachable through the public API while the up-front check runs; without the guard,
+        such a parameter would silently start in a ball around its current value, as if its
+        prior had been given on default-parameterisation equivalents.
         """
-        fitter = self._gpfitter_missing_hyperprior(
-            test_gp_data, test_gp_circular_params, test_gp_hyperparams,
-            test_gp_priors, test_gp_hyperpriors, "freed_after",
-        )
-        monkeypatch.setattr(fitter, "_validate_free_hyperparams_have_hyperpriors", lambda: None)
+        if kind == "Fitter":
+            fitter = self._fitter(test_data, "freed_after")
+        else:
+            fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+            fitter.add_data(*test_gp_data, t0=2.0)
+            fitter.params = test_gp_all_params | {"gp_amp": Parameter(1.0, fixed=True)}
+            fitter.priors = {k: v for k, v in test_gp_all_priors.items() if k != "gp_amp"}
+            fitter.params = {"gp_amp": Parameter(1.0, fixed=False)}  # now free, with no prior
+        monkeypatch.setattr(fitter, "_validate_free_params_have_priors", lambda: {})
 
-        with pytest.raises(ValueError, match="No hyperprior for free hyperparameter gp_amp"):
-            fitter.generate_initial_walker_positions_random(nwalkers=16)
+        with pytest.raises(ValueError, match=f"No prior for free parameter {name}"):
+            fitter.generate_initial_walker_positions_random(nwalkers=2 * fitter.ndim)
 
 
 class TestMinimumWalkers:
@@ -3238,10 +3142,8 @@ class TestMinimumWalkers:
         else:
             fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
             fitter.add_data(*test_gp_data, t0=2.0)
-            fitter.params = test_circular_params
-            fitter.priors = test_simple_priors
-            fitter.hyperparams = test_gp_hyperparams
-            fitter.hyperpriors = test_gp_hyperpriors
+            fitter.params = test_circular_params | test_gp_hyperparams
+            fitter.priors = test_simple_priors | test_gp_hyperpriors
             centre = np.array([5.0, 1.0, 1.0, 50.0, 0.5, 10.0])
         assert fitter.ndim == len(centre)
         return fitter, centre
@@ -3325,7 +3227,25 @@ class TestParamOrder:
         "gd", "gdd",
     ]
 
-    FIXED = {"Tc_c", "jit_harps", "gd", "gdd"}
+    QP_ORDER = ["gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"]
+
+    FIXED = {"Tc_c", "jit_harps", "gd", "gdd", "gp_lambda_p"}
+
+    EXPECTED_PRIORS = [
+        "P_b", "K_b", "e_b", "w_b", "Tp_b",
+        "P_c", "K_c", "secosw_c", "sesinw_c",
+        "g_apf", "jit_apf", "g_harps", "g_HIRES", "jit_HIRES",
+    ]
+
+    def _expected(self, make):
+        """The full parameter order for the fitter that make builds."""
+        return self.EXPECTED_ORDER + (self.QP_ORDER if make == "_gpfitter" else [])
+
+    def _priors(self, make):
+        """Scrambled priors for the fitter that make builds (GPFitter's include the free GP names)."""
+        gp = {"gp_period": ravest.prior.Uniform(1, 50), "gp_amp": ravest.prior.Uniform(0, 10),
+              "gp_lambda_e": ravest.prior.Uniform(1, 100)}
+        return (gp if make == "_gpfitter" else {}) | self._scrambled_priors()
 
     @classmethod
     def _add_data(cls, fitter):
@@ -3386,13 +3306,12 @@ class TestParamOrder:
         fitter = GPFitter(["c", "b"], Parameterisation("P K secosw sesinw Tc"),
                           GPKernel("Quasiperiodic"))
         self._add_data(fitter)
-        fitter.params = self._scrambled_params()
-        fitter.hyperparams = {
+        fitter.params = {
             "gp_period": Parameter(10.0, fixed=False),
             "gp_lambda_p": Parameter(0.5, fixed=True),
             "gp_amp": Parameter(1.0, fixed=False),
             "gp_lambda_e": Parameter(50.0, fixed=False),
-        }
+        } | self._scrambled_params()
         return fitter
 
     @pytest.mark.parametrize("cls", [Fitter, GPFitter])
@@ -3410,15 +3329,15 @@ class TestParamOrder:
         assert self._fitter()._param_order() == self.EXPECTED_ORDER
 
     def test_param_order_gpfitter(self) -> None:
-        """GPFitter's params use the same order as Fitter's."""
-        assert self._gpfitter()._param_order() == self.EXPECTED_ORDER
+        """GPFitter appends the kernel's hyperparameters, in the kernel's own order."""
+        assert self._gpfitter()._param_order() == self.EXPECTED_ORDER + self.QP_ORDER
 
     @pytest.mark.parametrize("make", ["_fitter", "_gpfitter"])
     def test_params_stored_in_order(self, make) -> None:
-        """Params assigned in reverse order come back in the fixed order."""
+        """`params` assigned in reverse order come back in the fixed order."""
         fitter = getattr(self, make)()
 
-        assert list(fitter.params) == self.EXPECTED_ORDER
+        assert list(fitter.params) == self._expected(make)
 
     @pytest.mark.parametrize("make", ["_fitter", "_gpfitter"])
     def test_partial_update_keeps_order(self, make) -> None:
@@ -3426,7 +3345,7 @@ class TestParamOrder:
         fitter = getattr(self, make)()
         fitter.params = {"gd": Parameter(0.0, fixed=True), "K_b": Parameter(4.0, fixed=False)}
 
-        assert list(fitter.params) == self.EXPECTED_ORDER
+        assert list(fitter.params) == self._expected(make)
         assert fitter.params["K_b"].value == 4.0
 
     @pytest.mark.parametrize("make", ["_fitter", "_gpfitter"])
@@ -3434,8 +3353,8 @@ class TestParamOrder:
         """free_params_names skips fixed parameters; both lists keep the fixed order."""
         fitter = getattr(self, make)()
 
-        assert fitter.free_params_names == [n for n in self.EXPECTED_ORDER if n not in self.FIXED]
-        assert fitter.fixed_params_names == [n for n in self.EXPECTED_ORDER if n in self.FIXED]
+        assert fitter.free_params_names == [n for n in self._expected(make) if n not in self.FIXED]
+        assert fitter.fixed_params_names == [n for n in self._expected(make) if n in self.FIXED]
 
     @pytest.mark.parametrize("make", ["_fitter", "_gpfitter"])
     def test_priors_stored_in_order(self, make) -> None:
@@ -3445,19 +3364,16 @@ class TestParamOrder:
         (e_b, w_b for secosw_b, sesinw_b; Tp_b for Tc_b).
         """
         fitter = getattr(self, make)()
-        fitter.priors = self._scrambled_priors()
+        fitter.priors = self._priors(make)
 
-        assert list(fitter.priors) == [
-            "P_b", "K_b", "e_b", "w_b", "Tp_b",
-            "P_c", "K_c", "secosw_c", "sesinw_c",
-            "g_apf", "jit_apf", "g_harps", "g_HIRES", "jit_HIRES",
-        ]
+        gp = ["gp_amp", "gp_lambda_e", "gp_period"] if make == "_gpfitter" else []
+        assert list(fitter.priors) == self.EXPECTED_PRIORS + gp
 
     @pytest.mark.parametrize("make", ["_fitter", "_gpfitter"])
     def test_partial_priors_update_keeps_order(self, make) -> None:
         """A partial priors update replaces the function, not its position."""
         fitter = getattr(self, make)()
-        fitter.priors = self._scrambled_priors()
+        fitter.priors = self._priors(make)
         before = list(fitter.priors)
         new_prior = ravest.prior.Uniform(0, 20)
 
@@ -3468,7 +3384,7 @@ class TestParamOrder:
 
     @pytest.mark.parametrize("make", ["_fitter", "_gpfitter"])
     def test_ndim_is_read_only(self, make) -> None:
-        """Ndim is derived, so it cannot be assigned."""
+        """`ndim` is derived, so it cannot be assigned."""
         fitter = getattr(self, make)()
 
         with pytest.raises(AttributeError):
@@ -3492,8 +3408,8 @@ class TestParamOrder:
 
         assert fitter.ndim == before - 1
 
-    def test_gpfitter_ndim_counts_free_hyperparams(self) -> None:
-        """GPFitter.ndim adds the free hyperparameters (three of the four here)."""
+    def test_gpfitter_ndim_counts_free_gp_params(self) -> None:
+        """GPFitter.ndim includes the free GP hyperparameters (three of the four here)."""
         fitter = self._gpfitter()
 
-        assert fitter.ndim == len(fitter.free_params_names) + 3 == 17
+        assert fitter.ndim == len(fitter.free_params_names) == 14 + 3
