@@ -87,7 +87,7 @@ class Fitter:
         instrument: np.ndarray,
         t0: float,
     ) -> None:
-        """Add the data to the Fitter object.
+        """Add the data to the fitter.
 
         Parameters
         ----------
@@ -124,6 +124,8 @@ class Fitter:
         the number of sampled dimensions whenever any parameter is fixed. Only
         the free parameters are sampled: the MCMC chain's columns are
         ``free_params_names``, in that order (see ``get_samples_df``).
+
+        On a GPFitter, it also holds the GP kernel's hyperparameters (e.g. ``gp_amp``).
         """
         return self._params
 
@@ -141,9 +143,10 @@ class Fitter:
             Dictionary of new parameter values to set.
 
             The keys of this dictionary should match the parameter names expected
-            by the Fitter object: all required parameters for the
+            by the fitter: all required parameters for the
             chosen parameterisation, with planet letters (not required for
-            trend or jitter parameters).
+            trend or jitter parameters). On a GPFitter, also the GP kernel's
+            hyperparameters (e.g. ``gp_amp``, ``gp_lambda_e``, ``gp_lambda_p``, ``gp_period``).
 
         Raises
         ------
@@ -1396,8 +1399,8 @@ class Fitter:
     def get_samples_df(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> pd.DataFrame:
         """Return a pandas DataFrame of flattened MCMC samples.
 
-        Each row represents one sample, each column represents one parameter.
-        Built on get_samples_np().
+        Each row represents one sample, each column represents one free
+        parameter. Built on get_samples_np().
 
         Parameters
         ----------
@@ -1412,7 +1415,7 @@ class Fitter:
         -------
         pd.DataFrame
             DataFrame with shape (nsteps_after_discard_thin * nwalkers, ndim).
-            Columns are parameter names.
+            Columns are free_params_names, in that order.
         """
         flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         return pd.DataFrame(flat_samples, columns=self.free_params_names)
@@ -1420,7 +1423,7 @@ class Fitter:
     def get_samples_dict(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> Dict[str, np.ndarray]:
         """Return a dict of flattened MCMC samples.
 
-        Each parameter gets a 1D (flattened) contiguous array of all its samples.
+        Each free parameter gets a 1D (flattened) contiguous array of all its samples.
 
         Parameters
         ----------
@@ -1434,8 +1437,8 @@ class Fitter:
         Returns
         -------
         dict
-            Dictionary mapping parameter names to 1D arrays of samples.
-            Each array has shape (nsteps_after_discard_thin * nwalkers,)
+            Dictionary mapping free parameter names to 1D arrays of samples, in
+            free_params_names order. Each array has shape (nsteps_after_discard_thin * nwalkers,)
 
         Examples
         --------
@@ -1528,7 +1531,8 @@ class Fitter:
         """Calculate log-likelihood for given parameter values.
 
         Note this does not include (log-)prior probabilities, this is just the
-        (log-) *likelihood* primarily for use in AICc & BIC calculation.
+        (log-) *likelihood* primarily for use in AICc & BIC calculation. On a
+        GPFitter, this is the GP log likelihood, which AICc and BIC then use.
 
         Parameters
         ----------
@@ -1706,7 +1710,7 @@ class Fitter:
         return self.ndim * np.log(len(self.time)) - 2 * log_like
 
     def get_sample_with_best_lnprob(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> Dict[str, float]:
-        """Get parameter values from the MCMC sample with the highest log probability.
+        """Get free parameter values from the MCMC sample with the highest log probability.
 
         Parameters
         ----------
@@ -1720,7 +1724,7 @@ class Fitter:
         Returns
         -------
         Dict[str, float]
-            Dictionary of parameter names to values from the best sample
+            Dictionary of free parameter names to values from the best sample
         """
         # Get samples and log probabilities
         samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
@@ -3864,11 +3868,13 @@ class LogPrior:
 class GPFitter(Fitter):
     """Gaussian Process fitter for exoplanet radial velocity data.
 
-    Similar interface to Fitter class, but uses Gaussian Processes to model
-    correlated noise in the data. The planetary RV model serves as the GP mean function.
+    A Fitter that uses a Gaussian Process to model correlated noise in the data.
+    The planetary RV model serves as the GP mean function.
 
-    Supports MCMC sampling, MAP estimation, and various parameterisations.
-    Handles multiple planets, trends, jitter parameters, and GP hyperparameters.
+    GPFitter inherits Fitter's methods (parameters, priors, MAP, MCMC, samples,
+    statistics, plots), and adds the GP: its likelihood, its contribution to the
+    RVs, and the GP plots. The GP kernel's hyperparameters are held in ``params``
+    and ``priors`` like any other parameter.
     """
 
     def __init__(self, planet_letters: list[str], parameterisation: Parameterisation, gp_kernel: GPKernel) -> None:
