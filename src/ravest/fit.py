@@ -610,17 +610,17 @@ class Fitter:
 
         # Initialize log-posterior object
         lp = LogPosterior(
-            self.planet_letters,
-            self.parameterisation,
-            self.priors,
-            self.fixed_params_values_dict,
-            self.free_params_names,
-            self.time,
-            self.vel,
-            self.velerr,
-            self.instrument,
-            self.unique_instruments,
-            self.t0,
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            priors=self.priors,
+            fixed_params=self.fixed_params_values_dict,
+            free_params_names=self.free_params_names,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
         )
 
         initial_guess = self.free_params_values
@@ -799,17 +799,17 @@ class Fitter:
         # (priors, data, parameterisation), so the object is identical for every
         # walker and only its log_prior call depends on the position.
         lp = LogPosterior(
-            self.planet_letters,
-            self.parameterisation,
-            self.priors,
-            self.fixed_params_values_dict,
-            self.free_params_names,
-            self.time,
-            self.vel,
-            self.velerr,
-            self.instrument,
-            self.unique_instruments,
-            self.t0,
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            priors=self.priors,
+            fixed_params=self.fixed_params_values_dict,
+            free_params_names=self.free_params_names,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
         )
 
         for walker_idx in range(nwalkers):
@@ -988,17 +988,17 @@ class Fitter:
 
             # Check prior compliance
             lp = LogPosterior(
-                self.planet_letters,
-                self.parameterisation,
-                self.priors,
-                self.fixed_params_values_dict,
-                self.free_params_names,
-                self.time,
-                self.vel,
-                self.velerr,
-                self.instrument,
-                self.unique_instruments,
-                self.t0,
+                planet_letters=self.planet_letters,
+                parameterisation=self.parameterisation,
+                priors=self.priors,
+                fixed_params=self.fixed_params_values_dict,
+                free_params_names=self.free_params_names,
+                time=self.time,
+                vel=self.vel,
+                velerr=self.velerr,
+                instrument=self.instrument,
+                unique_instruments=self.unique_instruments,
+                t0=self.t0,
             )
             params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
             log_prior = lp.log_prior(params_for_prior)
@@ -1194,17 +1194,17 @@ class Fitter:
 
         # Initialize log-posterior object for MCMC sampling
         lp = LogPosterior(
-            self.planet_letters,
-            self.parameterisation,
-            self.priors,
-            self.fixed_params_values_dict,
-            self.free_params_names,
-            self.time,
-            self.vel,
-            self.velerr,
-            self.instrument,
-            self.unique_instruments,
-            self.t0,
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            priors=self.priors,
+            fixed_params=self.fixed_params_values_dict,
+            free_params_names=self.free_params_names,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
         )
 
         # Enforce minimum number of walkers (though users ideally should have many more than this)
@@ -1549,14 +1549,14 @@ class Fitter:
         """
         # Create LogLikelihood object (same as in find_map_estimate and run_mcmc)
         log_likelihood = LogLikelihood(
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
             time=self.time,
             vel=self.vel,
             velerr=self.velerr,
             instrument=self.instrument,
             unique_instruments=self.unique_instruments,
             t0=self.t0,
-            planet_letters=self.planet_letters,
-            parameterisation=self.parameterisation,
         )
         return log_likelihood(params_dict)
 
@@ -1653,9 +1653,14 @@ class Fitter:
         """
         # Create LogLikelihood instance to reuse RV model calculation
         ll = LogLikelihood(
-            self.time, self.vel, self.velerr,
-            self.instrument, self.unique_instruments, self.t0,
-            self.planet_letters, self.parameterisation
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
         )
 
         # Get log-likelihood
@@ -3406,6 +3411,7 @@ class LogPosterior:
 
     def __init__(
         self,
+        *,
         planet_letters: list[str],
         parameterisation: Parameterisation,
         priors: dict[str, Callable[[float], float]],
@@ -3459,14 +3465,14 @@ class LogPosterior:
 
         # Create log-likelihood and log-prior objects for later
         self.log_likelihood = LogLikelihood(
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
             time=self.time,
             vel=self.vel,
             velerr=self.velerr,
             instrument=self.instrument,
             unique_instruments=self.unique_instruments,
             t0=self.t0,
-            planet_letters=self.planet_letters,
-            parameterisation=self.parameterisation,
         )
         self.log_prior = LogPrior(self.priors)
 
@@ -3713,19 +3719,24 @@ class LogLikelihood:
 
     def __init__(
         self,
+        *,
+        planet_letters: list[str],
+        parameterisation: Parameterisation,
         time: np.ndarray,
         vel: np.ndarray,
         velerr: np.ndarray,
         instrument: np.ndarray,
         unique_instruments: np.ndarray,
         t0: float,
-        planet_letters: list[str],
-        parameterisation: Parameterisation,
     ) -> None:
         """Initialize the LogLikelihood object.
 
         Parameters
         ----------
+        planet_letters : list[str]
+            List of single-character planet identifiers.
+        parameterisation : Parameterisation
+            The orbital parameterisation to use.
         time : np.ndarray
             Time of each observation [days].
         vel : np.ndarray
@@ -3738,20 +3749,16 @@ class LogLikelihood:
             Unique instrument names in the data.
         t0 : float
             Reference time for the trend [days].
-        planet_letters : list[str]
-            List of single-character planet identifiers.
-        parameterisation : Parameterisation
-            The orbital parameterisation to use.
         """
+        self.planet_letters = planet_letters
+        self.parameterisation = parameterisation
+
         self.time = time
         self.vel = vel
         self.velerr = velerr
         self.instrument = instrument
         self.unique_instruments = unique_instruments
         self.t0 = t0
-
-        self.planet_letters = planet_letters
-        self.parameterisation = parameterisation
 
         # Precompute a per-observation integer index array.
         # For each observation, store which instrument it came from as an integer:
@@ -4451,18 +4458,18 @@ class GPFitter:
 
         # Initialize log-posterior object
         gp_lp = GPLogPosterior(
-            self.planet_letters,
-            self.parameterisation,
-            self.gp_kernel,
-            self.priors,
-            self.fixed_params_values_dict,
-            self.free_params_names,
-            self.time,
-            self.vel,
-            self.velerr,
-            self.t0,
-            self.instrument,
-            self.unique_instruments,
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            gp_kernel=self.gp_kernel,
+            priors=self.priors,
+            fixed_params=self.fixed_params_values_dict,
+            free_params_names=self.free_params_names,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
         )
 
         initial_guess = self.free_params_values
@@ -4641,18 +4648,18 @@ class GPFitter:
         # (priors, kernel, data), so the object is identical for every
         # walker and only its log_prior call depends on the position.
         lp = GPLogPosterior(
-            self.planet_letters,
-            self.parameterisation,
-            self.gp_kernel,
-            self.priors,
-            self.fixed_params_values_dict,
-            self.free_params_names,
-            self.time,
-            self.vel,
-            self.velerr,
-            self.t0,
-            self.instrument,
-            self.unique_instruments,
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            gp_kernel=self.gp_kernel,
+            priors=self.priors,
+            fixed_params=self.fixed_params_values_dict,
+            free_params_names=self.free_params_names,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
         )
 
         for walker_idx in range(nwalkers):
@@ -4831,18 +4838,18 @@ class GPFitter:
 
             # Check prior compliance
             lp = GPLogPosterior(
-                self.planet_letters,
-                self.parameterisation,
-                self.gp_kernel,
-                self.priors,
-                self.fixed_params_values_dict,
-                self.free_params_names,
-                self.time,
-                self.vel,
-                self.velerr,
-                self.t0,
-                self.instrument,
-                self.unique_instruments,
+                planet_letters=self.planet_letters,
+                parameterisation=self.parameterisation,
+                gp_kernel=self.gp_kernel,
+                priors=self.priors,
+                fixed_params=self.fixed_params_values_dict,
+                free_params_names=self.free_params_names,
+                time=self.time,
+                vel=self.vel,
+                velerr=self.velerr,
+                instrument=self.instrument,
+                unique_instruments=self.unique_instruments,
+                t0=self.t0,
             )
             params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
             log_prior = lp.log_prior(params_for_prior)
@@ -5038,18 +5045,18 @@ class GPFitter:
 
         # Initialize log-posterior object for MCMC sampling
         gp_lp = GPLogPosterior(
-            self.planet_letters,
-            self.parameterisation,
-            self.gp_kernel,
-            self.priors,
-            self.fixed_params_values_dict,
-            self.free_params_names,
-            self.time,
-            self.vel,
-            self.velerr,
-            self.t0,
-            self.instrument,
-            self.unique_instruments,
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            gp_kernel=self.gp_kernel,
+            priors=self.priors,
+            fixed_params=self.fixed_params_values_dict,
+            free_params_names=self.free_params_names,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
         )
 
         # Enforce minimum number of walkers (though users ideally should have many more than this)
@@ -5394,15 +5401,15 @@ class GPFitter:
         """
         # Create GPLogLikelihood object (same as in find_map_estimate and run_mcmc)
         gp_log_likelihood = GPLogLikelihood(
-            time=self.time,
-            vel=self.vel,
-            velerr=self.velerr,
-            t0=self.t0,
-            instrument=self.instrument,
-            unique_instruments=self.unique_instruments,
             planet_letters=self.planet_letters,
             parameterisation=self.parameterisation,
             gp_kernel=self.gp_kernel,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
         )
         return gp_log_likelihood(params_dict)
 
@@ -5545,15 +5552,15 @@ class GPFitter:
         """
         # Create GPLogLikelihood instance to reuse mean model calculation
         gp_ll = GPLogLikelihood(
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            gp_kernel=self.gp_kernel,
             time=self.time,
             vel=self.vel,
             velerr=self.velerr,
-            t0=self.t0,
             instrument=self.instrument,
             unique_instruments=self.unique_instruments,
-            planet_letters=self.planet_letters,
-            parameterisation=self.parameterisation,
-            gp_kernel=self.gp_kernel
+            t0=self.t0,
         )
 
         # Calculate mean model using GPLogLikelihood method
@@ -7645,6 +7652,7 @@ class GPLogPosterior:
 
     def __init__(
         self,
+        *,
         planet_letters: list[str],
         parameterisation: Parameterisation,
         gp_kernel: GPKernel,
@@ -7654,9 +7662,9 @@ class GPLogPosterior:
         time: np.ndarray,
         vel: np.ndarray,
         velerr: np.ndarray,
-        t0: float,
         instrument: np.ndarray,
-        unique_instruments: list[str],
+        unique_instruments: np.ndarray,
+        t0: float,
     ) -> None:
         """Initialize the GPLogPosterior object.
 
@@ -7680,12 +7688,12 @@ class GPLogPosterior:
             Radial velocity at each time [m/s].
         velerr : np.ndarray
             Uncertainty on the radial velocity at each time [m/s].
+        instrument : np.ndarray
+            Instrument name for each observation.
+        unique_instruments : np.ndarray
+            Unique instrument names in the data.
         t0 : float
             Reference time for the trend [days].
-        instrument : np.ndarray
-            Instrument label for each observation.
-        unique_instruments : list[str]
-            List of unique instrument names.
         """
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
@@ -7696,21 +7704,21 @@ class GPLogPosterior:
         self.time = time
         self.vel = vel
         self.velerr = velerr
-        self.t0 = t0
         self.instrument = instrument
         self.unique_instruments = unique_instruments
+        self.t0 = t0
 
         # Create GP log-likelihood and GP log-prior objects for later
         self.gp_log_likelihood = GPLogLikelihood(
-            time=self.time,
-            vel=self.vel,
-            velerr=self.velerr,
-            t0=self.t0,
-            instrument=self.instrument,
-            unique_instruments=self.unique_instruments,
             planet_letters=self.planet_letters,
             parameterisation=self.parameterisation,
             gp_kernel=self.gp_kernel,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
         )
 
         # Create LogPrior object (covers the GP hyperparameters' priors too)
@@ -7966,25 +7974,26 @@ class GPLogLikelihood:
 
     def __init__(
         self,
-        time: np.ndarray,
-        vel: np.ndarray,
-        velerr: np.ndarray,
-        t0: float,
-        instrument: np.ndarray,
-        unique_instruments: list[str],
+        *,
         planet_letters: list[str],
         parameterisation: Parameterisation,
         gp_kernel: GPKernel,
+        time: np.ndarray,
+        vel: np.ndarray,
+        velerr: np.ndarray,
+        instrument: np.ndarray,
+        unique_instruments: np.ndarray,
+        t0: float,
     ) -> None:
-        self.time = time
-        self.vel = vel
-        self.velerr = velerr
-        self.t0 = t0
-        self.instrument = instrument
-        self.unique_instruments = unique_instruments
         self.planet_letters = planet_letters
         self.parameterisation = parameterisation
         self.gp_kernel = gp_kernel
+        self.time = time
+        self.vel = vel
+        self.velerr = velerr
+        self.instrument = instrument
+        self.unique_instruments = unique_instruments
+        self.t0 = t0
 
         # Convert data to JAX array for tinygp
         self.jax_time = jnp.array(self.time)

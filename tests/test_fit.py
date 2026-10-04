@@ -368,11 +368,11 @@ class TestLogLikelihood:
     def test_loglikelihood_init(self, test_data) -> None:
         """Test LogLikelihood initialization."""
         time, vel, velerr, instrument = test_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         ll = LogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments,
-            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         np.testing.assert_array_equal(ll.time, time)
@@ -383,11 +383,11 @@ class TestLogLikelihood:
     def test_loglikelihood_calculation(self, test_data) -> None:
         """Test log-likelihood calculation with valid parameters."""
         time, vel, velerr, instrument = test_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         ll = LogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments,
-            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         params = {
@@ -402,11 +402,11 @@ class TestLogLikelihood:
     def test_loglikelihood_invalid_planet(self, test_data) -> None:
         """Test log-likelihood returns -inf for invalid planet parameters."""
         time, vel, velerr, instrument = test_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         ll = LogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments,
-            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         params = {
@@ -426,12 +426,12 @@ class TestLogLikelihood:
         vel = np.array([2.0, 2.0, 2.0, 2.0])
         velerr = np.array([1.0, 1.0, 1.0, 1.0])
         instrument = np.array(["HARPS", "HARPS", "HARPS", "HARPS"])
-        unique_instruments = ["HARPS"]
+        unique_instruments = np.array(["HARPS"])
 
         ll = LogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=1.0,
-            instrument=instrument, unique_instruments=unique_instruments,
-            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=1.0
         )
 
         params = {
@@ -446,11 +446,11 @@ class TestLogLikelihood:
     def test_loglikelihood_multi_instrument(self, test_data_multi_instrument) -> None:
         """Test log-likelihood calculation with multiple instruments."""
         time, vel, velerr, instrument = test_data_multi_instrument
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         ll = LogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments,
-            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         params = {
@@ -466,11 +466,11 @@ class TestLogLikelihood:
     def test_loglikelihood_jitter_affects_result(self, test_data) -> None:
         """Test that per-instrument jitter affects log-likelihood."""
         time, vel, velerr, instrument = test_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         ll = LogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments,
-            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         params_low_jit = {
@@ -540,7 +540,7 @@ class TestLogPosterior:
     def test_logposterior_init(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test LogPosterior initialization."""
         time, vel, velerr, instrument = test_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         params = test_circular_params
         priors = test_simple_priors
 
@@ -554,8 +554,8 @@ class TestLogPosterior:
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         assert lpost.planet_letters == ["b"]
@@ -563,7 +563,7 @@ class TestLogPosterior:
     def test_logposterior_valid_calculation(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test log-posterior calculation with valid parameters."""
         time, vel, velerr, instrument = test_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         params = test_circular_params
         priors = test_simple_priors
 
@@ -576,8 +576,8 @@ class TestLogPosterior:
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         free_params_dict = {"K_b": 5.0, "jit_HARPS": 1.0}
@@ -589,7 +589,7 @@ class TestLogPosterior:
     def test_logposterior_invalid_prior(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test log-posterior returns -inf when prior is invalid."""
         time, vel, velerr, instrument = test_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         params = test_circular_params
         priors = test_simple_priors
 
@@ -602,8 +602,8 @@ class TestLogPosterior:
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         free_params_dict = {"K_b": -1.0, "jit_HARPS": 1.0}  # Invalid K_b
@@ -614,7 +614,7 @@ class TestLogPosterior:
     def test_negative_log_probability_for_MAP(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test MAP interface that takes list instead of dict."""
         time, vel, velerr, instrument = test_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         params = test_circular_params
         priors = test_simple_priors
 
@@ -627,8 +627,8 @@ class TestLogPosterior:
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         free_params_vals = [5.0, 1.0]  # K_b, jit_HARPS
@@ -1548,13 +1548,13 @@ class TestGPLogLikelihood:
     def test_gploglikelihood_init(self, test_gp_data) -> None:
         """Test GPLogLikelihood initialization."""
         time, vel, velerr, instrument = test_gp_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         gp_kernel = GPKernel("Quasiperiodic")
         ll = GPLogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments,
             planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
-            gp_kernel=gp_kernel
+            gp_kernel=gp_kernel,
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         np.testing.assert_array_equal(ll.time, time)
@@ -1562,18 +1562,18 @@ class TestGPLogLikelihood:
         np.testing.assert_array_equal(ll.velerr, velerr)
         assert ll.t0 == 2.0
         assert ll.gp_kernel == gp_kernel
-        assert ll.unique_instruments == ["HARPS"]
+        np.testing.assert_array_equal(ll.unique_instruments, ["HARPS"])
 
     def test_gploglikelihood_calculation(self, test_gp_data) -> None:
         """Test GP log-likelihood calculation with valid parameters."""
         time, vel, velerr, instrument = test_gp_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         gp_kernel = GPKernel("Quasiperiodic")
         ll = GPLogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments,
             planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
-            gp_kernel=gp_kernel
+            gp_kernel=gp_kernel,
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         params = {
@@ -1595,13 +1595,13 @@ class TestGPLogLikelihood:
     def test_gploglikelihood_invalid_planet(self, test_gp_data) -> None:
         """Test GP log-likelihood returns -inf for invalid planet parameters."""
         time, vel, velerr, instrument = test_gp_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         gp_kernel = GPKernel("Quasiperiodic")
         ll = GPLogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments,
             planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
-            gp_kernel=gp_kernel
+            gp_kernel=gp_kernel,
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         params = {
@@ -1627,7 +1627,7 @@ class TestGPLogPosterior:
                                    test_gp_priors, test_gp_hyperpriors) -> None:
         """Test GPLogPosterior initialization."""
         time, vel, velerr, instrument = test_gp_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         params = test_gp_circular_params
         hyperparams = test_gp_hyperparams
         priors = test_gp_priors
@@ -1646,19 +1646,19 @@ class TestGPLogPosterior:
             priors=priors | hyperpriors,
             fixed_params=fixed_params,
             free_params_names=free_params_names,
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         assert lpost.planet_letters == ["b"]
         assert lpost.gp_kernel == gp_kernel
-        assert lpost.unique_instruments == ["HARPS"]
+        np.testing.assert_array_equal(lpost.unique_instruments, ["HARPS"])
 
     def test_gplogposterior_valid_calculation(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
                                                test_gp_priors, test_gp_hyperpriors) -> None:
         """Test GP log-posterior calculation with valid parameters."""
         time, vel, velerr, instrument = test_gp_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         params = test_gp_circular_params
         hyperparams = test_gp_hyperparams
         priors = test_gp_priors
@@ -1676,8 +1676,8 @@ class TestGPLogPosterior:
             priors=priors | hyperpriors,
             fixed_params=fixed_params,
             free_params_names=free_params_names,
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         combined_dict = {
@@ -1694,7 +1694,7 @@ class TestGPLogPosterior:
                                            test_gp_priors, test_gp_hyperpriors) -> None:
         """Test GP log-posterior returns -inf when prior is invalid."""
         time, vel, velerr, instrument = test_gp_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         params = test_gp_circular_params
         hyperparams = test_gp_hyperparams
         priors = test_gp_priors
@@ -1712,8 +1712,8 @@ class TestGPLogPosterior:
             priors=priors | hyperpriors,
             fixed_params=fixed_params,
             free_params_names=free_params_names,
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         combined_dict = {
@@ -1739,9 +1739,8 @@ class TestGPOneDictInternals:
 
     @classmethod
     def _data(cls):
-        return dict(time=cls.TIME, vel=cls.VEL, velerr=cls.VELERR, t0=2.0,
-                    instrument=cls.INSTRUMENT, unique_instruments=["HARPS"],
-                    gp_kernel=GPKernel("Quasiperiodic"))
+        return dict(time=cls.TIME, vel=cls.VEL, velerr=cls.VELERR,
+                    instrument=cls.INSTRUMENT, unique_instruments=np.array(["HARPS"]), t0=2.0)
 
     def _posterior(self, case):
         """One-dict GPLogPosterior for case "A" or "B".
@@ -1753,6 +1752,7 @@ class TestGPOneDictInternals:
         if case == "A":
             return GPLogPosterior(
                 planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+                gp_kernel=GPKernel("Quasiperiodic"),
                 priors={"K_b": U(0, 20), "jit_HARPS": U(0, 5), "gp_amp": U(0, 10),
                         "gp_lambda_e": U(1, 100), "gp_lambda_p": U(0.1, 2.0), "gp_period": U(1, 50)},
                 fixed_params={"P_b": 2.0, "e_b": 0.0, "w_b": np.pi / 2, "Tc_b": 0.0,
@@ -1762,6 +1762,7 @@ class TestGPOneDictInternals:
             )
         return GPLogPosterior(
             planet_letters=["b"], parameterisation=Parameterisation("P K secosw sesinw Tc"),
+            gp_kernel=GPKernel("Quasiperiodic"),
             priors={"K_b": U(0, 20), "e_b": U(0, 1), "w_b": U(-np.pi, np.pi), "jit_HARPS": U(0, 5),
                     "gp_amp": U(0, 10), "gp_lambda_e": U(1, 100), "gp_period": U(1, 50)},
             fixed_params={"P_b": 2.0, "Tc_b": 0.0, "g_HARPS": 0.0, "gd": 0.0, "gdd": 0.0,
@@ -1782,7 +1783,7 @@ class TestGPOneDictInternals:
     def test_likelihood_one_dict_matches_reference(self) -> None:
         """GPLogLikelihood(params) with the GP names in params gives the two-dict value."""
         ll = GPLogLikelihood(planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
-                             **self._data())
+                             gp_kernel=GPKernel("Quasiperiodic"), **self._data())
         params = {"P_b": 2.0, "K_b": 5.0, "e_b": 0.1, "w_b": 1.0, "Tc_b": 0.3,
                   "g_HARPS": 0.5, "gd": 0.1, "gdd": 0.01, "jit_HARPS": 2.0,
                   "gp_amp": 1.5, "gp_lambda_e": 30.0, "gp_lambda_p": 0.7, "gp_period": 8.0}
@@ -1792,7 +1793,7 @@ class TestGPOneDictInternals:
     def test_likelihood_rejects_separate_hyperparams(self) -> None:
         """There is no separate hyperparams argument."""
         ll = GPLogLikelihood(planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
-                             **self._data())
+                             gp_kernel=GPKernel("Quasiperiodic"), **self._data())
 
         with pytest.raises(TypeError):
             ll({"P_b": 2.0}, {"gp_amp": 1.0})
@@ -1826,7 +1827,7 @@ class TestGPOneDictInternals:
         """The separate hyperparameter arguments are gone."""
         lp = self._posterior("A")
         kwargs = dict(planet_letters=lp.planet_letters, parameterisation=lp.parameterisation,
-                      priors=lp.priors, fixed_params=lp.fixed_params,
+                      gp_kernel=lp.gp_kernel, priors=lp.priors, fixed_params=lp.fixed_params,
                       free_params_names=lp.free_params_names, **self._data())
         kwargs[keyword] = {} if keyword != "free_hyperparams_names" else []
 
@@ -1836,6 +1837,82 @@ class TestGPOneDictInternals:
     def test_posterior_has_no_log_hyperprior(self) -> None:
         """One LogPrior covers the GP names too."""
         assert not hasattr(self._posterior("A"), "log_hyperprior")
+
+
+class TestLogProbSignatures:
+    """The posterior and likelihood classes take keyword-only arguments in one order.
+
+    Model (planet_letters, parameterisation, gp_kernel), then fit setup (priors, fixed_params,
+    free_params_names), then data (time, vel, velerr, instrument, unique_instruments, t0). Each
+    class takes only what it needs.
+    """
+
+    MODEL = ["planet_letters", "parameterisation"]
+    SETUP = ["priors", "fixed_params", "free_params_names"]
+    DATA = ["time", "vel", "velerr", "instrument", "unique_instruments", "t0"]
+    ORDER = {
+        LogPosterior: MODEL + SETUP + DATA,
+        GPLogPosterior: MODEL + ["gp_kernel"] + SETUP + DATA,
+        LogLikelihood: MODEL + DATA,
+        GPLogLikelihood: MODEL + ["gp_kernel"] + DATA,
+    }
+    CLASSES = list(ORDER)
+    IDS = [cls.__name__ for cls in CLASSES]
+
+    @classmethod
+    def _kwargs(cls, klass):
+        """Valid arguments for klass, in the agreed order."""
+        values = dict(
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+            gp_kernel=GPKernel("Quasiperiodic"),
+            priors={"K_b": ravest.prior.Uniform(0, 20)},
+            fixed_params={"P_b": 2.0, "e_b": 0.0, "w_b": np.pi / 2, "Tc_b": 0.0,
+                          "g_HARPS": 0.0, "jit_HARPS": 0.0, "gd": 0.0, "gdd": 0.0},
+            free_params_names=["K_b"],
+            time=np.array([0.0, 1.0, 2.0]), vel=np.array([1.0, -1.0, 0.5]),
+            velerr=np.array([1.0, 1.0, 1.0]), instrument=np.array(["HARPS"] * 3),
+            unique_instruments=np.array(["HARPS"]), t0=1.0,
+        )
+        return {name: values[name] for name in cls.ORDER[klass]}
+
+    @staticmethod
+    def _parameters(klass):
+        """inspect.Parameter objects of klass.__init__, without self."""
+        import inspect
+        return list(inspect.signature(klass.__init__).parameters.values())[1:]
+
+    @pytest.mark.parametrize("klass", CLASSES, ids=IDS)
+    def test_keyword_only_in_order(self, klass) -> None:
+        """Every argument is keyword-only, in the agreed order."""
+        import inspect
+        parameters = self._parameters(klass)
+
+        assert [p.name for p in parameters] == self.ORDER[klass]
+        assert all(p.kind is inspect.Parameter.KEYWORD_ONLY for p in parameters)
+
+    @pytest.mark.parametrize("klass", CLASSES, ids=IDS)
+    def test_positional_call_raises(self, klass) -> None:
+        """Passing the arguments positionally is refused, even in the right order."""
+        kwargs = self._kwargs(klass)
+
+        with pytest.raises(TypeError, match="takes 1 positional argument"):
+            klass(*kwargs.values())
+
+    @pytest.mark.parametrize("klass", CLASSES, ids=IDS)
+    def test_keyword_call_works(self, klass) -> None:
+        """Passing every argument by keyword constructs the object."""
+        klass(**self._kwargs(klass))
+
+    @pytest.mark.parametrize("gp_class, partner", [(GPLogPosterior, LogPosterior),
+                                                   (GPLogLikelihood, LogLikelihood)],
+                             ids=["GPLogPosterior", "GPLogLikelihood"])
+    def test_gp_signature_is_partner_plus_gp_kernel(self, gp_class, partner) -> None:
+        """The GP class takes its partner's arguments (same kinds and annotations), plus gp_kernel."""
+        gp_parameters = self._parameters(gp_class)
+        partner_parameters = self._parameters(partner)
+
+        assert [p.name for p in gp_parameters if p.name != "gp_kernel"] == [p.name for p in partner_parameters]
+        assert [p for p in gp_parameters if p.name != "gp_kernel"] == partner_parameters
 
 
 class TestGPFitter:

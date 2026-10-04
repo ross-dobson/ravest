@@ -22,17 +22,17 @@ def _build_log_posterior(fitter: Fitter) -> LogPosterior:
     Mirrors the construction sites inside Fitter (e.g. find_map_estimate).
     """
     return LogPosterior(
-        fitter.planet_letters,
-        fitter.parameterisation,
-        fitter.priors,
-        fitter.fixed_params_values_dict,
-        fitter.free_params_names,
-        fitter.time,
-        fitter.vel,
-        fitter.velerr,
-        fitter.instrument,
-        fitter.unique_instruments,
-        fitter.t0,
+        planet_letters=fitter.planet_letters,
+        parameterisation=fitter.parameterisation,
+        priors=fitter.priors,
+        fixed_params=fitter.fixed_params_values_dict,
+        free_params_names=fitter.free_params_names,
+        time=fitter.time,
+        vel=fitter.vel,
+        velerr=fitter.velerr,
+        instrument=fitter.instrument,
+        unique_instruments=fitter.unique_instruments,
+        t0=fitter.t0,
     )
 
 
