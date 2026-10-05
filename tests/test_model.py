@@ -1,3 +1,5 @@
+import re
+
 import numpy as np
 import pytest
 
@@ -82,6 +84,25 @@ def test_planet_letter_good() -> None:
         ).letter
         == "b"
     )
+
+
+@pytest.mark.parametrize("letter", ["b", "z"])
+def test_planet_letter_accepts_b_to_z(letter) -> None:
+    planet = Planet(letter=letter, parameterisation=Parameterisation("P K e w Tp"), params=known_params1())
+    assert planet.letter == letter
+
+
+@pytest.mark.parametrize("letter", ["bb", "B", "a", "", "1"], ids=["bb", "B", "a", "empty", "1"])
+def test_planet_letter_rejects_anything_but_one_letter_b_to_z(letter) -> None:
+    """Only a single lowercase letter b-z names a planet ("a" is the star)."""
+    with pytest.raises(ValueError, match=re.escape(repr(letter))):
+        Planet(letter=letter, parameterisation=Parameterisation("P K e w Tp"), params=known_params1())
+
+
+@pytest.mark.parametrize("letter", [1, None, ["b"]], ids=["int", "None", "list"])
+def test_planet_letter_rejects_non_str(letter) -> None:
+    with pytest.raises(TypeError):
+        Planet(letter=letter, parameterisation=Parameterisation("P K e w Tp"), params=known_params1())
 
 
 def test_star_num_planets() -> None:

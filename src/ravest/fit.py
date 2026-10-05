@@ -31,7 +31,7 @@ from tqdm import tqdm
 
 import ravest.model
 from ravest.gp import GPKernel
-from ravest.model import _njit_kepler_rv
+from ravest.model import _njit_kepler_rv, _validate_planet_letter
 from ravest.param import Parameter, Parameterisation, param_key_to_latex
 from ravest.prior import Uniform
 
@@ -48,14 +48,14 @@ class Fitter:
     Handles multiple planets, trends, and jitter parameters.
     """
 
-    def __init__(self, planet_letters: list[str], parameterisation: Parameterisation) -> None:
+    def __init__(self, planet_letters: list[str] | tuple[str, ...], parameterisation: Parameterisation) -> None:
         """Initialize the Fitter object.
 
         Parameters
         ----------
-        planet_letters : list[str]
-            List of single-character planet identifiers (e.g., ['b', 'c', 'd']).
-            Used to distinguish parameters for different planets in the system.
+        planet_letters : list[str] or tuple[str, ...]
+            The planets to fit, each a single lowercase letter from "b" to "z" with no repeats,
+            e.g. ["b", "c"]. Stored in alphabetical order. An empty list fits no planets.
         parameterisation : Parameterisation
             The orbital parameterisation to use for fitting. Defines which orbital
             elements are used as free/fixed parameters, e.g.
@@ -68,7 +68,18 @@ class Fitter:
                 f"{type(parameterisation).__name__}. If you passed the name as a string, "
                 f"wrap it, e.g. ravest.param.Parameterisation('...')."
             )
-        self.planet_letters = planet_letters
+        if not isinstance(planet_letters, (list, tuple)):
+            raise TypeError(
+                f"planet_letters must be a list or tuple of letters, e.g. ['b'] or ['b', 'c'], not "
+                f"{type(planet_letters)}. To convert another container, use list(...)."
+            )
+        letters = [str(letter) if isinstance(letter, str) else letter for letter in planet_letters]
+        for letter in letters:
+            _validate_planet_letter(letter)
+        for letter in letters:
+            if letters.count(letter) > 1:
+                raise ValueError(f"planet_letters must not repeat a letter, but {letter!r} appears more than once.")
+        self.planet_letters = sorted(letters)
         self.parameterisation = parameterisation
 
         # Trigger numba JIT compilation before MCMC
@@ -3930,14 +3941,14 @@ class GPFitter(Fitter):
     and ``priors`` like any other parameter.
     """
 
-    def __init__(self, planet_letters: list[str], parameterisation: Parameterisation, gp_kernel: GPKernel) -> None:
+    def __init__(self, planet_letters: list[str] | tuple[str, ...], parameterisation: Parameterisation, gp_kernel: GPKernel) -> None:
         """Initialize the GPFitter object.
 
         Parameters
         ----------
-        planet_letters : list[str]
-            List of single-character planet identifiers (e.g., ['b', 'c', 'd']).
-            Used to distinguish parameters for different planets in the system.
+        planet_letters : list[str] or tuple[str, ...]
+            The planets to fit, each a single lowercase letter from "b" to "z" with no repeats,
+            e.g. ["b", "c"]. Stored in alphabetical order. An empty list fits no planets.
         parameterisation : Parameterisation
             The orbital parameterisation to use for fitting. Defines which orbital
             elements are used as free/fixed parameters, e.g.
