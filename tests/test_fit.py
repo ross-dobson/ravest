@@ -4067,3 +4067,72 @@ class TestParamsDictOrder:
                 assert posterior[name] == param.value
             else:
                 np.testing.assert_array_equal(posterior[name], samples[name])
+
+
+class TestLogLikelihoodSubclass:
+    """GPLogLikelihood is a LogLikelihood: one mean model (planets, trend, gammas), GP noise on top.
+
+    The recorded values were computed before the GP class shared LogLikelihood's mean model, so they
+    check that no number changes (TestGPOneDictInternals has the GP ones).
+    """
+
+    TIME = np.array([0.0, 0.7, 1.3, 2.1, 2.9, 3.4, 4.2, 5.0, 5.8, 6.5, 7.1, 8.0])
+    VEL = np.array([3.1, -1.2, -4.8, 0.4, 5.2, 2.9, -3.3, -1.0, 4.4, 1.7, -2.6, 0.8])
+    VELERR = np.array([1.0, 1.2, 0.9, 1.1, 1.3, 0.8, 1.0, 1.4, 0.9, 1.1, 1.2, 1.0])
+    CASES = {
+        "A": (["b"], "P K e w Tc", ["HARPS"] * 12,
+              {"P_b": 3.2, "K_b": 4.0, "e_b": 0.0, "w_b": np.pi / 2, "Tc_b": 0.4,
+               "g_HARPS": 0.3, "jit_HARPS": 0.8, "gd": 0.05, "gdd": -0.002}),
+        "B": (["b", "c"], "P K secosw sesinw Tc", ["HARPS", "HIRES"] * 6,
+              {"P_b": 3.2, "K_b": 4.0, "secosw_b": 0.2, "sesinw_b": -0.1, "Tc_b": 0.4,
+               "P_c": 11.5, "K_c": 2.5, "secosw_c": -0.3, "sesinw_c": 0.25, "Tc_c": 2.0,
+               "g_HARPS": 0.3, "jit_HARPS": 0.8, "g_HIRES": -0.6, "jit_HIRES": 1.5, "gd": 0.05, "gdd": -0.002}),
+        "C": (["b"], "P K e w Tp", ["HARPS"] * 12,
+              {"P_b": 3.2, "K_b": 4.0, "e_b": 0.35, "w_b": 1.1, "Tp_b": 0.9,
+               "g_HARPS": 0.3, "jit_HARPS": 0.8, "gd": 0.0, "gdd": 0.0}),
+    }
+    REFERENCE = {"A": -19.364905299574325, "B": -31.044068262806906, "C": -64.34395402831363}
+    VALID = {"P_b": 2.0, "K_b": 5.0, "e_b": 0.0, "w_b": np.pi / 2, "Tc_b": 0.0,
+             "g_HARPS": 0.0, "jit_HARPS": 1.0, "gd": 0.0, "gdd": 0.0}
+
+    @pytest.mark.parametrize("case", ["A", "B", "C"])
+    def test_log_likelihood_matches_reference(self, case) -> None:
+        """LogLikelihood gives the recorded value at each fixed point."""
+        letters, parameterisation, instrument, params = self.CASES[case]
+        instrument = np.array(instrument)
+        ll = LogLikelihood(planet_letters=letters, parameterisation=Parameterisation(parameterisation),
+                           time=self.TIME, vel=self.VEL, velerr=self.VELERR, instrument=instrument,
+                           unique_instruments=np.unique(instrument), t0=4.0)
+
+        assert ll(params) == pytest.approx(self.REFERENCE[case], rel=1e-12)
+
+    def test_is_subclass(self) -> None:
+        """GPLogLikelihood inherits from LogLikelihood."""
+        assert issubclass(GPLogLikelihood, LogLikelihood)
+
+    def test_defines_only_gp_parts(self) -> None:
+        """GPLogLikelihood defines only its constructor, its call and the GP computation."""
+        defined = {name for name in vars(GPLogLikelihood)
+                   if name == "__init__" or name == "__call__" or not (name.startswith("__") and name.endswith("__"))}
+
+        assert defined == {"__init__", "__call__", "_compute_gp_log_likelihood"}
+
+    @pytest.mark.parametrize("klass", [LogLikelihood, GPLogLikelihood], ids=["LogLikelihood", "GPLogLikelihood"])
+    def test_mean_model(self, klass) -> None:
+        """The mean model is an array at the data times, or None if a planet's parameters are invalid."""
+        ll = klass(**TestLogProbSignatures._kwargs(klass))
+
+        mean = ll._calculate_mean_model(self.VALID)
+
+        assert np.shape(mean) == np.shape(ll.time) and np.all(np.isfinite(mean))
+        assert ll._calculate_mean_model(self.VALID | {"P_b": -1.0}) is None
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    def test_chi2_inf_for_invalid_planet(self, kind, test_data, test_circular_params, test_simple_priors,
+                                         test_gp_data, test_gp_all_params, test_gp_all_priors) -> None:
+        """calculate_chi2 gives inf when a planet's parameters are invalid, on both classes."""
+        fitter = TestPointOfUseValidation._fitter(kind, test_data, test_circular_params, test_simple_priors,
+                                                  test_gp_data, test_gp_all_params, test_gp_all_priors)
+        point = fitter.build_params_dict(fitter.free_params_values) | {"P_b": -1.0}
+
+        assert fitter.calculate_chi2(point) == np.inf

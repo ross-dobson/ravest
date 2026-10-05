@@ -3805,8 +3805,8 @@ class LogLikelihood:
         # Precompute velerr squared - constant (observed data doesn't change) so no need to recalculate every time
         self._velerr_sq = self.velerr ** 2
 
-    def __call__(self, params: Dict[str, float]) -> float:
-        """Calculate log likelihood for given parameters.
+    def _calculate_mean_model(self, params: Dict[str, float]) -> np.ndarray | None:
+        """Calculate the RV model at the observation times: planets, trend and per-instrument gammas.
 
         Parameters
         ----------
@@ -3815,8 +3815,8 @@ class LogLikelihood:
 
         Returns
         -------
-        float
-            Log likelihood value
+        np.ndarray or None
+            Model RV at each observation time, or None if a planet's parameters are invalid
         """
         rv_total = np.zeros(len(self.time))
 
@@ -3832,7 +3832,7 @@ class LogLikelihood:
                 _this_planet_rv = _this_planet.radial_velocity(self.time)
             except ValueError:
                 # Planet.__init__ validates parameters and raises ValueError for invalid params
-                return -np.inf  # fail-fast: return -inf log-likelihood
+                return None
 
             # add this planet's RV contribution to the total
             rv_total += _this_planet_rv
@@ -3850,6 +3850,25 @@ class LogLikelihood:
         gamma_per_instrument = np.array([params[k] for k in self._gamma_keys])
         gamma_at_each_obs = gamma_per_instrument[self._instrument_indices]
         rv_total += gamma_at_each_obs
+
+        return rv_total
+
+    def __call__(self, params: Dict[str, float]) -> float:
+        """Calculate log likelihood for given parameters.
+
+        Parameters
+        ----------
+        params : Dict[str, float]
+            Dictionary of all parameter values
+
+        Returns
+        -------
+        float
+            Log likelihood value
+        """
+        rv_total = self._calculate_mean_model(params)
+        if rv_total is None:
+            return -np.inf  # fail-fast: a planet's parameters are invalid
 
         # Step 4: Calculate log-likelihood with per-instrument jitter using vectorised fancy indexing.
         # Each instrument has its own jitter value. We need to pair each of the N observations
@@ -4077,7 +4096,7 @@ class GPFitter(Fitter):
         GP kernel and observational uncertainties. This properly accounts
         for correlated noise structure.
 
-        Uses GPLogLikelihood._calculate_mean_model to avoid code duplication.
+        Uses the likelihood's mean model (planets, trend, gammas) to avoid code duplication.
 
         Parameters
         ----------
@@ -4094,6 +4113,8 @@ class GPFitter(Fitter):
 
         # Calculate mean model using GPLogLikelihood method
         mean_model = gp_ll._calculate_mean_model(params_dict)
+        if mean_model is None:
+            return np.inf  # a planet's parameters are invalid (as Fitter.calculate_chi2)
 
         # Calculate residuals
         residuals = gp_ll.jax_vel - mean_model
@@ -5465,10 +5486,11 @@ class GPLogPosterior(LogPosterior):
         return super().log_probability(free_params_dict)
 
 
-class GPLogLikelihood:
+class GPLogLikelihood(LogLikelihood):
     """GP version of Log likelihood calculation for radial velocity data.
 
     Calculates log likelihood given RV model parameters and data, and GP hyperparameters.
+    A LogLikelihood whose mean model (planets, trend, gammas) is the GP's mean function.
     """
 
     def __init__(
@@ -5484,90 +5506,22 @@ class GPLogLikelihood:
         unique_instruments: np.ndarray,
         t0: float,
     ) -> None:
-        self.planet_letters = planet_letters
-        self.parameterisation = parameterisation
+        super().__init__(
+            planet_letters=planet_letters,
+            parameterisation=parameterisation,
+            time=time,
+            vel=vel,
+            velerr=velerr,
+            instrument=instrument,
+            unique_instruments=unique_instruments,
+            t0=t0,
+        )
         self.gp_kernel = gp_kernel
-        self.time = time
-        self.vel = vel
-        self.velerr = velerr
-        self.instrument = instrument
-        self.unique_instruments = unique_instruments
-        self.t0 = t0
 
         # Convert data to JAX array for tinygp
         self.jax_time = jnp.array(self.time)
         self.jax_vel = jnp.array(self.vel)
         self.jax_velerr = jnp.array(self.velerr)
-
-        # Precompute a per-observation integer index array (same pattern as LogLikelihood).
-        # For each observation, store which instrument it came from as an integer:
-        #   e.g. unique_instruments = ["HARPS", "ESPRESSO"]
-        #        instrument          = ["HARPS", "HARPS", "ESPRESSO", "HARPS", ...]
-        #        _instrument_indices = [0,       0,       1,          0,       ...]
-        # This lets us use JAX fancy indexing to expand per-instrument values to length-N
-        # arrays in one operation, rather than looping with boolean mask slices.
-        _inst_to_idx = {inst: i for i, inst in enumerate(self.unique_instruments)}
-        self._instrument_indices = jnp.array([_inst_to_idx[inst] for inst in self.instrument])
-
-        # Precompute parameter key strings for gamma and jitter lookups.
-        # These strings (e.g. "g_HARPS", "jit_ESPRESSO") are constant for the lifetime
-        # of this object - precomputing them avoids rebuilding f-strings on every call.
-        self._gamma_keys = [f"g_{inst}" for inst in self.unique_instruments]
-        self._jitter_keys = [f"jit_{inst}" for inst in self.unique_instruments]
-
-        # Precompute jax_velerr squared - constant (as observed data doesn't change) so no need to recalculate every time
-        self._velerr_sq = self.jax_velerr ** 2
-
-    def _calculate_mean_model(self, params: Dict[str, float]) -> jnp.ndarray:
-        """Calculate the Keplerian RV model (the mean function for the GP).
-
-        Takes planetary parameters, trend parameters, and per-instrument gamma offsets.
-
-        Parameters
-        ----------
-        params : Dict[str, float]
-            Dictionary of all parameter values
-
-        Returns
-        -------
-        jnp.ndarray
-            Mean model RV values at observation times
-        """
-        rv_total = jnp.zeros(len(self.time))
-
-        # Step 1: Calculate RV contributions from each planet
-        for letter in self.planet_letters:
-            # get just the parameters for this planet (and strip the _letter suffix from the keys)
-            _this_planet_params = {
-                par: params[f"{par}_{letter}"]
-                for par in self.parameterisation.pars
-            }
-
-            try:
-                _this_planet = ravest.model.Planet(letter, self.parameterisation, _this_planet_params)
-                _this_planet_rv = _this_planet.radial_velocity(self.time)
-            except ValueError:
-                # Planet.__init__ validates parameters and raises ValueError for invalid params
-                return -np.inf  # fail-fast: return -inf log-likelihood
-
-            # add this planet's RV contribution to the total
-            rv_total += _this_planet_rv
-
-        # Step 2: Calculate and add the RV from the system Trend (no gamma - that's per-instrument)
-        _trend_params = {"gd": params["gd"], "gdd": params["gdd"]}
-        _this_trend = ravest.model.Trend(params=_trend_params, t0=self.t0)
-        _rv_trend = _this_trend.radial_velocity(self.time)
-        rv_total += jnp.array(_rv_trend)
-
-        # Step 3: Add per-instrument gamma offsets using vectorised fancy indexing.
-        # Build a small array of gamma values, one per instrument (length K), then use
-        # _instrument_indices to select the right gamma for each of the N observations.
-        # JAX arrays are immutable so we use addition rather than in-place update.
-        gamma_per_instrument = jnp.array([params[k] for k in self._gamma_keys])
-        gamma_at_each_obs = gamma_per_instrument[self._instrument_indices]
-        rv_total = rv_total + gamma_at_each_obs
-
-        return rv_total
 
     @staticmethod
     @jax.jit
@@ -5604,7 +5558,7 @@ class GPLogLikelihood:
 
         # Check if mean model calculation failed
         # (no point doing expensive GP calculation if we don't need to)
-        if not jnp.isfinite(mean_model).all():
+        if mean_model is None or not np.isfinite(mean_model).all():
             return -np.inf
 
         # Build GP kernel with hyperparameters
