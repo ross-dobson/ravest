@@ -3868,80 +3868,94 @@ class TestGPFitterSubclass:
             assert label in err
 
 
+RV_PHASE_PLOTS = ["plot_MAP_rv", "plot_MAP_phase", "plot_custom_rv", "plot_custom_phase",
+                  "plot_best_sample_rv", "plot_best_sample_phase", "plot_posterior_rv", "plot_posterior_phase"]
+ALL_PLOTS = RV_PHASE_PLOTS + ["plot_corner", "plot_chains", "plot_lnprob", "plot_autocorr_estimates"]
+
+
+@pytest.fixture(scope="module", params=["Fitter", "GPFitter"])
+def plot_fitter(request):
+    """Each fitter class after a short MCMC run with convergence checks (shared by the plot tests)."""
+    time = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
+    vel = np.array([5.0, -2.0, -5.0, 2.0, 3.0, -1.0])
+    velerr = np.array([1.0, 1.1, 0.9, 0.85, 1.5, 1.0])
+    params = {
+        "P_b": Parameter(2.0, fixed=True), "K_b": Parameter(5.0, fixed=False),
+        "e_b": Parameter(0.0, fixed=True), "w_b": Parameter(np.pi / 2, fixed=True),
+        "Tc_b": Parameter(0.0, fixed=True), "g_HARPS": Parameter(0.0, fixed=True),
+        "gd": Parameter(0.0, fixed=True), "gdd": Parameter(0.0, fixed=True),
+        "jit_HARPS": Parameter(1.0, fixed=False),
+    }
+    priors = {"K_b": ravest.prior.Uniform(0, 20), "jit_HARPS": ravest.prior.Uniform(0, 5)}
+    if request.param == "Fitter":
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+    else:
+        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+        params |= {"gp_amp": Parameter(1.0, fixed=False), "gp_lambda_e": Parameter(50.0, fixed=False),
+                   "gp_lambda_p": Parameter(0.5, fixed=False), "gp_period": Parameter(10.0, fixed=False)}
+        priors |= {"gp_amp": ravest.prior.Uniform(0, 10), "gp_lambda_e": ravest.prior.Uniform(1, 100),
+                   "gp_lambda_p": ravest.prior.Uniform(0.1, 2.0), "gp_period": ravest.prior.Uniform(1, 50)}
+    fitter.add_data(time, vel, velerr, np.array(["HARPS"] * 6), t0=2.0)
+    fitter.params = params
+    fitter.priors = priors
+    nwalkers = 2 * fitter.ndim
+    rng = np.random.default_rng(0)
+    centre = np.array(fitter.free_params_values)
+    positions = centre * (1 + 0.01 * rng.standard_normal((nwalkers, fitter.ndim)))
+    fitter.run_mcmc(positions, nwalkers=nwalkers, max_steps=300, progress=False, check_convergence=True,
+                    convergence_check_interval=100, convergence_check_start=20)
+    return fitter
+
+
+def _run_plot(fitter, method, **kwargs):
+    """Call one plot method with the inputs it needs; return the figures it drew (still open)."""
+    import types
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    samples = dict(discard_start=100, thin=50)
+    map_result = types.SimpleNamespace(x=np.array(fitter.free_params_values))
+    point = fitter.build_params_dict(fitter.free_params_values)
+    args = {
+        "plot_MAP_rv": dict(map_result=map_result),
+        "plot_MAP_phase": dict(planet_letter="b", map_result=map_result),
+        "plot_custom_rv": dict(params=point),
+        "plot_custom_phase": dict(planet_letter="b", params=point),
+        "plot_best_sample_rv": samples,
+        "plot_best_sample_phase": dict(planet_letter="b", **samples),
+        "plot_posterior_rv": samples,
+        "plot_posterior_phase": dict(planet_letter="b", **samples),
+        "plot_corner": samples,
+        "plot_chains": {},
+        "plot_lnprob": {},
+        "plot_autocorr_estimates": {},
+    }[method]
+    plt.close("all")
+    getattr(fitter, method)(**args, **kwargs)
+    return [plt.figure(n) for n in plt.get_fignums()]
+
+
+def _signature_default(klass, method, name):
+    import inspect
+    parameter = inspect.signature(getattr(klass, method)).parameters.get(name)
+    return parameter.default if parameter else None
+
+
 class TestPlotTitles:
     """Every plot's default title is in its signature, the same on both classes.
 
     Phase plots write the planet as a {planet_letter} placeholder. title=None or "" draws no title.
     """
 
-    PLOTS = ["plot_MAP_rv", "plot_MAP_phase", "plot_custom_rv", "plot_custom_phase",
-             "plot_best_sample_rv", "plot_best_sample_phase", "plot_posterior_rv", "plot_posterior_phase",
-             "plot_corner", "plot_chains", "plot_lnprob", "plot_autocorr_estimates"]
-    PHASE_PLOTS = [p for p in PLOTS if p.endswith("_phase")]
+    PHASE_PLOTS = [p for p in ALL_PLOTS if p.endswith("_phase")]
     FIGURE_TITLE = {"plot_corner", "plot_chains", "plot_lnprob", "plot_autocorr_estimates"}
-
-    @pytest.fixture(scope="class", params=["Fitter", "GPFitter"])
-    @classmethod
-    def fitter(cls, request):
-        """Each fitter class after a short MCMC run with convergence checks (shared by the class)."""
-        time = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
-        vel = np.array([5.0, -2.0, -5.0, 2.0, 3.0, -1.0])
-        velerr = np.array([1.0, 1.1, 0.9, 0.85, 1.5, 1.0])
-        params = {
-            "P_b": Parameter(2.0, fixed=True), "K_b": Parameter(5.0, fixed=False),
-            "e_b": Parameter(0.0, fixed=True), "w_b": Parameter(np.pi / 2, fixed=True),
-            "Tc_b": Parameter(0.0, fixed=True), "g_HARPS": Parameter(0.0, fixed=True),
-            "gd": Parameter(0.0, fixed=True), "gdd": Parameter(0.0, fixed=True),
-            "jit_HARPS": Parameter(1.0, fixed=False),
-        }
-        priors = {"K_b": ravest.prior.Uniform(0, 20), "jit_HARPS": ravest.prior.Uniform(0, 5)}
-        if request.param == "Fitter":
-            fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
-        else:
-            fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
-            params |= {"gp_amp": Parameter(1.0, fixed=False), "gp_lambda_e": Parameter(50.0, fixed=False),
-                       "gp_lambda_p": Parameter(0.5, fixed=False), "gp_period": Parameter(10.0, fixed=False)}
-            priors |= {"gp_amp": ravest.prior.Uniform(0, 10), "gp_lambda_e": ravest.prior.Uniform(1, 100),
-                       "gp_lambda_p": ravest.prior.Uniform(0.1, 2.0), "gp_period": ravest.prior.Uniform(1, 50)}
-        fitter.add_data(time, vel, velerr, np.array(["HARPS"] * 6), t0=2.0)
-        fitter.params = params
-        fitter.priors = priors
-        nwalkers = 2 * fitter.ndim
-        rng = np.random.default_rng(0)
-        centre = np.array(fitter.free_params_values)
-        positions = centre * (1 + 0.01 * rng.standard_normal((nwalkers, fitter.ndim)))
-        fitter.run_mcmc(positions, nwalkers=nwalkers, max_steps=300, progress=False, check_convergence=True,
-                        convergence_check_interval=100, convergence_check_start=20)
-        return fitter
 
     @classmethod
     def _drawn_titles(cls, fitter, method, **title):
         """Call one plot method and return the non-empty titles it drew."""
-        import types
-
-        import matplotlib
-        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        samples = dict(discard_start=100, thin=50)
-        map_result = types.SimpleNamespace(x=np.array(fitter.free_params_values))
-        point = fitter.build_params_dict(fitter.free_params_values)
-        args = {
-            "plot_MAP_rv": dict(map_result=map_result),
-            "plot_MAP_phase": dict(planet_letter="b", map_result=map_result),
-            "plot_custom_rv": dict(params=point),
-            "plot_custom_phase": dict(planet_letter="b", params=point),
-            "plot_best_sample_rv": samples,
-            "plot_best_sample_phase": dict(planet_letter="b", **samples),
-            "plot_posterior_rv": samples,
-            "plot_posterior_phase": dict(planet_letter="b", **samples),
-            "plot_corner": samples,
-            "plot_chains": {},
-            "plot_lnprob": {},
-            "plot_autocorr_estimates": {},
-        }[method]
-        plt.close("all")
-        getattr(fitter, method)(**args, **title)
-        figures = [plt.figure(n) for n in plt.get_fignums()]
+        figures = _run_plot(fitter, method, **title)
         if method in cls.FIGURE_TITLE:
             titles = [fig.get_suptitle() for fig in figures]
         else:
@@ -3949,33 +3963,75 @@ class TestPlotTitles:
         plt.close("all")
         return [t for t in titles if t]
 
-    @staticmethod
-    def _default(klass, method):
-        import inspect
-        return inspect.signature(getattr(klass, method)).parameters["title"].default
-
-    @pytest.mark.parametrize("method", PLOTS)
-    def test_default_title_is_the_signature_default(self, fitter, method) -> None:
+    @pytest.mark.parametrize("method", ALL_PLOTS)
+    def test_default_title_is_the_signature_default(self, plot_fitter, method) -> None:
         """With no title given, the title drawn is the signature's default (planet letter filled in)."""
-        default = self._default(type(fitter), method)
+        default = _signature_default(type(plot_fitter), method, "title")
 
         assert isinstance(default, str) and default
-        assert self._drawn_titles(fitter, method) == [default.replace("{planet_letter}", "b")]
+        assert self._drawn_titles(plot_fitter, method) == [default.replace("{planet_letter}", "b")]
 
     @pytest.mark.parametrize("title", [None, ""], ids=["none", "empty"])
-    @pytest.mark.parametrize("method", PLOTS)
-    def test_no_title(self, fitter, method, title) -> None:
+    @pytest.mark.parametrize("method", ALL_PLOTS)
+    def test_no_title(self, plot_fitter, method, title) -> None:
         """title=None or "" draws no title."""
-        assert self._drawn_titles(fitter, method, title=title) == []
+        assert self._drawn_titles(plot_fitter, method, title=title) == []
 
     @pytest.mark.parametrize("method", PHASE_PLOTS)
-    def test_phase_title_placeholder(self, fitter, method) -> None:
+    def test_phase_title_placeholder(self, plot_fitter, method) -> None:
         """A custom phase title gets the planet letter; other braces (LaTeX) are left alone."""
         title = r"Fit of $K_{b}$ - planet {planet_letter}"
 
-        assert self._drawn_titles(fitter, method, title=title) == [r"Fit of $K_{b}$ - planet b"]
+        assert self._drawn_titles(plot_fitter, method, title=title) == [r"Fit of $K_{b}$ - planet b"]
 
-    @pytest.mark.parametrize("method", PLOTS)
+    @pytest.mark.parametrize("method", ALL_PLOTS)
     def test_gp_defaults_match_fitter(self, method) -> None:
         """GPFitter's default titles are Fitter's."""
-        assert self._default(GPFitter, method) == self._default(Fitter, method)
+        assert _signature_default(GPFitter, method, "title") == _signature_default(Fitter, method, "title")
+
+
+class TestPlotSmoothing:
+    """Every RV and phase plot takes n_smooth, the number of points in its smooth model line."""
+
+    @pytest.mark.parametrize("klass", [Fitter, GPFitter], ids=["Fitter", "GPFitter"])
+    @pytest.mark.parametrize("method", RV_PHASE_PLOTS)
+    def test_n_smooth_default_1000(self, method, klass) -> None:
+        """n_smooth is a keyword with default 1000 on both classes."""
+        assert _signature_default(klass, method, "n_smooth") == 1000
+
+    @pytest.mark.parametrize("method", RV_PHASE_PLOTS)
+    def test_model_line_has_n_smooth_points(self, plot_fitter, method) -> None:
+        """The smooth model line is drawn with exactly n_smooth points."""
+        import matplotlib.pyplot as plt
+        figures = _run_plot(plot_fitter, method, n_smooth=137)
+        lengths = [len(line.get_xdata()) for fig in figures for ax in fig.axes for line in ax.get_lines()]
+        plt.close("all")
+
+        assert 137 in lengths
+
+
+class TestPlotArgumentOrder:
+    """RV and phase plots take their arguments in one order.
+
+    Which planet, which values, plot options, labels, limits, saving. Each plot has only the
+    arguments it needs.
+    """
+
+    ORDER = [
+        "planet_letter",
+        "map_result", "params", "discard_start", "discard_end", "thin",
+        "show_CI", "freeze_params", "n_smooth",
+        "title", "ylabel_main", "xlabel", "ylabel_residuals",
+        "xlim", "ylim", "res_xlim", "res_ylim",
+        "save", "fname", "dpi",
+    ]
+
+    @pytest.mark.parametrize("klass", [Fitter, GPFitter], ids=["Fitter", "GPFitter"])
+    @pytest.mark.parametrize("method", RV_PHASE_PLOTS)
+    def test_arguments_in_order(self, method, klass) -> None:
+        """Arguments appear in ORDER's order; a new argument needs a place in ORDER."""
+        import inspect
+        names = list(inspect.signature(getattr(klass, method)).parameters)[1:]
+
+        assert set(names) <= set(self.ORDER), set(names) - set(self.ORDER)
+        assert names == [name for name in self.ORDER if name in names]

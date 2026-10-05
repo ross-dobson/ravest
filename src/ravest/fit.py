@@ -2339,7 +2339,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_posterior_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = "Posterior RV", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_rv.png", dpi: int = 100) -> None:
+    def plot_posterior_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, n_smooth: int = 1000, title: str | None = "Posterior RV", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_rv.png", dpi: int = 100) -> None:
         """Plot the posterior RV model with uncertainty bands from MCMC samples.
 
         Calculates RV model predictions for each MCMC sample, then plots the median
@@ -2356,6 +2356,9 @@ class Fitter:
             Use only every `thin` steps from the chain (default: 1)
         show_CI : bool, optional
             Show 68.3% credible interval band (default: True)
+        n_smooth : int, optional
+            Number of points in smooth time grid for plotting model curves (default: 1000).
+            Reduce for faster plotting, increase for smoother curves.
         title : str or None, optional
             Title for the main RV plot (default: "Posterior RV"). Set to None or "" to skip.
         ylabel_main : str or None, optional
@@ -2382,7 +2385,7 @@ class Fitter:
         # Create smooth time curve for plotting (same as _plot_rv helper)
         _tmin, _tmax = self.time.min(), self.time.max()
         _trange = _tmax - _tmin
-        tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
+        tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, n_smooth)
 
         # Calculate posterior RV predictions (planets + trend, no gamma)
         rv_all_planets_trend_matrix_smooth = self.calculate_rv_total_from_samples(times=tsmooth, discard_start=discard_start, discard_end=discard_end, thin=thin)
@@ -2495,7 +2498,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_posterior_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = "Posterior Phase Plot - Planet {planet_letter}", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_phase.png", dpi: int = 100, n_smooth: int = 1000, freeze_params: dict[str, float | None] | None = None) -> None:
+    def plot_posterior_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, freeze_params: dict[str, float | None] | None = None, n_smooth: int = 1000, title: str | None = "Posterior Phase Plot - Planet {planet_letter}", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_phase.png", dpi: int = 100) -> None:
         """Plot phase-folded RV model with uncertainty bands from MCMC samples.
 
         Shows the phase-folded planetary signal with uncertainty bands calculated
@@ -2513,6 +2516,21 @@ class Fitter:
             Use only every `thin` steps from the chain (default: 1)
         show_CI : bool, optional
             Show 68.3% credible interval band (default: True)
+        freeze_params : dict[str, float or None] or None, optional
+            Freeze named planet parameters to fixed values during the
+            per-sample RV calculation (default: None, no freezing). Keys are
+            full planet-parameter names (e.g. ``"P_c"``, ``"Tc_c"``); a value
+            of ``None`` freezes the parameter at its posterior median, while a
+            float freezes it at that exact value. Freezing P and Tc makes every
+            sample fold identically, giving a crisp median model line, CI band
+            and residuals when a period has large posterior uncertainty (which
+            otherwise smears the folded model). This can often happen for
+            non-transiting planets, especially if sampling in Tp not Tc. Note
+            that the RV data are always folded around the median of time and
+            period; this argument only affects the planetary phase-folded RV
+            curve and CI shaded band.
+        n_smooth : int, optional
+            Number of points in the one-period smooth model curve (default: 1000).
         title : str or None, optional
             Title for the main phase plot (default: "Posterior Phase Plot - Planet {planet_letter}"). Any
             ``{planet_letter}`` in it is replaced by the planet's letter. Set to None or "" to skip.
@@ -2532,21 +2550,6 @@ class Fitter:
             The path to save the plot to (default: "posterior_phase.png")
         dpi : int, optional
             The dpi to save the image at (default: 100)
-        n_smooth : int, optional
-            Number of points in the one-period smooth model curve (default: 1000).
-        freeze_params : dict[str, float or None] or None, optional
-            Freeze named planet parameters to fixed values during the
-            per-sample RV calculation (default: None, no freezing). Keys are
-            full planet-parameter names (e.g. ``"P_c"``, ``"Tc_c"``); a value
-            of ``None`` freezes the parameter at its posterior median, while a
-            float freezes it at that exact value. Freezing P and Tc makes every
-            sample fold identically, giving a crisp median model line, CI band
-            and residuals when a period has large posterior uncertainty (which
-            otherwise smears the folded model). This can often happen for
-            non-transiting planets, especially if sampling in Tp not Tc. Note
-            that the RV data are always folded around the median of time and
-            period; this argument only affects the planetary phase-folded RV
-            curve and CI shaded band.
 
             Only planet parameters of the active parameterisation can be frozen,
             not trend or instrument parameters (``gd``, ``gdd``, ``g_*``,
@@ -3091,7 +3094,7 @@ class Fitter:
 
         return total_rv
 
-    def plot_MAP_rv(self, map_result: scipy.optimize.OptimizeResult, title: str | None = "MAP RV", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "MAP_rv.png", dpi: int = 100) -> None:
+    def plot_MAP_rv(self, map_result: scipy.optimize.OptimizeResult, n_smooth: int = 1000, title: str | None = "MAP RV", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "MAP_rv.png", dpi: int = 100) -> None:
         """Plot radial velocity data and model using MAP parameter estimates.
 
         On a GPFitter, the plot also shows the GP component (conditioned on the
@@ -3101,6 +3104,8 @@ class Fitter:
         ----------
         map_result : scipy.optimize.OptimizeResult
             Result from find_map_estimate() containing the MAP parameters
+        n_smooth : int, optional
+            Number of points in the smooth model curve (default: 1000)
         title : str or None, optional
             Plot title (default: "MAP RV"). Set to None or "" to skip.
         ylabel_main : str or None, optional
@@ -3131,9 +3136,9 @@ class Fitter:
         all_params = self.fixed_params_values_dict | map_params
 
         # Use helper function to create the plot
-        self._plot_rv(all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
+        self._plot_rv(all_params, n_smooth=n_smooth, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
-    def plot_MAP_phase(self, planet_letter: str, map_result: scipy.optimize.OptimizeResult, title: str | None = "MAP Phase Plot - Planet {planet_letter}", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "MAP_phase.png", dpi: int = 100) -> None:
+    def plot_MAP_phase(self, planet_letter: str, map_result: scipy.optimize.OptimizeResult, n_smooth: int = 1000, title: str | None = "MAP Phase Plot - Planet {planet_letter}", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "MAP_phase.png", dpi: int = 100) -> None:
         """Plot phase-folded radial velocity data and model using MAP parameter estimates.
 
         On a GPFitter, the GP's prediction at each observation is subtracted from the
@@ -3145,6 +3150,8 @@ class Fitter:
             Letter identifying the planet to plot (e.g., 'b', 'c', 'd')
         map_result : scipy.optimize.OptimizeResult
             Result from find_map_estimate() containing the MAP parameters
+        n_smooth : int, optional
+            Number of points in the smooth model curve (default: 1000)
         title : str or None, optional
             Plot title (default: "MAP Phase Plot - Planet {planet_letter}"). Any
             ``{planet_letter}`` in it is replaced by the planet's letter. Set to None or "" to skip.
@@ -3176,9 +3183,9 @@ class Fitter:
             title = title.replace("{planet_letter}", planet_letter)
 
         # Use helper function to create the plot
-        self._plot_phase(planet_letter, all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
+        self._plot_phase(planet_letter, all_params, n_smooth=n_smooth, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
-    def plot_custom_rv(self, params: dict, title: str | None = "Custom RV Plot", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "custom_rv.png", dpi: int = 100) -> None:
+    def plot_custom_rv(self, params: dict, n_smooth: int = 1000, title: str | None = "Custom RV Plot", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "custom_rv.png", dpi: int = 100) -> None:
         """Plot radial velocity data and model using custom parameter values.
 
         Allows plotting with arbitrary parameter values for exploring parameter space
@@ -3193,6 +3200,8 @@ class Fitter:
             Dictionary of parameter values to use for plotting. Keys should match
             parameter names, values should be floats. Must include all required
             parameters for the current parameterisation.
+        n_smooth : int, optional
+            Number of points in the smooth model curve (default: 1000)
         title : str or None, optional
             Plot title (default: "Custom RV Plot"). Set to None or "" to skip.
         ylabel_main : str or None, optional
@@ -3209,8 +3218,6 @@ class Fitter:
             (xmin, xmax) limits for the residuals plot x-axis (default: None, uses data range)
         res_ylim : tuple or None, optional
             (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
-        n_smooth : int, optional
-            Number of points in the smooth model curve (default: 1000)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -3236,7 +3243,7 @@ class Fitter:
         # Use helper function to create the plot
         self._plot_rv(params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, n_smooth=n_smooth, save=save, fname=fname, dpi=dpi)
 
-    def plot_custom_phase(self, planet_letter: str, params: dict, title: str | None = "Custom Phase Plot - Planet {planet_letter}", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "custom_phase.png", dpi: int = 100) -> None:
+    def plot_custom_phase(self, planet_letter: str, params: dict, n_smooth: int = 1000, title: str | None = "Custom Phase Plot - Planet {planet_letter}", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "custom_phase.png", dpi: int = 100) -> None:
         """Plot phase-folded radial velocity data and model using custom parameter values.
 
         Allows plotting phase-folded data with arbitrary parameter values for exploring
@@ -3253,6 +3260,8 @@ class Fitter:
             Dictionary of parameter values to use for plotting. Keys should match
             parameter names, values should be floats. Must include all required
             parameters for the current parameterisation.
+        n_smooth : int, optional
+            Number of points in the smooth model curve (default: 1000)
         title : str or None, optional
             Plot title (default: "Custom Phase Plot - Planet {planet_letter}"). Any
             ``{planet_letter}`` in it is replaced by the planet's letter. Set to None or "" to skip.
@@ -3293,9 +3302,9 @@ class Fitter:
             title = title.replace("{planet_letter}", planet_letter)
 
         # Use helper function to create the plot
-        self._plot_phase(planet_letter, params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
+        self._plot_phase(planet_letter, params, n_smooth=n_smooth, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
-    def plot_best_sample_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, title: str | None = "Best Sample RV Plot", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "best_sample_rv.png", dpi: int = 100) -> None:
+    def plot_best_sample_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, n_smooth: int = 1000, title: str | None = "Best Sample RV Plot", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "best_sample_rv.png", dpi: int = 100) -> None:
         """Plot radial velocity data and model using parameter values from the MCMC sample with highest log probability.
 
         This is useful for comparing with plot_MAP_rv() to diagnose potential issues with
@@ -3313,6 +3322,8 @@ class Fitter:
             Discard the last `discard_end` steps from the end of the chain (default: 0)
         thin : int, optional
             Use only every `thin` steps from the chain (default: 1)
+        n_smooth : int, optional
+            Number of points in the smooth model curve (default: 1000)
         title : str or None, optional
             Title for the main RV plot (default: "Best Sample RV Plot"). Set to None or "" to skip.
         ylabel_main : str or None, optional
@@ -3343,9 +3354,9 @@ class Fitter:
         all_params = self.fixed_params_values_dict | best_sample_params
 
         # Use helper function to create the plot
-        self._plot_rv(all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
+        self._plot_rv(all_params, n_smooth=n_smooth, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
-    def plot_best_sample_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, title: str | None = "Best Sample Phase Plot - Planet {planet_letter}", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "best_sample_phase.png", dpi: int = 100) -> None:
+    def plot_best_sample_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, n_smooth: int = 1000, title: str | None = "Best Sample Phase Plot - Planet {planet_letter}", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "best_sample_phase.png", dpi: int = 100) -> None:
         """Plot phase-folded radial velocity data and model using parameter values from the MCMC sample with highest log probability.
 
         This is useful for comparing with plot_MAP_phase() to diagnose potential issues with
@@ -3365,6 +3376,8 @@ class Fitter:
             Discard the last `discard_end` steps from the end of the chain (default: 0)
         thin : int, optional
             Use only every `thin` steps from the chain (default: 1)
+        n_smooth : int, optional
+            Number of points in the smooth model curve (default: 1000)
         title : str or None, optional
             Title for the main phase plot (default: "Best Sample Phase Plot - Planet {planet_letter}"). Any
             ``{planet_letter}`` in it is replaced by the planet's letter. Set to None or "" to skip.
@@ -3396,7 +3409,7 @@ class Fitter:
             title = title.replace("{planet_letter}", planet_letter)
 
         # Use helper function to create the plot
-        self._plot_phase(planet_letter, all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals,
+        self._plot_phase(planet_letter, all_params, n_smooth=n_smooth, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals,
                         ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
 class LogPosterior:
@@ -4520,7 +4533,7 @@ class GPFitter(Fitter):
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_posterior_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = "Posterior RV", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_rv.png", dpi: int = 100, n_smooth: int = 1000) -> None:
+    def plot_posterior_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, n_smooth: int = 1000, title: str | None = "Posterior RV", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_rv.png", dpi: int = 100) -> None:
         """Plot the posterior GP RV model with uncertainty bands from MCMC samples.
 
         Calculates RV model predictions for each MCMC sample, then plots the median
@@ -4537,6 +4550,9 @@ class GPFitter(Fitter):
             Use only every `thin` steps from the chain (default: 1)
         show_CI : bool, optional
             Show 68.3% credible interval band (default: True)
+        n_smooth : int, optional
+            Number of points in smooth time grid for plotting model curves (default: 1000).
+            Reduce for faster plotting, increase for smoother curves.
         title : str or None, optional
             Title for the main RV plot (default: "Posterior RV"). Set to None or "" to skip.
         ylabel_main : str or None, optional
@@ -4559,9 +4575,6 @@ class GPFitter(Fitter):
             The path to save the plot to (default: "posterior_rv.png")
         dpi : int, optional
             The dpi to save the image at (default: 100)
-        n_smooth : int, optional
-            Number of points in smooth time grid for plotting model curves (default: 1000).
-            Reduce for faster plotting, increase for smoother curves.
         """
         # Create smooth time curve for plotting
         _tmin, _tmax = self.time.min(), self.time.max()
@@ -4741,7 +4754,7 @@ class GPFitter(Fitter):
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_posterior_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = "Posterior Phase Plot - Planet {planet_letter}", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_phase.png", dpi: int = 100, n_smooth: int = 500, freeze_params: dict[str, float | None] | None = None) -> None:
+    def plot_posterior_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, freeze_params: dict[str, float | None] | None = None, n_smooth: int = 1000, title: str | None = "Posterior Phase Plot - Planet {planet_letter}", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_phase.png", dpi: int = 100) -> None:
         """Plot phase-folded GP RV model with uncertainty bands from MCMC samples.
 
         Calculates phase-folded planetary signal with uncertainty bands calculated
@@ -4760,6 +4773,25 @@ class GPFitter(Fitter):
             Use only every `thin` steps from the chain (default: 1)
         show_CI : bool, optional
             Show 68.3% credible interval band (default: True)
+        freeze_params : dict[str, float or None] or None, optional
+            Freeze named planet parameters to fixed values during the
+            per-sample RV calculation (default: None, no freezing). Keys are
+            full planet-parameter names (e.g. ``"P_c"``, ``"Tc_c"``); a value
+            of ``None`` freezes the parameter at its posterior median, while a
+            float freezes it at that exact value. Freezing P and Tc makes every
+            sample fold identically, giving a crisp median model line, CI band
+            and residuals when a period has large posterior uncertainty (which
+            otherwise smears the folded model). This can often happen for
+            non-transiting planets, especially if sampling in Tp not Tc. Note
+            that the RV data are always folded around the median of time and
+            period; this argument only affects the planetary phase-folded RV
+            curve and CI shaded band. For the GP model, the GP mean is
+            conditioned on the residuals from the (frozen) planet and trend
+            model, so the removed GP component stays self-consistent with the
+            frozen parameters.
+        n_smooth : int, optional
+            Number of points in the one-period smooth model curve (default: 1000).
+            Reduce for faster plotting, increase for smoother curves.
         title : str or None, optional
             Title for the main phase plot (default: "Posterior Phase Plot - Planet {planet_letter}"). Any
             ``{planet_letter}`` in it is replaced by the planet's letter. Set to None or "" to skip.
@@ -4779,25 +4811,6 @@ class GPFitter(Fitter):
             The path to save the plot to (default: "posterior_phase.png")
         dpi : int, optional
             The dpi to save the image at (default: 100)
-        n_smooth : int, optional
-            Number of points in the one-period smooth model curve (default: 500).
-            Reduce for faster plotting, increase for smoother curves.
-        freeze_params : dict[str, float or None] or None, optional
-            Freeze named planet parameters to fixed values during the
-            per-sample RV calculation (default: None, no freezing). Keys are
-            full planet-parameter names (e.g. ``"P_c"``, ``"Tc_c"``); a value
-            of ``None`` freezes the parameter at its posterior median, while a
-            float freezes it at that exact value. Freezing P and Tc makes every
-            sample fold identically, giving a crisp median model line, CI band
-            and residuals when a period has large posterior uncertainty (which
-            otherwise smears the folded model). This can often happen for
-            non-transiting planets, especially if sampling in Tp not Tc. Note
-            that the RV data are always folded around the median of time and
-            period; this argument only affects the planetary phase-folded RV
-            curve and CI shaded band. For the GP model, the GP mean is
-            conditioned on the residuals from the (frozen) planet and trend
-            model, so the removed GP component stays self-consistent with the
-            frozen parameters.
 
             Only planet parameters of the active parameterisation can be frozen,
             not trend, instrument or GP-hyperparameter parameters (``gd``,
