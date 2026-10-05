@@ -46,6 +46,9 @@ class Fitter:
 
     Supports MCMC sampling, MAP estimation, and various parameterisations.
     Handles multiple planets, trends, and jitter parameters.
+
+    To model correlated noise with a Gaussian Process, use :class:`GPFitter`,
+    which adds a GP kernel to everything here.
     """
 
     def __init__(self, planet_letters: list[str] | tuple[str, ...], parameterisation: Parameterisation) -> None:
