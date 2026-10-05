@@ -3784,6 +3784,8 @@ class TestGPFitterSubclass:
         "calculate_rv_total_from_samples", "calculate_rv_total_custom",
         # The GP posterior and likelihood
         "_build_log_posterior", "_build_log_likelihood",
+        # The kernel, fixed when the GPFitter is created
+        "gp_kernel",
         # GP statistics, RVs and plots
         "calculate_chi2", "_compute_gp_chi2", "calculate_rv_gp_from_samples", "calculate_rv_gp_custom",
         "_plot_rv", "_plot_phase", "plot_posterior_rv", "plot_posterior_phase",
@@ -4136,3 +4138,170 @@ class TestLogLikelihoodSubclass:
         point = fitter.build_params_dict(fitter.free_params_values) | {"P_b": -1.0}
 
         assert fitter.calculate_chi2(point) == np.inf
+
+
+class TestPlanetLetters:
+    """planet_letters is a list or tuple of distinct single letters b-z, stored in alphabetical order.
+
+    A repeated letter would add that planet's signal twice, and a letter Planet refuses would
+    make every likelihood -inf, so both raise when the fitter is created.
+    """
+
+    @staticmethod
+    def _make(kind, planet_letters):
+        if kind == "Fitter":
+            return Fitter(planet_letters, Parameterisation("P K e w Tc"))
+        return GPFitter(planet_letters, Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    @pytest.mark.parametrize("planet_letters", ["b", "bc", np.array(["b"]), {"b"}],
+                             ids=["str", "str_two_letters", "ndarray", "set"])
+    def test_not_list_or_tuple_raises(self, kind, planet_letters) -> None:
+        """A plain string or any container other than a list or tuple raises TypeError."""
+        with pytest.raises(TypeError, match="planet_letters"):
+            self._make(kind, planet_letters)
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    @pytest.mark.parametrize("planet_letters", [["a"], ["B"], ["bb"], ["1"], [""], ["b", "C"]],
+                             ids=["a", "B", "bb", "1", "empty_str", "second_bad"])
+    def test_bad_letter_raises(self, kind, planet_letters) -> None:
+        """Each entry must be one lowercase letter b-z; the message names the bad entry."""
+        bad = planet_letters[-1]
+        with pytest.raises(ValueError, match=re.escape(repr(bad))):
+            self._make(kind, planet_letters)
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    @pytest.mark.parametrize("planet_letters", [[1], ["b", None]], ids=["int", "None"])
+    def test_non_str_entry_raises(self, kind, planet_letters) -> None:
+        """An entry that is not a str raises TypeError."""
+        with pytest.raises(TypeError):
+            self._make(kind, planet_letters)
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    @pytest.mark.parametrize("planet_letters", [["b", "b"], ("c", "b", "c")], ids=["b_b", "c_b_c"])
+    def test_repeated_letter_raises(self, kind, planet_letters) -> None:
+        """A repeated letter would add that planet twice; the message names it."""
+        repeated = planet_letters[-1]
+        with pytest.raises(ValueError, match=re.escape(repr(repeated))):
+            self._make(kind, planet_letters)
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    @pytest.mark.parametrize("planet_letters, expected", [(["b"], ["b"]), (("c", "b"), ["b", "c"]),
+                                                          (["d", "b", "c"], ["b", "c", "d"]), ([], [])],
+                             ids=["b", "tuple_c_b", "d_b_c", "none"])
+    def test_stored_sorted_as_list(self, kind, planet_letters, expected) -> None:
+        """Letters read back as a list in alphabetical order; [] (no planets) is allowed."""
+        fitter = self._make(kind, planet_letters)
+
+        assert type(fitter.planet_letters) is list
+        assert fitter.planet_letters == expected
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    def test_numpy_strings_stored_as_str(self, kind) -> None:
+        """list() of a numpy string array gives np.str_ entries; they are stored as plain str."""
+        fitter = self._make(kind, list(np.array(["c", "b"])))
+
+        assert fitter.planet_letters == ["b", "c"]
+        assert all(type(letter) is str for letter in fitter.planet_letters)
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    def test_zero_planet_fit(self, kind, test_data) -> None:
+        """With no planets, MAP and MCMC fit only the instrument and trend (and GP) parameters."""
+        fitter = self._make(kind, [])
+        fitter.add_data(*test_data, t0=2.0)
+        params = {
+            "g_HARPS": Parameter(0.0, fixed=False),
+            "gd": Parameter(0.0, fixed=True),
+            "gdd": Parameter(0.0, fixed=True),
+            "jit_HARPS": Parameter(1.0, fixed=False),
+        }
+        priors = {"g_HARPS": ravest.prior.Uniform(-10, 10), "jit_HARPS": ravest.prior.Uniform(0, 5)}
+        if kind == "GPFitter":
+            params |= {
+                "gp_amp": Parameter(1.0, fixed=False),
+                "gp_lambda_e": Parameter(50.0, fixed=True),
+                "gp_lambda_p": Parameter(0.5, fixed=True),
+                "gp_period": Parameter(10.0, fixed=True),
+            }
+            priors |= {"gp_amp": ravest.prior.Uniform(0, 10)}
+        fitter.params = params
+        fitter.priors = priors
+        free = list(priors)
+
+        map_result = fitter.find_map_estimate()
+        assert map_result.success
+        assert np.all(np.isfinite(map_result.x))
+
+        nwalkers = 2 * fitter.ndim
+        rng = np.random.default_rng(0)
+        positions = np.array(fitter.free_params_values) + 0.01 * rng.standard_normal((nwalkers, fitter.ndim))
+        fitter.run_mcmc(positions, nwalkers=nwalkers, max_steps=20, progress=False)
+
+        samples = fitter.get_samples_df()
+        assert list(samples.columns) == free
+        assert samples.shape == (20 * nwalkers, len(free))
+
+
+class TestFixedModelAttributes:
+    """planet_letters, parameterisation and gp_kernel are fixed when the fitter is created.
+
+    params and priors are built for that model, so changing it afterwards would leave them
+    mismatched. Assigning raises, naming the class to make instead.
+    """
+
+    @staticmethod
+    def _make(kind):
+        if kind == "Fitter":
+            return Fitter(["c", "b"], Parameterisation("P K e w Tc"))
+        return GPFitter(["c", "b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+
+    @staticmethod
+    def _message(name, kind):
+        return re.escape(f"{name} is fixed when the {kind} is created. Changing it can cause Bad Things to "
+                         f"happen, so please make a new {kind} instead.")
+
+    @pytest.mark.parametrize("kind, name, new_value", [
+        ("Fitter", "planet_letters", ["b"]),
+        ("Fitter", "parameterisation", Parameterisation("P K e w Tp")),
+        ("GPFitter", "planet_letters", ["b"]),
+        ("GPFitter", "parameterisation", Parameterisation("P K e w Tp")),
+        ("GPFitter", "gp_kernel", GPKernel("Quasiperiodic")),
+    ], ids=["Fitter-planet_letters", "Fitter-parameterisation", "GPFitter-planet_letters",
+            "GPFitter-parameterisation", "GPFitter-gp_kernel"])
+    def test_assignment_raises(self, kind, name, new_value) -> None:
+        """Assigning raises AttributeError naming the attribute and the class, and changes nothing."""
+        fitter = self._make(kind)
+        before = getattr(fitter, name)
+
+        with pytest.raises(AttributeError, match=self._message(name, kind)):
+            setattr(fitter, name, new_value)
+
+        after = getattr(fitter, name)
+        assert after == before if name == "planet_letters" else after is before
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    def test_planet_letters_copy_cannot_change_fitter(self, kind) -> None:
+        """planet_letters returns a fresh list, so editing it leaves the fitter's letters alone."""
+        fitter = self._make(kind)
+
+        letters = fitter.planet_letters
+        letters.append("d")
+        letters[0] = "z"
+
+        assert fitter.planet_letters == ["b", "c"]
+        assert fitter.planet_letters is not fitter.planet_letters
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    def test_values_read_back(self, kind) -> None:
+        """The constructor's values read back: letters sorted, the same Parameterisation and GPKernel."""
+        parameterisation = Parameterisation("P K e w Tc")
+        kernel = GPKernel("Quasiperiodic")
+        if kind == "Fitter":
+            fitter = Fitter(["c", "b"], parameterisation)
+        else:
+            fitter = GPFitter(["c", "b"], parameterisation, kernel)
+
+        assert fitter.planet_letters == ["b", "c"]
+        assert fitter.parameterisation is parameterisation
+        if kind == "GPFitter":
+            assert fitter.gp_kernel is kernel

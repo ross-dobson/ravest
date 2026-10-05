@@ -243,13 +243,29 @@ def _compute_rv(M: np.ndarray, e: float, K: float, w: float) -> np.ndarray:
     return _njit_kepler_rv(M, e, K, w)
 
 
+def _validate_planet_letter(letter: str) -> None:
+    """Check that a planet letter is a single lowercase letter from "b" to "z".
+
+    Raises
+    ------
+    TypeError
+        If ``letter`` is not a ``str``.
+    ValueError
+        If ``letter`` is not exactly one character from "b" to "z" ("a" is the star).
+    """
+    if not isinstance(letter, str):
+        raise TypeError(f"A planet letter must be a str, e.g. 'b', not {letter!r} ({type(letter)}).")
+    if len(letter) != 1 or not "b" <= letter <= "z":
+        raise ValueError(f"Planet letter {letter!r} must be a single lowercase letter from 'b' to 'z'.")
+
+
 class Planet:
     """Planet defined by its orbital parameters.
 
     Parameters
     ----------
     letter : `str`
-        The label of the planet, e.g. "b", "c". Must be a single letter.
+        The label of the planet: a single lowercase letter from "b" to "z", e.g. "b", "c".
     parameterisation : `parameterisation`
         The set of planetary parameters used to define the planet.
     params : `dict`
@@ -257,8 +273,7 @@ class Planet:
     """
 
     def __init__(self, letter: str, parameterisation: Parameterisation, params: dict[str, float]) -> None:
-        if not (letter.isalpha() and (letter == letter[0] * len(letter))):
-            raise ValueError(f"Letter {letter} is not a single alphabet character.")
+        _validate_planet_letter(letter)
         self.letter = letter
         self.parameterisation = parameterisation
         self.params = params

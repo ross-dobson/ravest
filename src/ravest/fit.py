@@ -31,7 +31,7 @@ from tqdm import tqdm
 
 import ravest.model
 from ravest.gp import GPKernel
-from ravest.model import _njit_kepler_rv
+from ravest.model import _njit_kepler_rv, _validate_planet_letter
 from ravest.param import Parameter, Parameterisation, param_key_to_latex
 from ravest.prior import Uniform
 
@@ -46,16 +46,19 @@ class Fitter:
 
     Supports MCMC sampling, MAP estimation, and various parameterisations.
     Handles multiple planets, trends, and jitter parameters.
+
+    To model correlated noise with a Gaussian Process, use :class:`GPFitter`,
+    which adds a GP kernel to everything here.
     """
 
-    def __init__(self, planet_letters: list[str], parameterisation: Parameterisation) -> None:
+    def __init__(self, planet_letters: list[str] | tuple[str, ...], parameterisation: Parameterisation) -> None:
         """Initialize the Fitter object.
 
         Parameters
         ----------
-        planet_letters : list[str]
-            List of single-character planet identifiers (e.g., ['b', 'c', 'd']).
-            Used to distinguish parameters for different planets in the system.
+        planet_letters : list[str] or tuple[str, ...]
+            The planets to fit, each a single lowercase letter from "b" to "z" with no repeats,
+            e.g. ["b", "c"]. Stored in alphabetical order. An empty list fits no planets.
         parameterisation : Parameterisation
             The orbital parameterisation to use for fitting. Defines which orbital
             elements are used as free/fixed parameters, e.g.
@@ -68,8 +71,19 @@ class Fitter:
                 f"{type(parameterisation).__name__}. If you passed the name as a string, "
                 f"wrap it, e.g. ravest.param.Parameterisation('...')."
             )
-        self.planet_letters = planet_letters
-        self.parameterisation = parameterisation
+        if not isinstance(planet_letters, (list, tuple)):
+            raise TypeError(
+                f"planet_letters must be a list or tuple of letters, e.g. ['b'] or ['b', 'c'], not "
+                f"{type(planet_letters)}. To convert another container, use list(...)."
+            )
+        letters = [str(letter) if isinstance(letter, str) else letter for letter in planet_letters]
+        for letter in letters:
+            _validate_planet_letter(letter)
+        for letter in letters:
+            if letters.count(letter) > 1:
+                raise ValueError(f"planet_letters must not repeat a letter, but {letter!r} appears more than once.")
+        self._planet_letters = tuple(sorted(letters))
+        self._parameterisation = parameterisation
 
         # Trigger numba JIT compilation before MCMC
         _dummy_M = np.linspace(0, 2 * np.pi, 10)
@@ -78,6 +92,34 @@ class Fitter:
         # Initialize parameter storage
         self._params: Dict[str, Parameter] = {}
         self._priors: Dict[str, Callable[[float], float]] = {}
+
+    @property
+    def planet_letters(self) -> list[str]:
+        """The planet letters, in alphabetical order. Fixed when the fitter is created."""
+        return list(self._planet_letters)
+
+    @planet_letters.setter
+    def planet_letters(self, value: list[str] | tuple[str, ...]) -> None:
+        """Refuse to change the planet letters; make a new fitter instead."""
+        self._raise_fixed_at_creation("planet_letters")
+
+    @property
+    def parameterisation(self) -> Parameterisation:
+        """The orbital parameterisation. Fixed when the fitter is created."""
+        return self._parameterisation
+
+    @parameterisation.setter
+    def parameterisation(self, value: Parameterisation) -> None:
+        """Refuse to change the parameterisation; make a new fitter instead."""
+        self._raise_fixed_at_creation("parameterisation")
+
+    def _raise_fixed_at_creation(self, name: str) -> None:
+        """Raise AttributeError: ``name`` is part of the model, fixed when the fitter is created."""
+        class_name = type(self).__name__
+        raise AttributeError(
+            f"{name} is fixed when the {class_name} is created. Changing it can cause Bad Things to "
+            f"happen, so please make a new {class_name} instead."
+        )
 
     def add_data(
         self,
@@ -3930,14 +3972,14 @@ class GPFitter(Fitter):
     and ``priors`` like any other parameter.
     """
 
-    def __init__(self, planet_letters: list[str], parameterisation: Parameterisation, gp_kernel: GPKernel) -> None:
+    def __init__(self, planet_letters: list[str] | tuple[str, ...], parameterisation: Parameterisation, gp_kernel: GPKernel) -> None:
         """Initialize the GPFitter object.
 
         Parameters
         ----------
-        planet_letters : list[str]
-            List of single-character planet identifiers (e.g., ['b', 'c', 'd']).
-            Used to distinguish parameters for different planets in the system.
+        planet_letters : list[str] or tuple[str, ...]
+            The planets to fit, each a single lowercase letter from "b" to "z" with no repeats,
+            e.g. ["b", "c"]. Stored in alphabetical order. An empty list fits no planets.
         parameterisation : Parameterisation
             The orbital parameterisation to use for fitting. Defines which orbital
             elements are used as free/fixed parameters, e.g.
@@ -3953,7 +3995,17 @@ class GPFitter(Fitter):
                 f"{type(gp_kernel).__name__}. If you passed the name as a string, "
                 f"wrap it, e.g. ravest.gp.GPKernel('...')."
             )
-        self.gp_kernel = gp_kernel
+        self._gp_kernel = gp_kernel
+
+    @property
+    def gp_kernel(self) -> GPKernel:
+        """The Gaussian Process kernel. Fixed when the GPFitter is created."""
+        return self._gp_kernel
+
+    @gp_kernel.setter
+    def gp_kernel(self, value: GPKernel) -> None:
+        """Refuse to change the kernel; make a new GPFitter instead."""
+        self._raise_fixed_at_creation("gp_kernel")
 
     def _param_order(self) -> list[str]:
         """Every parameter name, in the fixed order used for params, priors and the chain's columns.
