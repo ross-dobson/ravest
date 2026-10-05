@@ -62,8 +62,8 @@ def _build_gp_log_posterior(
         priors=priors | hyperpriors,
         fixed_params=fixed_params | fixed_hyperparams,
         free_params_names=free_params_names,
-        time=time, vel=vel, velerr=velerr, t0=2.0,
-        instrument=instrument, unique_instruments=list(np.unique(instrument)),
+        time=time, vel=vel, velerr=velerr,
+        instrument=instrument, unique_instruments=np.unique(instrument), t0=2.0,
     )
 
 

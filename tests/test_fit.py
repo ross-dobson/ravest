@@ -368,11 +368,11 @@ class TestLogLikelihood:
     def test_loglikelihood_init(self, test_data) -> None:
         """Test LogLikelihood initialization."""
         time, vel, velerr, instrument = test_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         ll = LogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments,
-            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         np.testing.assert_array_equal(ll.time, time)
@@ -383,11 +383,11 @@ class TestLogLikelihood:
     def test_loglikelihood_calculation(self, test_data) -> None:
         """Test log-likelihood calculation with valid parameters."""
         time, vel, velerr, instrument = test_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         ll = LogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments,
-            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         params = {
@@ -402,11 +402,11 @@ class TestLogLikelihood:
     def test_loglikelihood_invalid_planet(self, test_data) -> None:
         """Test log-likelihood returns -inf for invalid planet parameters."""
         time, vel, velerr, instrument = test_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         ll = LogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments,
-            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         params = {
@@ -426,12 +426,12 @@ class TestLogLikelihood:
         vel = np.array([2.0, 2.0, 2.0, 2.0])
         velerr = np.array([1.0, 1.0, 1.0, 1.0])
         instrument = np.array(["HARPS", "HARPS", "HARPS", "HARPS"])
-        unique_instruments = ["HARPS"]
+        unique_instruments = np.array(["HARPS"])
 
         ll = LogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=1.0,
-            instrument=instrument, unique_instruments=unique_instruments,
-            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=1.0
         )
 
         params = {
@@ -446,11 +446,11 @@ class TestLogLikelihood:
     def test_loglikelihood_multi_instrument(self, test_data_multi_instrument) -> None:
         """Test log-likelihood calculation with multiple instruments."""
         time, vel, velerr, instrument = test_data_multi_instrument
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         ll = LogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments,
-            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         params = {
@@ -466,11 +466,11 @@ class TestLogLikelihood:
     def test_loglikelihood_jitter_affects_result(self, test_data) -> None:
         """Test that per-instrument jitter affects log-likelihood."""
         time, vel, velerr, instrument = test_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         ll = LogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments,
-            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc")
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         params_low_jit = {
@@ -540,7 +540,7 @@ class TestLogPosterior:
     def test_logposterior_init(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test LogPosterior initialization."""
         time, vel, velerr, instrument = test_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         params = test_circular_params
         priors = test_simple_priors
 
@@ -554,8 +554,8 @@ class TestLogPosterior:
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         assert lpost.planet_letters == ["b"]
@@ -563,7 +563,7 @@ class TestLogPosterior:
     def test_logposterior_valid_calculation(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test log-posterior calculation with valid parameters."""
         time, vel, velerr, instrument = test_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         params = test_circular_params
         priors = test_simple_priors
 
@@ -576,8 +576,8 @@ class TestLogPosterior:
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         free_params_dict = {"K_b": 5.0, "jit_HARPS": 1.0}
@@ -589,7 +589,7 @@ class TestLogPosterior:
     def test_logposterior_invalid_prior(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test log-posterior returns -inf when prior is invalid."""
         time, vel, velerr, instrument = test_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         params = test_circular_params
         priors = test_simple_priors
 
@@ -602,8 +602,8 @@ class TestLogPosterior:
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         free_params_dict = {"K_b": -1.0, "jit_HARPS": 1.0}  # Invalid K_b
@@ -614,7 +614,7 @@ class TestLogPosterior:
     def test_negative_log_probability_for_MAP(self, test_data, test_circular_params, test_simple_priors) -> None:
         """Test MAP interface that takes list instead of dict."""
         time, vel, velerr, instrument = test_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         params = test_circular_params
         priors = test_simple_priors
 
@@ -627,8 +627,8 @@ class TestLogPosterior:
             priors=priors,
             fixed_params=fixed_params,
             free_params_names=free_param_names,
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         free_params_vals = [5.0, 1.0]  # K_b, jit_HARPS
@@ -1548,13 +1548,13 @@ class TestGPLogLikelihood:
     def test_gploglikelihood_init(self, test_gp_data) -> None:
         """Test GPLogLikelihood initialization."""
         time, vel, velerr, instrument = test_gp_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         gp_kernel = GPKernel("Quasiperiodic")
         ll = GPLogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments,
             planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
-            gp_kernel=gp_kernel
+            gp_kernel=gp_kernel,
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         np.testing.assert_array_equal(ll.time, time)
@@ -1562,18 +1562,18 @@ class TestGPLogLikelihood:
         np.testing.assert_array_equal(ll.velerr, velerr)
         assert ll.t0 == 2.0
         assert ll.gp_kernel == gp_kernel
-        assert ll.unique_instruments == ["HARPS"]
+        np.testing.assert_array_equal(ll.unique_instruments, ["HARPS"])
 
     def test_gploglikelihood_calculation(self, test_gp_data) -> None:
         """Test GP log-likelihood calculation with valid parameters."""
         time, vel, velerr, instrument = test_gp_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         gp_kernel = GPKernel("Quasiperiodic")
         ll = GPLogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments,
             planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
-            gp_kernel=gp_kernel
+            gp_kernel=gp_kernel,
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         params = {
@@ -1595,13 +1595,13 @@ class TestGPLogLikelihood:
     def test_gploglikelihood_invalid_planet(self, test_gp_data) -> None:
         """Test GP log-likelihood returns -inf for invalid planet parameters."""
         time, vel, velerr, instrument = test_gp_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         gp_kernel = GPKernel("Quasiperiodic")
         ll = GPLogLikelihood(
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments,
             planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
-            gp_kernel=gp_kernel
+            gp_kernel=gp_kernel,
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         params = {
@@ -1627,7 +1627,7 @@ class TestGPLogPosterior:
                                    test_gp_priors, test_gp_hyperpriors) -> None:
         """Test GPLogPosterior initialization."""
         time, vel, velerr, instrument = test_gp_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         params = test_gp_circular_params
         hyperparams = test_gp_hyperparams
         priors = test_gp_priors
@@ -1646,19 +1646,19 @@ class TestGPLogPosterior:
             priors=priors | hyperpriors,
             fixed_params=fixed_params,
             free_params_names=free_params_names,
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         assert lpost.planet_letters == ["b"]
         assert lpost.gp_kernel == gp_kernel
-        assert lpost.unique_instruments == ["HARPS"]
+        np.testing.assert_array_equal(lpost.unique_instruments, ["HARPS"])
 
     def test_gplogposterior_valid_calculation(self, test_gp_data, test_gp_circular_params, test_gp_hyperparams,
                                                test_gp_priors, test_gp_hyperpriors) -> None:
         """Test GP log-posterior calculation with valid parameters."""
         time, vel, velerr, instrument = test_gp_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         params = test_gp_circular_params
         hyperparams = test_gp_hyperparams
         priors = test_gp_priors
@@ -1676,8 +1676,8 @@ class TestGPLogPosterior:
             priors=priors | hyperpriors,
             fixed_params=fixed_params,
             free_params_names=free_params_names,
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         combined_dict = {
@@ -1694,7 +1694,7 @@ class TestGPLogPosterior:
                                            test_gp_priors, test_gp_hyperpriors) -> None:
         """Test GP log-posterior returns -inf when prior is invalid."""
         time, vel, velerr, instrument = test_gp_data
-        unique_instruments = list(np.unique(instrument))
+        unique_instruments = np.unique(instrument)
         params = test_gp_circular_params
         hyperparams = test_gp_hyperparams
         priors = test_gp_priors
@@ -1712,8 +1712,8 @@ class TestGPLogPosterior:
             priors=priors | hyperpriors,
             fixed_params=fixed_params,
             free_params_names=free_params_names,
-            time=time, vel=vel, velerr=velerr, t0=2.0,
-            instrument=instrument, unique_instruments=unique_instruments
+            time=time, vel=vel, velerr=velerr,
+            instrument=instrument, unique_instruments=unique_instruments, t0=2.0
         )
 
         combined_dict = {
@@ -1739,9 +1739,8 @@ class TestGPOneDictInternals:
 
     @classmethod
     def _data(cls):
-        return dict(time=cls.TIME, vel=cls.VEL, velerr=cls.VELERR, t0=2.0,
-                    instrument=cls.INSTRUMENT, unique_instruments=["HARPS"],
-                    gp_kernel=GPKernel("Quasiperiodic"))
+        return dict(time=cls.TIME, vel=cls.VEL, velerr=cls.VELERR,
+                    instrument=cls.INSTRUMENT, unique_instruments=np.array(["HARPS"]), t0=2.0)
 
     def _posterior(self, case):
         """One-dict GPLogPosterior for case "A" or "B".
@@ -1753,6 +1752,7 @@ class TestGPOneDictInternals:
         if case == "A":
             return GPLogPosterior(
                 planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+                gp_kernel=GPKernel("Quasiperiodic"),
                 priors={"K_b": U(0, 20), "jit_HARPS": U(0, 5), "gp_amp": U(0, 10),
                         "gp_lambda_e": U(1, 100), "gp_lambda_p": U(0.1, 2.0), "gp_period": U(1, 50)},
                 fixed_params={"P_b": 2.0, "e_b": 0.0, "w_b": np.pi / 2, "Tc_b": 0.0,
@@ -1762,6 +1762,7 @@ class TestGPOneDictInternals:
             )
         return GPLogPosterior(
             planet_letters=["b"], parameterisation=Parameterisation("P K secosw sesinw Tc"),
+            gp_kernel=GPKernel("Quasiperiodic"),
             priors={"K_b": U(0, 20), "e_b": U(0, 1), "w_b": U(-np.pi, np.pi), "jit_HARPS": U(0, 5),
                     "gp_amp": U(0, 10), "gp_lambda_e": U(1, 100), "gp_period": U(1, 50)},
             fixed_params={"P_b": 2.0, "Tc_b": 0.0, "g_HARPS": 0.0, "gd": 0.0, "gdd": 0.0,
@@ -1782,7 +1783,7 @@ class TestGPOneDictInternals:
     def test_likelihood_one_dict_matches_reference(self) -> None:
         """GPLogLikelihood(params) with the GP names in params gives the two-dict value."""
         ll = GPLogLikelihood(planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
-                             **self._data())
+                             gp_kernel=GPKernel("Quasiperiodic"), **self._data())
         params = {"P_b": 2.0, "K_b": 5.0, "e_b": 0.1, "w_b": 1.0, "Tc_b": 0.3,
                   "g_HARPS": 0.5, "gd": 0.1, "gdd": 0.01, "jit_HARPS": 2.0,
                   "gp_amp": 1.5, "gp_lambda_e": 30.0, "gp_lambda_p": 0.7, "gp_period": 8.0}
@@ -1792,7 +1793,7 @@ class TestGPOneDictInternals:
     def test_likelihood_rejects_separate_hyperparams(self) -> None:
         """There is no separate hyperparams argument."""
         ll = GPLogLikelihood(planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
-                             **self._data())
+                             gp_kernel=GPKernel("Quasiperiodic"), **self._data())
 
         with pytest.raises(TypeError):
             ll({"P_b": 2.0}, {"gp_amp": 1.0})
@@ -1826,7 +1827,7 @@ class TestGPOneDictInternals:
         """The separate hyperparameter arguments are gone."""
         lp = self._posterior("A")
         kwargs = dict(planet_letters=lp.planet_letters, parameterisation=lp.parameterisation,
-                      priors=lp.priors, fixed_params=lp.fixed_params,
+                      gp_kernel=lp.gp_kernel, priors=lp.priors, fixed_params=lp.fixed_params,
                       free_params_names=lp.free_params_names, **self._data())
         kwargs[keyword] = {} if keyword != "free_hyperparams_names" else []
 
@@ -1836,6 +1837,82 @@ class TestGPOneDictInternals:
     def test_posterior_has_no_log_hyperprior(self) -> None:
         """One LogPrior covers the GP names too."""
         assert not hasattr(self._posterior("A"), "log_hyperprior")
+
+
+class TestLogProbSignatures:
+    """The posterior and likelihood classes take keyword-only arguments in one order.
+
+    Model (planet_letters, parameterisation, gp_kernel), then fit setup (priors, fixed_params,
+    free_params_names), then data (time, vel, velerr, instrument, unique_instruments, t0). Each
+    class takes only what it needs.
+    """
+
+    MODEL = ["planet_letters", "parameterisation"]
+    SETUP = ["priors", "fixed_params", "free_params_names"]
+    DATA = ["time", "vel", "velerr", "instrument", "unique_instruments", "t0"]
+    ORDER = {
+        LogPosterior: MODEL + SETUP + DATA,
+        GPLogPosterior: MODEL + ["gp_kernel"] + SETUP + DATA,
+        LogLikelihood: MODEL + DATA,
+        GPLogLikelihood: MODEL + ["gp_kernel"] + DATA,
+    }
+    CLASSES = list(ORDER)
+    IDS = [cls.__name__ for cls in CLASSES]
+
+    @classmethod
+    def _kwargs(cls, klass):
+        """Valid arguments for klass, in the agreed order."""
+        values = dict(
+            planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
+            gp_kernel=GPKernel("Quasiperiodic"),
+            priors={"K_b": ravest.prior.Uniform(0, 20)},
+            fixed_params={"P_b": 2.0, "e_b": 0.0, "w_b": np.pi / 2, "Tc_b": 0.0,
+                          "g_HARPS": 0.0, "jit_HARPS": 0.0, "gd": 0.0, "gdd": 0.0},
+            free_params_names=["K_b"],
+            time=np.array([0.0, 1.0, 2.0]), vel=np.array([1.0, -1.0, 0.5]),
+            velerr=np.array([1.0, 1.0, 1.0]), instrument=np.array(["HARPS"] * 3),
+            unique_instruments=np.array(["HARPS"]), t0=1.0,
+        )
+        return {name: values[name] for name in cls.ORDER[klass]}
+
+    @staticmethod
+    def _parameters(klass):
+        """inspect.Parameter objects of klass.__init__, without self."""
+        import inspect
+        return list(inspect.signature(klass.__init__).parameters.values())[1:]
+
+    @pytest.mark.parametrize("klass", CLASSES, ids=IDS)
+    def test_keyword_only_in_order(self, klass) -> None:
+        """Every argument is keyword-only, in the agreed order."""
+        import inspect
+        parameters = self._parameters(klass)
+
+        assert [p.name for p in parameters] == self.ORDER[klass]
+        assert all(p.kind is inspect.Parameter.KEYWORD_ONLY for p in parameters)
+
+    @pytest.mark.parametrize("klass", CLASSES, ids=IDS)
+    def test_positional_call_raises(self, klass) -> None:
+        """Passing the arguments positionally is refused, even in the right order."""
+        kwargs = self._kwargs(klass)
+
+        with pytest.raises(TypeError, match="takes 1 positional argument"):
+            klass(*kwargs.values())
+
+    @pytest.mark.parametrize("klass", CLASSES, ids=IDS)
+    def test_keyword_call_works(self, klass) -> None:
+        """Passing every argument by keyword constructs the object."""
+        klass(**self._kwargs(klass))
+
+    @pytest.mark.parametrize("gp_class, partner", [(GPLogPosterior, LogPosterior),
+                                                   (GPLogLikelihood, LogLikelihood)],
+                             ids=["GPLogPosterior", "GPLogLikelihood"])
+    def test_gp_signature_is_partner_plus_gp_kernel(self, gp_class, partner) -> None:
+        """The GP class takes its partner's arguments (same kinds and annotations), plus gp_kernel."""
+        gp_parameters = self._parameters(gp_class)
+        partner_parameters = self._parameters(partner)
+
+        assert [p.name for p in gp_parameters if p.name != "gp_kernel"] == [p.name for p in partner_parameters]
+        assert [p for p in gp_parameters if p.name != "gp_kernel"] == partner_parameters
 
 
 class TestGPFitter:
@@ -3574,3 +3651,488 @@ class TestPointOfUseValidation:
 
         assert fitter.priors is priors
         assert fitter.priors == before
+
+
+class TestLogProbFactories:
+    """Fitters build their posteriors and likelihoods through two factory methods.
+
+    _build_log_posterior() and _build_log_likelihood() build from the fitter as it is now; on a
+    GPFitter they build the GP classes. Every entry point that needs one calls the factory.
+    """
+
+    POSTERIOR = {"Fitter": LogPosterior, "GPFitter": GPLogPosterior}
+    LIKELIHOOD = {"Fitter": LogLikelihood, "GPFitter": GPLogLikelihood}
+    DATA = ["time", "vel", "velerr", "instrument", "unique_instruments", "t0"]
+    FACTORY_USERS = [
+        ("find_map_estimate", "_build_log_posterior"),
+        ("random", "_build_log_posterior"),
+        ("around_point", "_build_log_posterior"),
+        ("run_mcmc", "_build_log_posterior"),
+        ("calculate_log_likelihood", "_build_log_likelihood"),
+        ("calculate_chi2", "_build_log_likelihood"),
+    ]
+
+    @pytest.fixture(params=["Fitter", "GPFitter"])
+    def fitter(self, request, test_data, test_circular_params, test_simple_priors,
+               test_gp_data, test_gp_all_params, test_gp_all_priors):
+        """Each fitter class, fully set up through the setters."""
+        return TestPointOfUseValidation._fitter(request.param, test_data, test_circular_params,
+                                                test_simple_priors, test_gp_data, test_gp_all_params,
+                                                test_gp_all_priors)
+
+    def test_build_log_posterior_type(self, fitter) -> None:
+        """Exactly LogPosterior on a Fitter, GPLogPosterior on a GPFitter."""
+        assert type(fitter._build_log_posterior()) is self.POSTERIOR[type(fitter).__name__]
+
+    def test_build_log_likelihood_type(self, fitter) -> None:
+        """Exactly LogLikelihood on a Fitter, GPLogLikelihood on a GPFitter."""
+        assert type(fitter._build_log_likelihood()) is self.LIKELIHOOD[type(fitter).__name__]
+
+    def test_build_log_posterior_reads_current_state(self, fitter) -> None:
+        """Built from the fitter as it is now: an in-place edit and new priors show up."""
+        fitter.params["P_b"].value = 2.5
+        fitter.priors = {"K_b": ravest.prior.Uniform(0, 30)}
+
+        lp = fitter._build_log_posterior()
+
+        assert lp.fixed_params == fitter.fixed_params_values_dict
+        assert lp.fixed_params["P_b"] == 2.5
+        assert lp.priors is fitter.priors
+        assert lp.free_params_names == fitter.free_params_names
+        assert lp.planet_letters == fitter.planet_letters
+        assert lp.parameterisation is fitter.parameterisation
+        for name in self.DATA:
+            assert getattr(lp, name) is getattr(fitter, name)
+        if isinstance(fitter, GPFitter):
+            assert lp.gp_kernel is fitter.gp_kernel
+
+    def test_build_log_likelihood_reads_current_state(self, fitter) -> None:
+        """Built from the fitter's model and data."""
+        ll = fitter._build_log_likelihood()
+
+        assert ll.planet_letters == fitter.planet_letters
+        assert ll.parameterisation is fitter.parameterisation
+        for name in self.DATA:
+            assert getattr(ll, name) is getattr(fitter, name)
+        if isinstance(fitter, GPFitter):
+            assert ll.gp_kernel is fitter.gp_kernel
+
+    @pytest.mark.parametrize("entry_point, factory", FACTORY_USERS, ids=[e for e, _ in FACTORY_USERS])
+    def test_entry_point_builds_through_factory(self, fitter, monkeypatch, entry_point, factory) -> None:
+        """Each entry point gets its posterior or likelihood from the factory."""
+        original = getattr(type(fitter), factory)
+        built = []
+
+        def spy():
+            obj = original(fitter)
+            built.append(obj)
+            return obj
+
+        monkeypatch.setattr(fitter, factory, spy)
+        if entry_point in ("calculate_log_likelihood", "calculate_chi2"):
+            point = fitter.build_params_dict(free_params=fitter.free_params_values)
+            getattr(fitter, entry_point)(params_dict=point)
+        else:
+            TestPointOfUseValidation._call(fitter, entry_point, np.array(fitter.free_params_values))
+
+        assert built
+
+
+class TestGPLogPosteriorSubclass:
+    """GPLogPosterior is a LogPosterior that builds a GP likelihood and checks kernel values first.
+
+    The prior conversion, log-probability corrections and MAP objective are inherited. The
+    recorded values in TestGPOneDictInternals check that no number changes.
+    """
+
+    def test_is_subclass(self) -> None:
+        """GPLogPosterior inherits from LogPosterior."""
+        assert issubclass(GPLogPosterior, LogPosterior)
+
+    def test_defines_only_gp_parts(self) -> None:
+        """GPLogPosterior defines only its constructor, its likelihood and the kernel check."""
+        import inspect
+        defined = {name for name, value in vars(GPLogPosterior).items() if inspect.isfunction(value)}
+
+        assert defined == {"__init__", "_build_log_likelihood", "log_probability"}
+
+    @pytest.mark.parametrize("klass, likelihood", [(LogPosterior, LogLikelihood),
+                                                   (GPLogPosterior, GPLogLikelihood)],
+                             ids=["LogPosterior", "GPLogPosterior"])
+    def test_log_likelihood_attribute(self, klass, likelihood) -> None:
+        """Both hold their likelihood as log_likelihood, built by _build_log_likelihood()."""
+        lp = klass(**TestLogProbSignatures._kwargs(klass))
+
+        assert type(lp.log_likelihood) is likelihood
+        assert type(lp._build_log_likelihood()) is likelihood
+        assert not hasattr(lp, "gp_log_likelihood")
+        if klass is GPLogPosterior:
+            assert lp.log_likelihood.gp_kernel is lp.gp_kernel
+
+
+class TestGPFitterSubclass:
+    """GPFitter is a Fitter with a GP: it defines only what the GP changes.
+
+    Everything else is inherited, which also fixes the places where GPFitter's copies of
+    Fitter's methods had drifted apart.
+    """
+
+    GP_DEFINED = {
+        # Fitter's version plus the GP part, via super()
+        "__init__", "_param_order", "_validate_astrophysical_validity",
+        "_get_default_parameterisation_equivalent_free_param_name",
+        "calculate_rv_total_from_samples", "calculate_rv_total_custom",
+        # The GP posterior and likelihood
+        "_build_log_posterior", "_build_log_likelihood",
+        # GP statistics, RVs and plots
+        "calculate_chi2", "_compute_gp_chi2", "calculate_rv_gp_from_samples", "calculate_rv_gp_custom",
+        "_plot_rv", "_plot_phase", "plot_posterior_rv", "plot_posterior_phase",
+        # progress=True by default
+        "calculate_rv_planet_from_samples", "_calculate_rv_planet_from_samples",
+        "calculate_rv_trend_from_samples",
+    }
+
+    @pytest.fixture
+    def fitted(self, test_data, test_circular_params, test_simple_priors,
+               test_gp_data, test_gp_all_params, test_gp_all_priors):
+        """A GPFitter after a short MCMC run."""
+        fitter = TestPointOfUseValidation._fitter("GPFitter", test_data, test_circular_params,
+                                                  test_simple_priors, test_gp_data, test_gp_all_params,
+                                                  test_gp_all_priors)
+        nwalkers = 2 * fitter.ndim
+        rng = np.random.default_rng(0)
+        centre = np.array(fitter.free_params_values)
+        positions = centre * (1 + 0.01 * rng.standard_normal((nwalkers, fitter.ndim)))
+        fitter.run_mcmc(positions, nwalkers=nwalkers, max_steps=20, progress=False)
+        return fitter
+
+    def test_is_subclass(self) -> None:
+        """GPFitter inherits from Fitter."""
+        assert issubclass(GPFitter, Fitter)
+
+    def test_defines_only_gp_parts(self) -> None:
+        """GPFitter defines exactly these; anything else comes from Fitter."""
+        defined = {name for name in vars(GPFitter)
+                   if name == "__init__" or not (name.startswith("__") and name.endswith("__"))}
+
+        assert defined == self.GP_DEFINED
+
+    def test_gp_kernel_must_be_gpkernel(self) -> None:
+        """A kernel name passed as a plain string is refused."""
+        with pytest.raises(TypeError, match="gp_kernel must be a GPKernel"):
+            GPFitter(["b"], Parameterisation("P K e w Tc"), "Quasiperiodic")
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    def test_params_before_add_data_raises(self, kind, test_circular_params, test_gp_all_params) -> None:
+        """Setting params before add_data() names the missing step on both classes."""
+        if kind == "Fitter":
+            fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+            params = test_circular_params
+        else:
+            fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+            params = test_gp_all_params
+
+        with pytest.raises(RuntimeError, match=r"add_data\(\) must be called"):
+            fitter.params = params
+
+    @pytest.mark.parametrize("title, expected", [("My title", "My title"), (None, ""), ("", "")],
+                             ids=["custom", "none", "empty"])
+    def test_plot_corner_title(self, fitted, title, expected) -> None:
+        """plot_corner draws the title given, or none for None or ""."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        plt.close("all")
+
+        fitted.plot_corner(title=title)
+
+        assert plt.gcf().get_suptitle() == expected
+        plt.close("all")
+
+    def test_rv_total_from_samples_progress_false(self, fitted, capsys) -> None:
+        """progress=False reaches the trend, planet and GP calculations: no bars at all."""
+        capsys.readouterr()
+
+        fitted.calculate_rv_total_from_samples(np.linspace(0, 5, 7), discard_start=10, progress=False)
+
+        assert "from samples" not in capsys.readouterr().err
+
+    def test_rv_total_from_samples_progress_true(self, fitted, capsys) -> None:
+        """progress=True shows a bar for each of the trend, planet and GP calculations."""
+        capsys.readouterr()
+
+        fitted.calculate_rv_total_from_samples(np.linspace(0, 5, 7), discard_start=10, progress=True)
+
+        err = capsys.readouterr().err
+        for label in ("Calculating trend RV", "Calculating planet b RV", "Calculating GP"):
+            assert label in err
+
+
+RV_PHASE_PLOTS = ["plot_MAP_rv", "plot_MAP_phase", "plot_custom_rv", "plot_custom_phase",
+                  "plot_best_sample_rv", "plot_best_sample_phase", "plot_posterior_rv", "plot_posterior_phase"]
+ALL_PLOTS = RV_PHASE_PLOTS + ["plot_corner", "plot_chains", "plot_lnprob", "plot_autocorr_estimates"]
+
+
+@pytest.fixture(scope="module", params=["Fitter", "GPFitter"])
+def plot_fitter(request):
+    """Each fitter class after a short MCMC run with convergence checks (shared by the plot tests)."""
+    time = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
+    vel = np.array([5.0, -2.0, -5.0, 2.0, 3.0, -1.0])
+    velerr = np.array([1.0, 1.1, 0.9, 0.85, 1.5, 1.0])
+    params = {
+        "P_b": Parameter(2.0, fixed=True), "K_b": Parameter(5.0, fixed=False),
+        "e_b": Parameter(0.0, fixed=True), "w_b": Parameter(np.pi / 2, fixed=True),
+        "Tc_b": Parameter(0.0, fixed=True), "g_HARPS": Parameter(0.0, fixed=True),
+        "gd": Parameter(0.0, fixed=True), "gdd": Parameter(0.0, fixed=True),
+        "jit_HARPS": Parameter(1.0, fixed=False),
+    }
+    priors = {"K_b": ravest.prior.Uniform(0, 20), "jit_HARPS": ravest.prior.Uniform(0, 5)}
+    if request.param == "Fitter":
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+    else:
+        fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+        params |= {"gp_amp": Parameter(1.0, fixed=False), "gp_lambda_e": Parameter(50.0, fixed=False),
+                   "gp_lambda_p": Parameter(0.5, fixed=False), "gp_period": Parameter(10.0, fixed=False)}
+        priors |= {"gp_amp": ravest.prior.Uniform(0, 10), "gp_lambda_e": ravest.prior.Uniform(1, 100),
+                   "gp_lambda_p": ravest.prior.Uniform(0.1, 2.0), "gp_period": ravest.prior.Uniform(1, 50)}
+    fitter.add_data(time, vel, velerr, np.array(["HARPS"] * 6), t0=2.0)
+    fitter.params = params
+    fitter.priors = priors
+    nwalkers = 2 * fitter.ndim
+    rng = np.random.default_rng(0)
+    centre = np.array(fitter.free_params_values)
+    positions = centre * (1 + 0.01 * rng.standard_normal((nwalkers, fitter.ndim)))
+    fitter.run_mcmc(positions, nwalkers=nwalkers, max_steps=300, progress=False, check_convergence=True,
+                    convergence_check_interval=100, convergence_check_start=20)
+    return fitter
+
+
+def _run_plot(fitter, method, **kwargs):
+    """Call one plot method with the inputs it needs; return the figures it drew (still open)."""
+    import types
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    samples = dict(discard_start=100, thin=50)
+    map_result = types.SimpleNamespace(x=np.array(fitter.free_params_values))
+    point = fitter.build_params_dict(fitter.free_params_values)
+    args = {
+        "plot_MAP_rv": dict(map_result=map_result),
+        "plot_MAP_phase": dict(planet_letter="b", map_result=map_result),
+        "plot_custom_rv": dict(params=point),
+        "plot_custom_phase": dict(planet_letter="b", params=point),
+        "plot_best_sample_rv": samples,
+        "plot_best_sample_phase": dict(planet_letter="b", **samples),
+        "plot_posterior_rv": samples,
+        "plot_posterior_phase": dict(planet_letter="b", **samples),
+        "plot_corner": samples,
+        "plot_chains": {},
+        "plot_lnprob": {},
+        "plot_autocorr_estimates": {},
+    }[method]
+    plt.close("all")
+    getattr(fitter, method)(**args, **kwargs)
+    return [plt.figure(n) for n in plt.get_fignums()]
+
+
+def _signature_default(klass, method, name):
+    import inspect
+    parameter = inspect.signature(getattr(klass, method)).parameters.get(name)
+    return parameter.default if parameter else None
+
+
+class TestPlotTitles:
+    """Every plot's default title is in its signature, the same on both classes.
+
+    Phase plots write the planet as a {planet_letter} placeholder. title=None or "" draws no title.
+    """
+
+    PHASE_PLOTS = [p for p in ALL_PLOTS if p.endswith("_phase")]
+    FIGURE_TITLE = {"plot_corner", "plot_chains", "plot_lnprob", "plot_autocorr_estimates"}
+
+    @classmethod
+    def _drawn_titles(cls, fitter, method, **title):
+        """Call one plot method and return the non-empty titles it drew."""
+        import matplotlib.pyplot as plt
+        figures = _run_plot(fitter, method, **title)
+        if method in cls.FIGURE_TITLE:
+            titles = [fig.get_suptitle() for fig in figures]
+        else:
+            titles = [ax.get_title() for fig in figures for ax in fig.axes]
+        plt.close("all")
+        return [t for t in titles if t]
+
+    @pytest.mark.parametrize("method", ALL_PLOTS)
+    def test_default_title_is_the_signature_default(self, plot_fitter, method) -> None:
+        """With no title given, the title drawn is the signature's default (planet letter filled in)."""
+        default = _signature_default(type(plot_fitter), method, "title")
+
+        assert isinstance(default, str) and default
+        assert self._drawn_titles(plot_fitter, method) == [default.replace("{planet_letter}", "b")]
+
+    @pytest.mark.parametrize("title", [None, ""], ids=["none", "empty"])
+    @pytest.mark.parametrize("method", ALL_PLOTS)
+    def test_no_title(self, plot_fitter, method, title) -> None:
+        """title=None or "" draws no title."""
+        assert self._drawn_titles(plot_fitter, method, title=title) == []
+
+    @pytest.mark.parametrize("method", PHASE_PLOTS)
+    def test_phase_title_placeholder(self, plot_fitter, method) -> None:
+        """A custom phase title gets the planet letter; other braces (LaTeX) are left alone."""
+        title = r"Fit of $K_{b}$ - planet {planet_letter}"
+
+        assert self._drawn_titles(plot_fitter, method, title=title) == [r"Fit of $K_{b}$ - planet b"]
+
+    @pytest.mark.parametrize("method", ALL_PLOTS)
+    def test_gp_defaults_match_fitter(self, method) -> None:
+        """GPFitter's default titles are Fitter's."""
+        assert _signature_default(GPFitter, method, "title") == _signature_default(Fitter, method, "title")
+
+
+class TestPlotSmoothing:
+    """Every RV and phase plot takes n_smooth, the number of points in its smooth model line."""
+
+    @pytest.mark.parametrize("klass", [Fitter, GPFitter], ids=["Fitter", "GPFitter"])
+    @pytest.mark.parametrize("method", RV_PHASE_PLOTS)
+    def test_n_smooth_default_1000(self, method, klass) -> None:
+        """n_smooth is a keyword with default 1000 on both classes."""
+        assert _signature_default(klass, method, "n_smooth") == 1000
+
+    @pytest.mark.parametrize("method", RV_PHASE_PLOTS)
+    def test_model_line_has_n_smooth_points(self, plot_fitter, method) -> None:
+        """The smooth model line is drawn with exactly n_smooth points."""
+        import matplotlib.pyplot as plt
+        figures = _run_plot(plot_fitter, method, n_smooth=137)
+        lengths = [len(line.get_xdata()) for fig in figures for ax in fig.axes for line in ax.get_lines()]
+        plt.close("all")
+
+        assert 137 in lengths
+
+
+class TestPlotArgumentOrder:
+    """RV and phase plots take their arguments in one order.
+
+    Which planet, which values, plot options, labels, limits, saving. Each plot has only the
+    arguments it needs.
+    """
+
+    ORDER = [
+        "planet_letter",
+        "map_result", "params", "discard_start", "discard_end", "thin",
+        "show_CI", "freeze_params", "n_smooth",
+        "title", "ylabel_main", "xlabel", "ylabel_residuals",
+        "xlim", "ylim", "res_xlim", "res_ylim",
+        "save", "fname", "dpi",
+    ]
+
+    @pytest.mark.parametrize("klass", [Fitter, GPFitter], ids=["Fitter", "GPFitter"])
+    @pytest.mark.parametrize("method", RV_PHASE_PLOTS)
+    def test_arguments_in_order(self, method, klass) -> None:
+        """Arguments appear in ORDER's order; a new argument needs a place in ORDER."""
+        import inspect
+        names = list(inspect.signature(getattr(klass, method)).parameters)[1:]
+
+        assert set(names) <= set(self.ORDER), set(names) - set(self.ORDER)
+        assert names == [name for name in self.ORDER if name in names]
+
+
+class TestParamsDictOrder:
+    """build_params_dict and get_mcmc_posterior_dict return keys in fitter.params order."""
+
+    def test_build_params_dict_from_list(self, plot_fitter) -> None:
+        """Free values given as a list: keys follow fitter.params, values are unchanged."""
+        point = plot_fitter.build_params_dict(plot_fitter.free_params_values)
+
+        assert list(point) == list(plot_fitter.params)
+        assert point == {name: p.value for name, p in plot_fitter.params.items()}
+
+    def test_build_params_dict_from_dict(self, plot_fitter) -> None:
+        """Free values given as a dict, in any order: keys still follow fitter.params."""
+        free = dict(reversed(list(zip(plot_fitter.free_params_names, plot_fitter.free_params_values))))
+
+        point = plot_fitter.build_params_dict(free)
+
+        assert list(point) == list(plot_fitter.params)
+        assert point == {name: p.value for name, p in plot_fitter.params.items()}
+
+    def test_get_mcmc_posterior_dict(self, plot_fitter) -> None:
+        """Keys follow fitter.params; fixed values and free samples are as before."""
+        posterior = plot_fitter.get_mcmc_posterior_dict(discard_start=100)
+        samples = plot_fitter.get_samples_dict(discard_start=100)
+
+        assert list(posterior) == list(plot_fitter.params)
+        for name, param in plot_fitter.params.items():
+            if param.fixed:
+                assert posterior[name] == param.value
+            else:
+                np.testing.assert_array_equal(posterior[name], samples[name])
+
+
+class TestLogLikelihoodSubclass:
+    """GPLogLikelihood is a LogLikelihood: one mean model (planets, trend, gammas), GP noise on top.
+
+    The recorded values were computed before the GP class shared LogLikelihood's mean model, so they
+    check that no number changes (TestGPOneDictInternals has the GP ones).
+    """
+
+    TIME = np.array([0.0, 0.7, 1.3, 2.1, 2.9, 3.4, 4.2, 5.0, 5.8, 6.5, 7.1, 8.0])
+    VEL = np.array([3.1, -1.2, -4.8, 0.4, 5.2, 2.9, -3.3, -1.0, 4.4, 1.7, -2.6, 0.8])
+    VELERR = np.array([1.0, 1.2, 0.9, 1.1, 1.3, 0.8, 1.0, 1.4, 0.9, 1.1, 1.2, 1.0])
+    CASES = {
+        "A": (["b"], "P K e w Tc", ["HARPS"] * 12,
+              {"P_b": 3.2, "K_b": 4.0, "e_b": 0.0, "w_b": np.pi / 2, "Tc_b": 0.4,
+               "g_HARPS": 0.3, "jit_HARPS": 0.8, "gd": 0.05, "gdd": -0.002}),
+        "B": (["b", "c"], "P K secosw sesinw Tc", ["HARPS", "HIRES"] * 6,
+              {"P_b": 3.2, "K_b": 4.0, "secosw_b": 0.2, "sesinw_b": -0.1, "Tc_b": 0.4,
+               "P_c": 11.5, "K_c": 2.5, "secosw_c": -0.3, "sesinw_c": 0.25, "Tc_c": 2.0,
+               "g_HARPS": 0.3, "jit_HARPS": 0.8, "g_HIRES": -0.6, "jit_HIRES": 1.5, "gd": 0.05, "gdd": -0.002}),
+        "C": (["b"], "P K e w Tp", ["HARPS"] * 12,
+              {"P_b": 3.2, "K_b": 4.0, "e_b": 0.35, "w_b": 1.1, "Tp_b": 0.9,
+               "g_HARPS": 0.3, "jit_HARPS": 0.8, "gd": 0.0, "gdd": 0.0}),
+    }
+    REFERENCE = {"A": -19.364905299574325, "B": -31.044068262806906, "C": -64.34395402831363}
+    VALID = {"P_b": 2.0, "K_b": 5.0, "e_b": 0.0, "w_b": np.pi / 2, "Tc_b": 0.0,
+             "g_HARPS": 0.0, "jit_HARPS": 1.0, "gd": 0.0, "gdd": 0.0}
+
+    @pytest.mark.parametrize("case", ["A", "B", "C"])
+    def test_log_likelihood_matches_reference(self, case) -> None:
+        """LogLikelihood gives the recorded value at each fixed point."""
+        letters, parameterisation, instrument, params = self.CASES[case]
+        instrument = np.array(instrument)
+        ll = LogLikelihood(planet_letters=letters, parameterisation=Parameterisation(parameterisation),
+                           time=self.TIME, vel=self.VEL, velerr=self.VELERR, instrument=instrument,
+                           unique_instruments=np.unique(instrument), t0=4.0)
+
+        assert ll(params) == pytest.approx(self.REFERENCE[case], rel=1e-12)
+
+    def test_is_subclass(self) -> None:
+        """GPLogLikelihood inherits from LogLikelihood."""
+        assert issubclass(GPLogLikelihood, LogLikelihood)
+
+    def test_defines_only_gp_parts(self) -> None:
+        """GPLogLikelihood defines only its constructor, its call and the GP computation."""
+        defined = {name for name in vars(GPLogLikelihood)
+                   if name == "__init__" or name == "__call__" or not (name.startswith("__") and name.endswith("__"))}
+
+        assert defined == {"__init__", "__call__", "_compute_gp_log_likelihood"}
+
+    @pytest.mark.parametrize("klass", [LogLikelihood, GPLogLikelihood], ids=["LogLikelihood", "GPLogLikelihood"])
+    def test_mean_model(self, klass) -> None:
+        """The mean model is an array at the data times, or None if a planet's parameters are invalid."""
+        ll = klass(**TestLogProbSignatures._kwargs(klass))
+
+        mean = ll._calculate_mean_model(self.VALID)
+
+        assert np.shape(mean) == np.shape(ll.time) and np.all(np.isfinite(mean))
+        assert ll._calculate_mean_model(self.VALID | {"P_b": -1.0}) is None
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    def test_chi2_inf_for_invalid_planet(self, kind, test_data, test_circular_params, test_simple_priors,
+                                         test_gp_data, test_gp_all_params, test_gp_all_priors) -> None:
+        """calculate_chi2 gives inf when a planet's parameters are invalid, on both classes."""
+        fitter = TestPointOfUseValidation._fitter(kind, test_data, test_circular_params, test_simple_priors,
+                                                  test_gp_data, test_gp_all_params, test_gp_all_priors)
+        point = fitter.build_params_dict(fitter.free_params_values) | {"P_b": -1.0}
+
+        assert fitter.calculate_chi2(point) == np.inf

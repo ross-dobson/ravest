@@ -87,7 +87,7 @@ class Fitter:
         instrument: np.ndarray,
         t0: float,
     ) -> None:
-        """Add the data to the Fitter object.
+        """Add the data to the fitter.
 
         Parameters
         ----------
@@ -124,6 +124,8 @@ class Fitter:
         the number of sampled dimensions whenever any parameter is fixed. Only
         the free parameters are sampled: the MCMC chain's columns are
         ``free_params_names``, in that order (see ``get_samples_df``).
+
+        On a GPFitter, it also holds the GP kernel's hyperparameters (e.g. ``gp_amp``).
         """
         return self._params
 
@@ -141,9 +143,10 @@ class Fitter:
             Dictionary of new parameter values to set.
 
             The keys of this dictionary should match the parameter names expected
-            by the Fitter object: all required parameters for the
+            by the fitter: all required parameters for the
             chosen parameterisation, with planet letters (not required for
-            trend or jitter parameters).
+            trend or jitter parameters). On a GPFitter, also the GP kernel's
+            hyperparameters (e.g. ``gp_amp``, ``gp_lambda_e``, ``gp_lambda_p``, ``gp_period``).
 
         Raises
         ------
@@ -586,6 +589,47 @@ class Fitter:
         """Fixed parameters as dict mapping names to just the values."""
         return dict(zip(self.fixed_params_names, self.fixed_params_values))
 
+    def _build_log_posterior(self) -> "LogPosterior":
+        """Build the log posterior from the fitter's current params, priors and data.
+
+        Returns
+        -------
+        LogPosterior
+            A new log posterior, reflecting any changes since the last one was built.
+        """
+        return LogPosterior(
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            priors=self.priors,
+            fixed_params=self.fixed_params_values_dict,
+            free_params_names=self.free_params_names,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
+        )
+
+    def _build_log_likelihood(self) -> "LogLikelihood":
+        """Build the log likelihood from the fitter's model and data.
+
+        Returns
+        -------
+        LogLikelihood
+            A new log likelihood, called with a full params dict.
+        """
+        return LogLikelihood(
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
+        )
+
     def find_map_estimate(self, method: str = "Powell") -> scipy.optimize.OptimizeResult:
         """Find Maximum A Posteriori (MAP) estimate of parameters.
 
@@ -609,19 +653,7 @@ class Fitter:
         self._validate_before_fit()
 
         # Initialize log-posterior object
-        lp = LogPosterior(
-            self.planet_letters,
-            self.parameterisation,
-            self.priors,
-            self.fixed_params_values_dict,
-            self.free_params_names,
-            self.time,
-            self.vel,
-            self.velerr,
-            self.instrument,
-            self.unique_instruments,
-            self.t0,
-        )
+        lp = self._build_log_posterior()
 
         initial_guess = self.free_params_values
 
@@ -798,19 +830,7 @@ class Fitter:
         # Built once, outside the walker loop: every argument is fitter-level
         # (priors, data, parameterisation), so the object is identical for every
         # walker and only its log_prior call depends on the position.
-        lp = LogPosterior(
-            self.planet_letters,
-            self.parameterisation,
-            self.priors,
-            self.fixed_params_values_dict,
-            self.free_params_names,
-            self.time,
-            self.vel,
-            self.velerr,
-            self.instrument,
-            self.unique_instruments,
-            self.t0,
-        )
+        lp = self._build_log_posterior()
 
         for walker_idx in range(nwalkers):
             attempts = 0
@@ -987,19 +1007,7 @@ class Fitter:
             self._validate_astrophysical_validity(all_params_dict)
 
             # Check prior compliance
-            lp = LogPosterior(
-                self.planet_letters,
-                self.parameterisation,
-                self.priors,
-                self.fixed_params_values_dict,
-                self.free_params_names,
-                self.time,
-                self.vel,
-                self.velerr,
-                self.instrument,
-                self.unique_instruments,
-                self.t0,
-            )
+            lp = self._build_log_posterior()
             params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
             log_prior = lp.log_prior(params_for_prior)
             if not np.isfinite(log_prior):
@@ -1193,19 +1201,7 @@ class Fitter:
         self._validate_before_fit()
 
         # Initialize log-posterior object for MCMC sampling
-        lp = LogPosterior(
-            self.planet_letters,
-            self.parameterisation,
-            self.priors,
-            self.fixed_params_values_dict,
-            self.free_params_names,
-            self.time,
-            self.vel,
-            self.velerr,
-            self.instrument,
-            self.unique_instruments,
-            self.t0,
-        )
+        lp = self._build_log_posterior()
 
         # Enforce minimum number of walkers (though users ideally should have many more than this)
         if nwalkers < 2 * self.ndim:
@@ -1403,8 +1399,8 @@ class Fitter:
     def get_samples_df(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> pd.DataFrame:
         """Return a pandas DataFrame of flattened MCMC samples.
 
-        Each row represents one sample, each column represents one parameter.
-        Built on get_samples_np().
+        Each row represents one sample, each column represents one free
+        parameter. Built on get_samples_np().
 
         Parameters
         ----------
@@ -1419,7 +1415,7 @@ class Fitter:
         -------
         pd.DataFrame
             DataFrame with shape (nsteps_after_discard_thin * nwalkers, ndim).
-            Columns are parameter names.
+            Columns are free_params_names, in that order.
         """
         flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
         return pd.DataFrame(flat_samples, columns=self.free_params_names)
@@ -1427,7 +1423,7 @@ class Fitter:
     def get_samples_dict(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> Dict[str, np.ndarray]:
         """Return a dict of flattened MCMC samples.
 
-        Each parameter gets a 1D (flattened) contiguous array of all its samples.
+        Each free parameter gets a 1D (flattened) contiguous array of all its samples.
 
         Parameters
         ----------
@@ -1441,8 +1437,8 @@ class Fitter:
         Returns
         -------
         dict
-            Dictionary mapping parameter names to 1D arrays of samples.
-            Each array has shape (nsteps_after_discard_thin * nwalkers,)
+            Dictionary mapping free parameter names to 1D arrays of samples, in
+            free_params_names order. Each array has shape (nsteps_after_discard_thin * nwalkers,)
 
         Examples
         --------
@@ -1523,19 +1519,21 @@ class Fitter:
         Returns
         -------
         dict
-            Dictionary of all parameters:
+            Dictionary of all parameters, in ``params`` order:
             - Fixed parameters: single float values
             - Free parameters: 1D arrays of MCMC samples with shape (nsteps_after_discard_thin * nwalkers,)
         """
         fixed_params_dict = self.fixed_params_values_dict
         free_samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
-        return fixed_params_dict | free_samples_dict
+        all_params = fixed_params_dict | free_samples_dict
+        return {name: all_params[name] for name in self.params}
 
     def calculate_log_likelihood(self, params_dict: Dict[str, float]) -> float:
         """Calculate log-likelihood for given parameter values.
 
         Note this does not include (log-)prior probabilities, this is just the
-        (log-) *likelihood* primarily for use in AICc & BIC calculation.
+        (log-) *likelihood* primarily for use in AICc & BIC calculation. On a
+        GPFitter, this is the GP log likelihood, which AICc and BIC then use.
 
         Parameters
         ----------
@@ -1547,17 +1545,7 @@ class Fitter:
         float
             The log-likelihood value
         """
-        # Create LogLikelihood object (same as in find_map_estimate and run_mcmc)
-        log_likelihood = LogLikelihood(
-            time=self.time,
-            vel=self.vel,
-            velerr=self.velerr,
-            instrument=self.instrument,
-            unique_instruments=self.unique_instruments,
-            t0=self.t0,
-            planet_letters=self.planet_letters,
-            parameterisation=self.parameterisation,
-        )
+        log_likelihood = self._build_log_likelihood()
         return log_likelihood(params_dict)
 
     def build_params_dict(self, free_params: np.ndarray | list | Dict[str, float]) -> Dict[str, float]:
@@ -1582,7 +1570,7 @@ class Fitter:
         Returns
         -------
         Dict[str, float]
-            Complete parameters dict with both free and fixed parameter values
+            Complete parameters dict with both free and fixed parameter values, in ``params`` order
 
         Examples
         --------
@@ -1614,7 +1602,7 @@ class Fitter:
             if extra:
                 raise ValueError(f"Unexpected parameters provided: {extra}")
 
-            return self.fixed_params_values_dict | free_params
+            all_params = self.fixed_params_values_dict | free_params
         else:
             # Validate that array/list has correct length
             if len(free_params) != len(self.free_params_names):
@@ -1625,7 +1613,9 @@ class Fitter:
                 )
 
             free_dict = dict(zip(self.free_params_names, free_params))
-            return self.fixed_params_values_dict | free_dict
+            all_params = self.fixed_params_values_dict | free_dict
+
+        return {name: all_params[name] for name in self.params}
 
     def calculate_chi2(self, params_dict: Dict[str, float]) -> float:
         r"""Calculate chi-squared for given parameter values.
@@ -1652,11 +1642,7 @@ class Fitter:
                 \chi^2 = \sum_i \frac{(d_i - m_i)^2}{\sigma_i^2 + \sigma_{\text{jit}}^2}
         """
         # Create LogLikelihood instance to reuse RV model calculation
-        ll = LogLikelihood(
-            self.time, self.vel, self.velerr,
-            self.instrument, self.unique_instruments, self.t0,
-            self.planet_letters, self.parameterisation
-        )
+        ll = self._build_log_likelihood()
 
         # Get log-likelihood
         log_like = ll(params_dict)
@@ -1727,7 +1713,7 @@ class Fitter:
         return self.ndim * np.log(len(self.time)) - 2 * log_like
 
     def get_sample_with_best_lnprob(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> Dict[str, float]:
-        """Get parameter values from the MCMC sample with the highest log probability.
+        """Get free parameter values from the MCMC sample with the highest log probability.
 
         Parameters
         ----------
@@ -1741,7 +1727,7 @@ class Fitter:
         Returns
         -------
         Dict[str, float]
-            Dictionary of parameter names to values from the best sample
+            Dictionary of free parameter names to values from the best sample
         """
         # Get samples and log probabilities
         samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
@@ -2175,7 +2161,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def _plot_phase(self, planet_letter: str, params: Dict[str, float], title: str = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "phase_plot.png", dpi: int = 100, n_smooth: int = 1000) -> None:
+    def _plot_phase(self, planet_letter: str, params: Dict[str, float], title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "phase_plot.png", dpi: int = 100, n_smooth: int = 1000) -> None:
         """Helper function to plot phase-folded RV model for a single planet with given parameters.
 
         Parameters
@@ -2184,8 +2170,8 @@ class Fitter:
             Letter identifying the planet to plot (e.g., 'b', 'c', 'd')
         params : dict
             Dictionary of parameter values (both free and fixed)
-        title : str, optional
-            Plot title (default: f"Planet {planet_letter} Phase Plot"). Set to None or "" to skip.
+        title : str or None, optional
+            Plot title, drawn as given (default: None, no title).
         ylabel_main : str or None, optional
             Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
@@ -2203,9 +2189,6 @@ class Fitter:
         dpi : int, optional
             Resolution for saving (default: 100)
         """
-        if title is None:
-            title = f"Planet {planet_letter} Phase Plot"
-
         # Calculate per-instrument jitter for error bars
         velerr_with_jit = np.zeros_like(self.velerr)
         for inst in self.unique_instruments:
@@ -2359,7 +2342,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_posterior_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = "Posterior RV", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_rv.png", dpi: int = 100) -> None:
+    def plot_posterior_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, n_smooth: int = 1000, title: str | None = "Posterior RV", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_rv.png", dpi: int = 100) -> None:
         """Plot the posterior RV model with uncertainty bands from MCMC samples.
 
         Calculates RV model predictions for each MCMC sample, then plots the median
@@ -2376,6 +2359,9 @@ class Fitter:
             Use only every `thin` steps from the chain (default: 1)
         show_CI : bool, optional
             Show 68.3% credible interval band (default: True)
+        n_smooth : int, optional
+            Number of points in smooth time grid for plotting model curves (default: 1000).
+            Reduce for faster plotting, increase for smoother curves.
         title : str or None, optional
             Title for the main RV plot (default: "Posterior RV"). Set to None or "" to skip.
         ylabel_main : str or None, optional
@@ -2402,7 +2388,7 @@ class Fitter:
         # Create smooth time curve for plotting (same as _plot_rv helper)
         _tmin, _tmax = self.time.min(), self.time.max()
         _trange = _tmax - _tmin
-        tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, 1000)
+        tsmooth = np.linspace(_tmin - 0.01 * _trange, _tmax + 0.01 * _trange, n_smooth)
 
         # Calculate posterior RV predictions (planets + trend, no gamma)
         rv_all_planets_trend_matrix_smooth = self.calculate_rv_total_from_samples(times=tsmooth, discard_start=discard_start, discard_end=discard_end, thin=thin)
@@ -2515,7 +2501,7 @@ class Fitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_posterior_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_phase.png", dpi: int = 100, n_smooth: int = 1000, freeze_params: dict[str, float | None] | None = None) -> None:
+    def plot_posterior_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, freeze_params: dict[str, float | None] | None = None, n_smooth: int = 1000, title: str | None = "Posterior Phase Plot - Planet {planet_letter}", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_phase.png", dpi: int = 100) -> None:
         """Plot phase-folded RV model with uncertainty bands from MCMC samples.
 
         Shows the phase-folded planetary signal with uncertainty bands calculated
@@ -2533,8 +2519,24 @@ class Fitter:
             Use only every `thin` steps from the chain (default: 1)
         show_CI : bool, optional
             Show 68.3% credible interval band (default: True)
+        freeze_params : dict[str, float or None] or None, optional
+            Freeze named planet parameters to fixed values during the
+            per-sample RV calculation (default: None, no freezing). Keys are
+            full planet-parameter names (e.g. ``"P_c"``, ``"Tc_c"``); a value
+            of ``None`` freezes the parameter at its posterior median, while a
+            float freezes it at that exact value. Freezing P and Tc makes every
+            sample fold identically, giving a crisp median model line, CI band
+            and residuals when a period has large posterior uncertainty (which
+            otherwise smears the folded model). This can often happen for
+            non-transiting planets, especially if sampling in Tp not Tc. Note
+            that the RV data are always folded around the median of time and
+            period; this argument only affects the planetary phase-folded RV
+            curve and CI shaded band.
+        n_smooth : int, optional
+            Number of points in the one-period smooth model curve (default: 1000).
         title : str or None, optional
-            Title for the main phase plot (default: "Posterior Phase Plot - Planet {planet_letter}"). Set to None or "" to skip.
+            Title for the main phase plot (default: "Posterior Phase Plot - Planet {planet_letter}"). Any
+            ``{planet_letter}`` in it is replaced by the planet's letter. Set to None or "" to skip.
         ylabel_main : str or None, optional
             Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
@@ -2551,21 +2553,6 @@ class Fitter:
             The path to save the plot to (default: "posterior_phase.png")
         dpi : int, optional
             The dpi to save the image at (default: 100)
-        n_smooth : int, optional
-            Number of points in the one-period smooth model curve (default: 1000).
-        freeze_params : dict[str, float or None] or None, optional
-            Freeze named planet parameters to fixed values during the
-            per-sample RV calculation (default: None, no freezing). Keys are
-            full planet-parameter names (e.g. ``"P_c"``, ``"Tc_c"``); a value
-            of ``None`` freezes the parameter at its posterior median, while a
-            float freezes it at that exact value. Freezing P and Tc makes every
-            sample fold identically, giving a crisp median model line, CI band
-            and residuals when a period has large posterior uncertainty (which
-            otherwise smears the folded model). This can often happen for
-            non-transiting planets, especially if sampling in Tp not Tc. Note
-            that the RV data are always folded around the median of time and
-            period; this argument only affects the planetary phase-folded RV
-            curve and CI shaded band.
 
             Only planet parameters of the active parameterisation can be frozen,
             not trend or instrument parameters (``gd``, ``gdd``, ``g_*``,
@@ -2705,10 +2692,9 @@ class Fitter:
         ax1.xaxis.set_major_locator(MultipleLocator(0.25))  # Set x-ticks every 0.25
         if ylabel_main:
             ax1.set_ylabel(ylabel_main)
-        if title is None:
-            ax1.set_title(f"Posterior Phase Plot - Planet {planet_letter}")
-        elif title:
-            ax1.set_title(title)
+        if title:
+            # str.replace, not str.format, so LaTeX braces are left alone
+            ax1.set_title(title.replace("{planet_letter}", planet_letter))
         ax1.legend(loc="upper right")
         ax1.tick_params(axis='x', labelbottom=False, bottom=True, top=False, direction='in')
         ax1.tick_params(axis='y', direction='in')
@@ -3111,13 +3097,18 @@ class Fitter:
 
         return total_rv
 
-    def plot_MAP_rv(self, map_result: scipy.optimize.OptimizeResult, title: str | None = "MAP RV", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "MAP_rv.png", dpi: int = 100) -> None:
+    def plot_MAP_rv(self, map_result: scipy.optimize.OptimizeResult, n_smooth: int = 1000, title: str | None = "MAP RV", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "MAP_rv.png", dpi: int = 100) -> None:
         """Plot radial velocity data and model using MAP parameter estimates.
+
+        On a GPFitter, the plot also shows the GP component (conditioned on the
+        residuals from the planets and trend) and the total model.
 
         Parameters
         ----------
         map_result : scipy.optimize.OptimizeResult
             Result from find_map_estimate() containing the MAP parameters
+        n_smooth : int, optional
+            Number of points in the smooth model curve (default: 1000)
         title : str or None, optional
             Plot title (default: "MAP RV"). Set to None or "" to skip.
         ylabel_main : str or None, optional
@@ -3148,10 +3139,13 @@ class Fitter:
         all_params = self.fixed_params_values_dict | map_params
 
         # Use helper function to create the plot
-        self._plot_rv(all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
+        self._plot_rv(all_params, n_smooth=n_smooth, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
-    def plot_MAP_phase(self, planet_letter: str, map_result: scipy.optimize.OptimizeResult, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "MAP_phase.png", dpi: int = 100) -> None:
+    def plot_MAP_phase(self, planet_letter: str, map_result: scipy.optimize.OptimizeResult, n_smooth: int = 1000, title: str | None = "MAP Phase Plot - Planet {planet_letter}", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "MAP_phase.png", dpi: int = 100) -> None:
         """Plot phase-folded radial velocity data and model using MAP parameter estimates.
+
+        On a GPFitter, the GP's prediction at each observation is subtracted from the
+        data too, along with the other planets and the trend.
 
         Parameters
         ----------
@@ -3159,8 +3153,11 @@ class Fitter:
             Letter identifying the planet to plot (e.g., 'b', 'c', 'd')
         map_result : scipy.optimize.OptimizeResult
             Result from find_map_estimate() containing the MAP parameters
+        n_smooth : int, optional
+            Number of points in the smooth model curve (default: 1000)
         title : str or None, optional
-            Plot title (default: f"MAP Phase Plot - Planet {planet_letter}"). Set to None or "" to skip.
+            Plot title (default: "MAP Phase Plot - Planet {planet_letter}"). Any
+            ``{planet_letter}`` in it is replaced by the planet's letter. Set to None or "" to skip.
         ylabel_main : str or None, optional
             Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
@@ -3184,18 +3181,21 @@ class Fitter:
         # Combine with fixed parameters
         all_params = self.fixed_params_values_dict | map_params
 
-        # Set default title if not provided
-        if title is None:
-            title = f"MAP Phase Plot - Planet {planet_letter}"
+        # Fill in the planet letter (str.replace, not str.format, so LaTeX braces are left alone)
+        if title:
+            title = title.replace("{planet_letter}", planet_letter)
 
         # Use helper function to create the plot
-        self._plot_phase(planet_letter, all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
+        self._plot_phase(planet_letter, all_params, n_smooth=n_smooth, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
-    def plot_custom_rv(self, params: dict, title: str | None = "Custom RV Plot", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "custom_rv.png", dpi: int = 100) -> None:
+    def plot_custom_rv(self, params: dict, n_smooth: int = 1000, title: str | None = "Custom RV Plot", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "custom_rv.png", dpi: int = 100) -> None:
         """Plot radial velocity data and model using custom parameter values.
 
         Allows plotting with arbitrary parameter values for exploring parameter space
         or comparing theoretical models.
+
+        On a GPFitter, the plot also shows the GP component (conditioned on the
+        residuals from the planets and trend) and the total model.
 
         Parameters
         ----------
@@ -3203,6 +3203,8 @@ class Fitter:
             Dictionary of parameter values to use for plotting. Keys should match
             parameter names, values should be floats. Must include all required
             parameters for the current parameterisation.
+        n_smooth : int, optional
+            Number of points in the smooth model curve (default: 1000)
         title : str or None, optional
             Plot title (default: "Custom RV Plot"). Set to None or "" to skip.
         ylabel_main : str or None, optional
@@ -3219,8 +3221,6 @@ class Fitter:
             (xmin, xmax) limits for the residuals plot x-axis (default: None, uses data range)
         res_ylim : tuple or None, optional
             (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
-        n_smooth : int, optional
-            Number of points in the smooth model curve (default: 1000)
         save : bool, optional
             Save the plot (default: False)
         fname : str, optional
@@ -3246,11 +3246,14 @@ class Fitter:
         # Use helper function to create the plot
         self._plot_rv(params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, n_smooth=n_smooth, save=save, fname=fname, dpi=dpi)
 
-    def plot_custom_phase(self, planet_letter: str, params: dict, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "custom_phase.png", dpi: int = 100) -> None:
+    def plot_custom_phase(self, planet_letter: str, params: dict, n_smooth: int = 1000, title: str | None = "Custom Phase Plot - Planet {planet_letter}", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "custom_phase.png", dpi: int = 100) -> None:
         """Plot phase-folded radial velocity data and model using custom parameter values.
 
         Allows plotting phase-folded data with arbitrary parameter values for exploring
         parameter space or comparing theoretical models.
+
+        On a GPFitter, the GP's prediction at each observation is subtracted from the
+        data too, along with the other planets and the trend.
 
         Parameters
         ----------
@@ -3260,8 +3263,11 @@ class Fitter:
             Dictionary of parameter values to use for plotting. Keys should match
             parameter names, values should be floats. Must include all required
             parameters for the current parameterisation.
+        n_smooth : int, optional
+            Number of points in the smooth model curve (default: 1000)
         title : str or None, optional
-            Plot title (default: f"Custom Phase Plot - Planet {planet_letter}"). Set to None or "" to skip.
+            Plot title (default: "Custom Phase Plot - Planet {planet_letter}"). Any
+            ``{planet_letter}`` in it is replaced by the planet's letter. Set to None or "" to skip.
         ylabel_main : str or None, optional
             Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
@@ -3294,19 +3300,22 @@ class Fitter:
         if missing_params:
             raise ValueError(f"Missing required parameters: {missing_params}")
 
-        # Set default title if not provided
-        if title is None:
-            title = f"Custom Phase Plot - Planet {planet_letter}"
+        # Fill in the planet letter (str.replace, not str.format, so LaTeX braces are left alone)
+        if title:
+            title = title.replace("{planet_letter}", planet_letter)
 
         # Use helper function to create the plot
-        self._plot_phase(planet_letter, params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
+        self._plot_phase(planet_letter, params, n_smooth=n_smooth, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
-    def plot_best_sample_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, title: str | None = "Best Sample RV Plot", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "best_sample_rv.png", dpi: int = 100) -> None:
+    def plot_best_sample_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, n_smooth: int = 1000, title: str | None = "Best Sample RV Plot", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "best_sample_rv.png", dpi: int = 100) -> None:
         """Plot radial velocity data and model using parameter values from the MCMC sample with highest log probability.
 
         This is useful for comparing with plot_MAP_rv() to diagnose potential issues with
         MAP convergence or MCMC mixing. The two plots should be very similar if both
         MAP and MCMC are working correctly.
+
+        On a GPFitter, the plot also shows the GP component (conditioned on the
+        residuals from the planets and trend) and the total model.
 
         Parameters
         ----------
@@ -3316,6 +3325,8 @@ class Fitter:
             Discard the last `discard_end` steps from the end of the chain (default: 0)
         thin : int, optional
             Use only every `thin` steps from the chain (default: 1)
+        n_smooth : int, optional
+            Number of points in the smooth model curve (default: 1000)
         title : str or None, optional
             Title for the main RV plot (default: "Best Sample RV Plot"). Set to None or "" to skip.
         ylabel_main : str or None, optional
@@ -3346,14 +3357,17 @@ class Fitter:
         all_params = self.fixed_params_values_dict | best_sample_params
 
         # Use helper function to create the plot
-        self._plot_rv(all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
+        self._plot_rv(all_params, n_smooth=n_smooth, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
-    def plot_best_sample_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "best_sample_phase.png", dpi: int = 100) -> None:
+    def plot_best_sample_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, n_smooth: int = 1000, title: str | None = "Best Sample Phase Plot - Planet {planet_letter}", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "best_sample_phase.png", dpi: int = 100) -> None:
         """Plot phase-folded radial velocity data and model using parameter values from the MCMC sample with highest log probability.
 
         This is useful for comparing with plot_MAP_phase() to diagnose potential issues with
         MAP convergence or MCMC mixing. The two plots should be very similar if both
         MAP and MCMC are working correctly.
+
+        On a GPFitter, the GP's prediction at each observation is subtracted from the
+        data too, along with the other planets and the trend.
 
         Parameters
         ----------
@@ -3365,8 +3379,11 @@ class Fitter:
             Discard the last `discard_end` steps from the end of the chain (default: 0)
         thin : int, optional
             Use only every `thin` steps from the chain (default: 1)
+        n_smooth : int, optional
+            Number of points in the smooth model curve (default: 1000)
         title : str or None, optional
-            Title for the main phase plot (default: "Best Sample Phase Plot - Planet {planet_letter}"). Set to None or "" to skip.
+            Title for the main phase plot (default: "Best Sample Phase Plot - Planet {planet_letter}"). Any
+            ``{planet_letter}`` in it is replaced by the planet's letter. Set to None or "" to skip.
         ylabel_main : str or None, optional
             Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
@@ -3390,12 +3407,12 @@ class Fitter:
         # Combine with fixed parameters
         all_params = self.fixed_params_values_dict | best_sample_params
 
-        # Set default title if not provided
-        if title is None:
-            title = f"Best Sample Phase Plot - Planet {planet_letter}"
+        # Fill in the planet letter (str.replace, not str.format, so LaTeX braces are left alone)
+        if title:
+            title = title.replace("{planet_letter}", planet_letter)
 
         # Use helper function to create the plot
-        self._plot_phase(planet_letter, all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals,
+        self._plot_phase(planet_letter, all_params, n_smooth=n_smooth, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals,
                         ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
 
 class LogPosterior:
@@ -3406,6 +3423,7 @@ class LogPosterior:
 
     def __init__(
         self,
+        *,
         planet_letters: list[str],
         parameterisation: Parameterisation,
         priors: dict[str, Callable[[float], float]],
@@ -3458,16 +3476,7 @@ class LogPosterior:
         self.t0 = t0
 
         # Create log-likelihood and log-prior objects for later
-        self.log_likelihood = LogLikelihood(
-            time=self.time,
-            vel=self.vel,
-            velerr=self.velerr,
-            instrument=self.instrument,
-            unique_instruments=self.unique_instruments,
-            t0=self.t0,
-            planet_letters=self.planet_letters,
-            parameterisation=self.parameterisation,
-        )
+        self.log_likelihood = self._build_log_likelihood()
         self.log_prior = LogPrior(self.priors)
 
         (
@@ -3475,6 +3484,25 @@ class LogPosterior:
             self._logprob_prior_renorm_correction,
             self._logprob_correction_breakdown,
         ) = self._compute_logprob_corrections()
+
+    def _build_log_likelihood(self) -> "LogLikelihood":
+        """Build the log likelihood from the model and data.
+
+        Returns
+        -------
+        LogLikelihood
+            A new log likelihood, called with a full params dict.
+        """
+        return LogLikelihood(
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
+        )
 
     def _classify_planet_case(self, letter: str) -> str:
         """Classify a single planet's log-posterior correction case.
@@ -3713,19 +3741,24 @@ class LogLikelihood:
 
     def __init__(
         self,
+        *,
+        planet_letters: list[str],
+        parameterisation: Parameterisation,
         time: np.ndarray,
         vel: np.ndarray,
         velerr: np.ndarray,
         instrument: np.ndarray,
         unique_instruments: np.ndarray,
         t0: float,
-        planet_letters: list[str],
-        parameterisation: Parameterisation,
     ) -> None:
         """Initialize the LogLikelihood object.
 
         Parameters
         ----------
+        planet_letters : list[str]
+            List of single-character planet identifiers.
+        parameterisation : Parameterisation
+            The orbital parameterisation to use.
         time : np.ndarray
             Time of each observation [days].
         vel : np.ndarray
@@ -3738,20 +3771,16 @@ class LogLikelihood:
             Unique instrument names in the data.
         t0 : float
             Reference time for the trend [days].
-        planet_letters : list[str]
-            List of single-character planet identifiers.
-        parameterisation : Parameterisation
-            The orbital parameterisation to use.
         """
+        self.planet_letters = planet_letters
+        self.parameterisation = parameterisation
+
         self.time = time
         self.vel = vel
         self.velerr = velerr
         self.instrument = instrument
         self.unique_instruments = unique_instruments
         self.t0 = t0
-
-        self.planet_letters = planet_letters
-        self.parameterisation = parameterisation
 
         # Precompute a per-observation integer index array.
         # For each observation, store which instrument it came from as an integer:
@@ -3776,8 +3805,8 @@ class LogLikelihood:
         # Precompute velerr squared - constant (observed data doesn't change) so no need to recalculate every time
         self._velerr_sq = self.velerr ** 2
 
-    def __call__(self, params: Dict[str, float]) -> float:
-        """Calculate log likelihood for given parameters.
+    def _calculate_mean_model(self, params: Dict[str, float]) -> np.ndarray | None:
+        """Calculate the RV model at the observation times: planets, trend and per-instrument gammas.
 
         Parameters
         ----------
@@ -3786,8 +3815,8 @@ class LogLikelihood:
 
         Returns
         -------
-        float
-            Log likelihood value
+        np.ndarray or None
+            Model RV at each observation time, or None if a planet's parameters are invalid
         """
         rv_total = np.zeros(len(self.time))
 
@@ -3803,7 +3832,7 @@ class LogLikelihood:
                 _this_planet_rv = _this_planet.radial_velocity(self.time)
             except ValueError:
                 # Planet.__init__ validates parameters and raises ValueError for invalid params
-                return -np.inf  # fail-fast: return -inf log-likelihood
+                return None
 
             # add this planet's RV contribution to the total
             rv_total += _this_planet_rv
@@ -3821,6 +3850,25 @@ class LogLikelihood:
         gamma_per_instrument = np.array([params[k] for k in self._gamma_keys])
         gamma_at_each_obs = gamma_per_instrument[self._instrument_indices]
         rv_total += gamma_at_each_obs
+
+        return rv_total
+
+    def __call__(self, params: Dict[str, float]) -> float:
+        """Calculate log likelihood for given parameters.
+
+        Parameters
+        ----------
+        params : Dict[str, float]
+            Dictionary of all parameter values
+
+        Returns
+        -------
+        float
+            Log likelihood value
+        """
+        rv_total = self._calculate_mean_model(params)
+        if rv_total is None:
+            return -np.inf  # fail-fast: a planet's parameters are invalid
 
         # Step 4: Calculate log-likelihood with per-instrument jitter using vectorised fancy indexing.
         # Each instrument has its own jitter value. We need to pair each of the N observations
@@ -3870,14 +3918,16 @@ class LogPrior:
         return log_prior_probability
 
 
-class GPFitter:
+class GPFitter(Fitter):
     """Gaussian Process fitter for exoplanet radial velocity data.
 
-    Similar interface to Fitter class, but uses Gaussian Processes to model
-    correlated noise in the data. The planetary RV model serves as the GP mean function.
+    A Fitter that uses a Gaussian Process to model correlated noise in the data.
+    The planetary RV model serves as the GP mean function.
 
-    Supports MCMC sampling, MAP estimation, and various parameterisations.
-    Handles multiple planets, trends, jitter parameters, and GP hyperparameters.
+    GPFitter inherits Fitter's methods (parameters, priors, MAP, MCMC, samples,
+    statistics, plots), and adds the GP: its likelihood, its contribution to the
+    RVs, and the GP plots. The GP kernel's hyperparameters are held in ``params``
+    and ``priors`` like any other parameter.
     """
 
     def __init__(self, planet_letters: list[str], parameterisation: Parameterisation, gp_kernel: GPKernel) -> None:
@@ -3896,147 +3946,14 @@ class GPFitter:
         gp_kernel : GPKernel
             The Gaussian Process kernel to use for modelling correlated noise in the data.
         """
-        if not isinstance(parameterisation, Parameterisation):
+        super().__init__(planet_letters, parameterisation)
+        if not isinstance(gp_kernel, GPKernel):
             raise TypeError(
-                f"parameterisation must be a Parameterisation object, not "
-                f"{type(parameterisation).__name__}. If you passed the name as a string, "
-                f"wrap it, e.g. ravest.param.Parameterisation('...')."
+                f"gp_kernel must be a GPKernel object, not "
+                f"{type(gp_kernel).__name__}. If you passed the name as a string, "
+                f"wrap it, e.g. ravest.gp.GPKernel('...')."
             )
-        self.planet_letters = planet_letters
-        self.parameterisation = parameterisation
         self.gp_kernel = gp_kernel
-
-        # Trigger numba JIT compilation before MCMC
-        _dummy_M = np.linspace(0, 2 * np.pi, 10)
-        _njit_kepler_rv(_dummy_M, 0.3, 10.0, 0.5)
-
-        # Initialize parameter storage
-        self._params: Dict[str, Parameter] = {}
-        self._priors: Dict[str, Callable[[float], float]]= {}
-
-    def add_data(
-        self,
-        time: np.ndarray,
-        vel: np.ndarray,
-        velerr: np.ndarray,
-        instrument: np.ndarray,
-        t0: float,
-    ) -> None:
-        """Add the data to the GPFitter object.
-
-        Parameters
-        ----------
-        time : array-like
-            Time of each observation [days]
-        vel : array-like
-            Radial velocity at each time [m/s]
-        velerr : array-like
-            Uncertainty on the radial velocity at each time [m/s]
-        instrument : array-like
-            Instrument name for each observation (e.g., "HARPS", "HIRES")
-        t0 : float
-            Reference time for the trend [days].
-            Recommended to set this as mean or median of input `time` array.
-        """
-        if not (len(time) == len(vel) == len(velerr) == len(instrument)):
-            raise ValueError(
-                "Time, velocity, uncertainty, and instrument arrays must be the same length."
-            )
-
-        self.time = np.ascontiguousarray(time)
-        self.vel = np.ascontiguousarray(vel)
-        self.velerr = np.ascontiguousarray(velerr)
-        self.instrument = np.asarray(instrument)
-        self.unique_instruments = np.array(sorted(np.unique(self.instrument), key=str.lower))  # case-insensitive
-        self.t0 = t0
-
-    @property
-    def params(self) -> Dict[str, Parameter]:
-        """Parameters dictionary, both free and fixed. Set via: gpfitter.params = param_dict.
-
-        Holds every parameter of the chosen parameterisation and the GP kernel's
-        hyperparameters (e.g. ``gp_amp``), whether free (``fixed=False``) or fixed
-        (``fixed=True``), so ``len(params)`` is not the number of sampled
-        dimensions whenever any parameter is fixed. Only the free parameters are
-        sampled: the MCMC chain's columns are ``free_params_names``, in that order
-        (see ``get_samples_df``).
-        """
-        return self._params
-
-    @params.setter
-    def params(self, new_params: Dict[str, Parameter]) -> None:
-        """Set parameters with a dict, checking all required params are present.
-
-        You can update all or some of the parameters at once, example:
-        >>> gpfitter.params = {"gd": Parameter(0.002, fixed=False), "gdd": Parameter(0.001, fixed=False)}  # only update trend parameters
-        >>> gpfitter.params = {"P_c": Parameter(5.0, fixed=False), "K_c": Parameter(3.5, fixed=False)}  # only update some of planet C parameters
-
-        Parameters
-        ----------
-        new_params : dict
-            Dictionary of new parameter values to set.
-
-            The keys of this dictionary should match the parameter names expected
-            by the GPFitter object: all required parameters for the
-            chosen parameterisation, with planet letters (not required for
-            trend or jitter parameters), and the GP kernel's hyperparameters
-            (e.g. ``gp_amp``, ``gp_lambda_e``, ``gp_lambda_p``, ``gp_period``).
-
-        Raises
-        ------
-        ValueError
-            If any of the required parameters are missing or invalid.
-        """
-        # Update the current _params dict with the new entries
-        merged_params = dict(self._params)
-        merged_params.update(new_params)
-
-        # Validate the complete parameter set
-        self._validate_complete_params(merged_params)
-
-        # If validation passes, store the params in the fixed order
-        self._params = {name: merged_params[name] for name in self._param_order()}
-
-        if self.ndim == 0:
-            warnings.warn(
-                "All parameters are fixed. MCMC methods (find_map_estimate, "
-                "generate_initial_walker_positions_*, run_mcmc) require at least one "
-                "free parameter (fixed=False).",
-                UserWarning,
-                stacklevel=2
-            )
-
-    @property
-    def priors(self) -> dict:
-        """Priors dictionary. Set via: gpfitter.priors = prior_dict."""
-        return self._priors
-
-    @priors.setter
-    def priors(self, new_priors: dict[str, Callable[[float], float]]) -> None:
-        """Set prior functions using a dict, checking all required priors are present.
-
-        Priors must be provided for all free parameters. You can set all priors
-        at once or update individual priors.
-
-        Parameters
-        ----------
-        new_priors : dict
-            Dictionary of prior functions to set. Keys should be parameter names
-            that match free parameters, values should be callable prior functions.
-            Free GP kernel hyperparameters (e.g. ``gp_amp``) need priors too.
-
-        Examples
-        --------
-        >>> from ravest.prior import Uniform
-        >>> gpfitter.priors = {"K_b": Uniform(0, 100), "P_b": Uniform(1, 30), "gp_amp": Uniform(0, 10)}
-
-        Raises
-        ------
-        ValueError
-            If any required priors are missing, unexpected priors are provided,
-            or initial parameter values are outside prior bounds.
-        """
-        self._set_priors_with_validation(new_priors)
 
     def _param_order(self) -> list[str]:
         """Every parameter name, in the fixed order used for params, priors and the chain's columns.
@@ -4045,215 +3962,14 @@ class GPFitter:
         instrument, in ``unique_instruments`` order; then the trend's gd and gdd; then the
         GP kernel's hyperparameters, in the kernel's order.
         """
-        order = [f"{par_name}_{planet_letter}"
-                 for planet_letter in sorted(self.planet_letters)
-                 for par_name in self.parameterisation.pars]
-        for inst in self.unique_instruments:
-            order += [f"g_{inst}", f"jit_{inst}"]
-        return order + ["gd", "gdd"] + self.gp_kernel.get_expected_hyperparams()
-
-    def _validate_complete_params(self, params: Dict[str, Parameter]) -> None:
-        """Validate that params dict has required parameters, astrophysically valid values."""
-        expected_params = set(self._param_order())
-
-        # Validate same as Fitter
-        provided_params = set(params.keys())
-
-        # Check for unexpected parameters
-        unexpected_params = provided_params - expected_params
-        if unexpected_params:
-            # Give a specific hint if user is passing legacy single-instrument parameters
-            legacy_params = unexpected_params & {"g", "jit"}
-            if legacy_params:
-                raise ValueError(
-                    f"Unexpected parameters: {unexpected_params}. "
-                    f"Single-instrument 'g' and 'jit' parameters are no longer supported. "
-                    f"Use per-instrument names instead, e.g. "
-                    f"{[f'g_{inst}' for inst in self.unique_instruments]} and "
-                    f"{[f'jit_{inst}' for inst in self.unique_instruments]}, "
-                    f"matching the instrument names passed to add_data()."
-                )
-            raise ValueError(
-                f"Unexpected parameters: {unexpected_params}. "
-                f"Expected {len(expected_params)} parameters, got {len(provided_params)}"
-            )
-
-        # Check for missing parameters
-        missing_params = expected_params - provided_params
-        if missing_params:
-            raise ValueError(
-                f"Missing required parameters: {missing_params}. "
-                f"Expected {len(expected_params)} parameters, got {len(provided_params)}"
-            )
-
-        # Check every fixed flag is exactly True or False (the Parameter constructor checks
-        # this, but an in-place edit of .fixed would not be)
-        for name, param in params.items():
-            if type(param.fixed) is not bool:
-                raise TypeError(
-                    f"{name}: fixed must be True or False, not {param.fixed!r} of type {type(param.fixed)!r}."
-                )
-
-        # Validate astrophysical validity of all parameters
-        params_values = {name: param.value for name, param in params.items()}
-        self._validate_astrophysical_validity(params_values)
-
-        # Validate parameter coupling constraints
-        # i.e. if two parameters both need to be fixed or free together
-        self._validate_parameter_coupling(params)
+        return super()._param_order() + self.gp_kernel.get_expected_hyperparams()
 
     def _validate_astrophysical_validity(self, params_values: Dict[str, float]) -> None:
         """Validate that all parameter values are astrophysically valid."""
-        # First, check that ALL parameters are finite (not NaN or infinite)
-        invalid_params = { name: value for name, value in params_values.items() if not np.isfinite(value) }
-        if invalid_params:
-            raise ValueError( "Invalid parameters detected: " + ", ".join(f"{k}={v}" for k, v in invalid_params.items()) )
-
-        # Validate planetary parameters for each planet
-        for planet_letter in self.planet_letters:
-            planet_params = {}
-            for par_name in self.parameterisation.pars:
-                key = f"{par_name}_{planet_letter}"
-                planet_params[par_name] = params_values[key]
-
-            # Validate this planet's parameters in current parameterisation
-            self.parameterisation.validate_planetary_params(planet_params)
-
-        # Validate trend parameters are finite real numbers (already checked above, but kept for clarity)
-        for trend_param in ["gd", "gdd"]:
-            trend_value = params_values[trend_param]
-            if not np.isfinite(trend_value):
-                raise ValueError(f"Invalid trend parameter {trend_param}: {trend_value} is not a finite real number")
-
-        # Validate per-instrument parameters
-        for inst in self.unique_instruments:
-            # Gamma offset must be finite
-            g_key = f"g_{inst}"
-            if not np.isfinite(params_values[g_key]):
-                raise ValueError(f"Invalid gamma offset {g_key}: {params_values[g_key]} is not finite")
-
-            # Jitter must be >= 0
-            jit_key = f"jit_{inst}"
-            if params_values[jit_key] < 0:
-                raise ValueError(f"Invalid jitter {jit_key}: {params_values[jit_key]} < 0")
+        super()._validate_astrophysical_validity(params_values)
 
         # Validate GP hyperparameters (the kernel knows its own constraints, e.g. positivity)
         self.gp_kernel._validate_hyperparams_values(params_values)
-
-    def _validate_parameter_coupling(self, params: Dict[str, Parameter]) -> None:
-        """Validate parameter coupling constraints (e.g., secosw/sesinw must both be free or both fixed)."""
-        for planet_letter in self.planet_letters:
-
-            # Check secosw/sesinw coupling
-            secosw_key = f"secosw_{planet_letter}"
-            sesinw_key = f"sesinw_{planet_letter}"
-            if secosw_key in params and sesinw_key in params:
-                secosw_fixed = params[secosw_key].fixed
-                sesinw_fixed = params[sesinw_key].fixed
-                if secosw_fixed != sesinw_fixed:
-                    raise ValueError(f"Parameters {secosw_key} and {sesinw_key} must both be fixed or both be free")
-
-            # Check ecosw/esinw coupling
-            ecosw_key = f"ecosw_{planet_letter}"
-            esinw_key = f"esinw_{planet_letter}"
-            if ecosw_key in params and esinw_key in params:
-                ecosw_fixed = params[ecosw_key].fixed
-                esinw_fixed = params[esinw_key].fixed
-                if ecosw_fixed != esinw_fixed:
-                    raise ValueError(f"Parameters {ecosw_key} and {esinw_key} must both be fixed or both be free")
-
-    def _set_priors_with_validation(self, new_priors: dict[str, Callable[[float], float]]) -> None:
-        """Set priors with validation. Supports partial updates. Can be current or default parameterisation."""
-        # Create merged priors dict (in case user is only updating some priors, not all)
-        merged_priors_dict = dict(self._priors)  # get existing priors
-        merged_priors_dict.update(new_priors)  # overwrite with newer functions, if supplied
-
-        # Store the priors in the fixed order, once they pass validation
-        self._priors = self._validate_priors(merged_priors_dict)
-
-    def _validate_priors(self, priors_dict: dict[str, Callable[[float], float]]) -> dict[str, Callable[[float], float]]:
-        """Check a complete priors dict against the current params, without storing it.
-
-        Used by the priors setter, and again before fitting (in-place edits of
-        ``params`` or ``priors`` skip the setter).
-
-        Returns
-        -------
-        dict
-            The priors, in the fixed parameter order.
-
-        Raises
-        ------
-        ValueError
-            If any required priors are missing, conflicting or unexpected, or an
-            initial parameter value is outside its prior.
-        """
-        provided_prior_param_names = set(priors_dict.keys())
-
-        # There are two possibilities for priors:
-        # 1. The prior has been given for the parameter, in the current parameterisation
-        #    (this can also include if the user is fitting in the default parameterisation)
-        # 2. The prior has been given for the Default parameterisation's equivalent parameter instead
-        #    (e.g. e & w instead of secosw & sesinw, or tp instead of tc)
-        # If not, then prior isn't given for either the Current or Default parameterisation, raise an Exception
-        validated_priors = {}
-        missing_priors = []
-        conflicts = []
-
-        # in the current parameterisation, which (free) parameters do we expect priors for?
-        # (walked in the fixed order, so validated_priors is built in that order)
-        current_parameterisation_free_param_names = self.free_params_names
-        for free_param_name in current_parameterisation_free_param_names:
-            if free_param_name in provided_prior_param_names:
-                # Prior was provided for the param in the current parameterisation
-                validated_priors[free_param_name] = priors_dict[free_param_name]
-
-                # Check if user ALSO provided equivalent default priors (conflict!)
-                default_parameterisation_equivalent_free_param_names = self._get_default_parameterisation_equivalent_free_param_name(free_param_name)
-                if default_parameterisation_equivalent_free_param_names:
-                    for equiv_param in default_parameterisation_equivalent_free_param_names:
-                        if equiv_param in provided_prior_param_names:
-                            conflicts.append((free_param_name, equiv_param))
-            else:
-                # We haven't been provided the prior for the free parameter in the current parameterisation
-                # So let's check if we were given the prior for the equivalent parameter in the default parameterisation instead
-                default_parameterisation_equivalent_free_param_names = self._get_default_parameterisation_equivalent_free_param_name(free_param_name)
-
-                # remember that one parameter in current parameterisation (e.g. secosw) might map to more than one equivalent in default parameterisation (e.g. both e & w)
-                if default_parameterisation_equivalent_free_param_names and all(eq in provided_prior_param_names for eq in default_parameterisation_equivalent_free_param_names):
-                    # Found all required default equivalents
-                    for equiv in default_parameterisation_equivalent_free_param_names:
-                        validated_priors[equiv] = priors_dict[equiv]
-                else:
-                    # Missing prior for a free parameter in both the current parameterisation, and its equivalent in the default parameterisation
-                    if default_parameterisation_equivalent_free_param_names:
-                        missing_priors.append(f"{free_param_name} (or equivalent {default_parameterisation_equivalent_free_param_names})")
-                    else:
-                        missing_priors.append(free_param_name)
-
-        # Check for conflicts after processing all parameters
-        if conflicts:
-            conflict_strs = [f"{current} vs {default}" for current, default in conflicts]
-            raise ValueError(f"Conflicting priors provided for both current and default parameterisations: {', '.join(conflict_strs)}. Please provide priors for either the current parameterisation OR the equivalent default parameterisation, but not both.")
-
-        if missing_priors:
-            raise ValueError(f"Missing priors for parameters: {missing_priors}")
-
-        # Check for unexpected priors - only allow priors that were validated above
-        expected_prior_param_names = set(validated_priors.keys())
-        unexpected_prior_param_names = provided_prior_param_names - expected_prior_param_names
-        if unexpected_prior_param_names:
-            raise ValueError(
-                f"Unexpected priors supplied for parameters: {unexpected_prior_param_names}. "
-                f"Priors expected only for parameters: {expected_prior_param_names}"
-            )
-
-        # Check parameter values work with priors
-        self._check_params_values_against_priors(validated_priors, current_parameterisation_free_param_names)
-
-        # Every supplied prior is in validated_priors (any extra would have been rejected
-        # above), now in the fixed parameter order
-        return validated_priors
 
 
     def _get_default_parameterisation_equivalent_free_param_name(self, free_param: str) -> Optional[list[str]]:
@@ -4277,1201 +3993,50 @@ class GPFitter:
         if free_param in self.gp_kernel.get_expected_hyperparams():
             return None
 
-        # No underscore (expected to be a system trend parameter)
-        if '_' not in free_param:
-            if free_param in ['gd', 'gdd']:
-                # These are the same in all parameterisations
-                return None
-            else:
-                raise ValueError(f"Unknown free parameter: {free_param}")
+        return super()._get_default_parameterisation_equivalent_free_param_name(free_param)
 
-        # Contains underscore: Planetary or instrument parameters (with underscore before either planet letter or instrument name)
-        # e.g. P_b, or Tc_c, or jit_HARPS
-        else:
-            base_param, suffix = free_param.split('_', 1)  # split only on first underscore (some instrument names may have underscores too)
-
-            # Planetary parameters: suffix is a planet letter
-            if suffix in self.planet_letters:
-                planet_letter = suffix
-
-                if base_param in ['secosw', 'sesinw']:
-                    # Both secosw and sesinw map to e,w equivalents
-                    partner_param = 'sesinw' if base_param == 'secosw' else 'secosw'
-                    partner_key = f"{partner_param}_{planet_letter}"
-                    if partner_key in self.free_params_names:
-                        return [f"e_{planet_letter}", f"w_{planet_letter}"]
-
-                elif base_param in ['ecosw', 'esinw']:
-                    # Both ecosw and esinw map to e,w equivalents
-                    partner_param = 'esinw' if base_param == 'ecosw' else 'ecosw'
-                    partner_key = f"{partner_param}_{planet_letter}"
-                    if partner_key in self.free_params_names:
-                        return [f"e_{planet_letter}", f"w_{planet_letter}"]
-
-                elif base_param == 'Tc':
-                    # Tc can use Tp equivalent
-                    return [f"Tp_{planet_letter}"]
-
-                elif base_param in ['P', 'K', 'e', 'w', 'Tp']:
-                    # These are default parameterisation parameters anyway
-                    return None
-
-                else:
-                    # Suffix is a valid planet letter, but base parameter is unrecognised, so raise an error
-                    raise ValueError(f"Free parameter {free_param} has known planet letter {planet_letter} but unrecognised base parameter {base_param}.")
-
-            # Instrument parameters: suffix is an instrument name
-            elif suffix in self.unique_instruments:
-
-                # The only instrument parameters are g and jit
-                if base_param in ['g', 'jit']:
-                    # Per-instrument parameter (e.g., g_HARPS, jit_HIRES)
-                    # These are the same in all parameterisations
-                    return None
-
-                else:
-                    raise ValueError(f"Free parameter {free_param} has known instrument name {suffix} but unrecognised base parameter {base_param} (expected 'g' or 'jit' only)")
-
-            # Unknown: Suffix is present, but not a planet letter or instrument, so raise an error
-            else:
-                raise ValueError(f"Free parameter {free_param} has unrecognised suffix {suffix}, expected one of planet letters {self.planet_letters} or instrument names {self.unique_instruments}.")
-
-
-
-    def _check_params_values_against_priors(self, validated_priors: dict[str, Callable[[float], float]], current_free_param_names: list[str]) -> None:
-        """Check parameter values against priors (including if Prior is for the Default parameterisation equivalent parameter)."""
-        for prior_param_name, prior_function in validated_priors.items():
-            if prior_param_name in current_free_param_names:
-                # This prior is in current parameterisation - check directly
-                param_value = self.params[prior_param_name].value
-                log_prior_probability = prior_function(param_value)
-                if not np.isfinite(log_prior_probability):
-                    raise ValueError(f"Initial value {param_value} of parameter {prior_param_name} is invalid for prior {prior_function}.")
-            else:
-                # This prior is in default parameterisation - need to convert parameter value
-                # Get the current parameter value and convert to default
-                default_param_value = self._convert_single_param_to_default(prior_param_name)
-                log_prior_probability = prior_function(default_param_value)
-                if not np.isfinite(log_prior_probability):
-                    raise ValueError(f"Initial value {default_param_value} of parameter {prior_param_name} (in default parameterisation) is invalid for prior {prior_function}.")
-
-    def _convert_single_param_to_default(self, default_param_name: str) -> float:
-        """Convert a single parameter from current to default parameterisation."""
-        # Extract planet letter if this is a planetary parameter
-        if '_' in default_param_name:
-            base_param, planet_letter = default_param_name.rsplit('_', 1)
-            if planet_letter in self.planet_letters:
-                # Get all current parameters for this planet (we need all five parameters to do a conversion)
-                planet_params_dict = {}
-                for par_name in self.parameterisation.pars:
-                    param_key = f"{par_name}_{planet_letter}"
-                    planet_params_dict[par_name] = self.params[param_key].value
-
-                # Convert all the planetary parameters to the default parameterisation
-                default_planet_params = self.parameterisation.convert_pars_to_default_parameterisation(planet_params_dict)
-
-                # Return just the requested parameter in the default parameterisation
-                return default_planet_params[base_param]
-
-        # For non-planetary parameters (g, gd, gdd, jit), they're the same in all parameterisations
-        if default_param_name in self.params:
-            return self.params[default_param_name].value
-
-        raise ValueError(f"Cannot convert parameter {default_param_name} to default parameterisation")
-
-    @property
-    def free_params_dict(self) -> Dict[str, Parameter]:
-        """Free parameters as dict."""
-        free_pars = {}
-        for par in self.params:
-            if self.params[par].fixed is False:
-                free_pars[par] = self.params[par]
-        return free_pars
-
-    @property
-    def free_params_values(self) -> list[float]:
-        """Values of free parameters as list."""
-        return [param.value for param in self.free_params_dict.values()]
-
-    @property
-    def free_params_names(self) -> list[str]:
-        """Names of free parameters as list."""
-        return list(self.free_params_dict.keys())
-
-    @property
-    def ndim(self) -> int:
-        """Number of free parameters: the number of columns in the MCMC chain."""
-        return len(self.free_params_names)
-
-    @property
-    def fixed_params_dict(self) -> Dict[str, Parameter]:
-        """Fixed parameters as dict, mapping names to Parameter objects."""
-        fixed_pars = {}
-        for par in self.params:
-            if self.params[par].fixed is True:
-                fixed_pars[par] = self.params[par]
-        return fixed_pars
-
-    @property
-    def fixed_params_values(self) -> list[float]:
-        """Values of fixed parameters, as list."""
-        return [param.value for param in self.fixed_params_dict.values()]
-
-    @property
-    def fixed_params_names(self) -> list[str]:
-        """Names of fixed parameters, as list."""
-        return list(self.fixed_params_dict.keys())
-
-    @property
-    def fixed_params_values_dict(self) -> Dict[str, float]:
-        """Fixed parameters as dict mapping names to just the values."""
-        return dict(zip(self.fixed_params_names, self.fixed_params_values))
-
-    def find_map_estimate(self, method: str = "Powell") -> scipy.optimize.OptimizeResult:
-        """Find Maximum A Posteriori (MAP) estimate of parameters and hyperparameters.
-
-        Parameters
-        ----------
-        method : str, optional
-            Optimization method to use (default: "Powell")
+    def _build_log_posterior(self) -> "GPLogPosterior":
+        """Build the GP log posterior from the fitter's current params, priors and data.
 
         Returns
         -------
-        scipy.optimize.OptimizeResult
-            The optimization result containing the MAP estimate
-
-        Raises
-        ------
-        ValueError
-            If a free parameter has no prior
-        Warning
-            If MAP optimization fails to converge
+        GPLogPosterior
+            A new GP log posterior, reflecting any changes since the last one was built.
         """
-        self._validate_before_fit()
-
-        # Initialize log-posterior object
-        gp_lp = GPLogPosterior(
-            self.planet_letters,
-            self.parameterisation,
-            self.gp_kernel,
-            self.priors,
-            self.fixed_params_values_dict,
-            self.free_params_names,
-            self.time,
-            self.vel,
-            self.velerr,
-            self.t0,
-            self.instrument,
-            self.unique_instruments,
-        )
-
-        initial_guess = self.free_params_values
-
-        if len(initial_guess) == 0:
-            raise ValueError(
-                "Cannot run MAP optimisation: no free parameters to optimise. "
-                "At least one parameter must be set as free (fixed=False) before calling find_map_estimate()."
-            )
-
-        # Perform MAP optimization
-        def negative_log_posterior(*args: float) -> float:
-            return gp_lp._negative_log_probability_for_MAP(*args)
-
-        map_results = minimize(negative_log_posterior, initial_guess, method=method)
-
-        if map_results.success is False:
-            print(map_results)
-            warnings.warn("MAP did not succeed. Check the initial values of the parameters, and the prior functions.")
-
-        # Print results as dictionary (to show param names too)
-        map_results_dict = dict(zip(self.free_params_names, map_results.x))
-        print("MAP parameter results:", map_results_dict)
-
-        # Return the scipy OptimizeResult object so that user can inspect fully if needed
-        return map_results
-
-    def _validate_free_params_have_priors(self) -> dict[str, list[str]]:
-        """Check that every free parameter is constrained by a prior.
-
-        A free parameter is constrained if it has a prior of its own, or if priors
-        were given on all of its default-parameterisation equivalents (e.g. priors on
-        ``e_b`` and ``w_b`` while fitting ``secosw_b`` and ``sesinw_b``, or on ``Tp_b``
-        while fitting ``Tc_b``). The priors setter checks this when priors are
-        assigned, but re-assigning ``params`` afterwards can free a parameter that has
-        no prior, so it is checked again before fitting.
-
-        Returns
-        -------
-        dict[str, list[str]]
-            The free parameters constrained only through their default-parameterisation
-            equivalents, mapped to the names of those equivalents.
-
-        Raises
-        ------
-        ValueError
-            If any free parameter has no prior in either parameterisation.
-        """
-        via_equivalents = {}
-        missing = []
-        for param_name in self.free_params_names:
-            if param_name in self.priors:
-                continue
-            equivalents = self._get_default_parameterisation_equivalent_free_param_name(param_name)
-            if equivalents and all(equiv in self.priors for equiv in equivalents):
-                via_equivalents[param_name] = equivalents
-            else:
-                missing.append(param_name)
-
-        if missing:
-            raise ValueError(
-                f"No prior for free parameter(s) {missing}, either on the parameter itself "
-                f"or on its default-parameterisation equivalents. "
-                f"Set a prior for every free parameter before fitting."
-            )
-
-        return via_equivalents
-
-    def _validate_before_fit(self) -> dict[str, list[str]]:
-        """Re-check params and priors before fitting.
-
-        The ``params`` and ``priors`` getters return the live dicts, so an in-place
-        edit (e.g. ``fitter.params["K_b"].value = ...``) skips the setters' checks.
-        Every method that fits calls this first.
-
-        Returns
-        -------
-        dict[str, list[str]]
-            As ``_validate_free_params_have_priors``: the free parameters constrained
-            only through their default-parameterisation equivalents.
-
-        Raises
-        ------
-        ValueError
-            If a free parameter has no prior, the params are incomplete or invalid,
-            or the priors are unexpected or exclude a starting value.
-        TypeError
-            If a parameter's ``fixed`` is not exactly True or False.
-        """
-        via_equivalents = self._validate_free_params_have_priors()
-        self._validate_complete_params(self.params)
-        self._validate_priors(self.priors)
-        return via_equivalents
-
-    def generate_initial_walker_positions_random(self, nwalkers: int, verbose: bool = False, max_attempts: int = 1000) -> np.ndarray:
-        """Generate random initial walker positions that satisfy priors and are astrophysically valid.
-
-        Creates random starting positions for MCMC walkers by sampling from
-        appropriate distributions based on each parameter's prior type. Ensures
-        that parameter combinations are astrophysically valid (e.g., eccentricity < 1).
-
-        Parameters
-        ----------
-        nwalkers : int
-            Number of MCMC walkers to generate positions for
-        verbose : bool, default False
-            If True, print walker positions during generation
-        max_attempts : int, default 1000
-            Maximum attempts to generate a valid walker position
-
-        Returns
-        -------
-        np.ndarray
-            Array of shape (nwalkers, ndim) where ndim is the number of free parameters.
-            Each row represents the starting position for one walker in the order of
-            free_params_names.
-
-        Raises
-        ------
-        ValueError
-            If a free parameter has no prior, if a prior type is not supported for
-            walker generation, or if unable to generate valid positions after
-            max_attempts
-
-        Notes
-        -----
-        Each free parameter is drawn from its own prior. Bounded priors are drawn
-        uniformly across their bounds; unbounded priors are drawn at one prior
-        width:
-
-        - ``Uniform`` -> ``U(lower, upper)``
-        - ``TruncatedNormal`` -> ``U(lower, upper)``
-        - ``Beta`` -> ``U(0, 1)``
-        - ``EccentricityUniform`` -> ``U(0, upper)``
-        - ``Normal`` -> ``N(mean, std)``
-        - ``HalfNormal`` -> ``|N(0, std)|``
-
-        A free parameter whose prior was given on its default-parameterisation
-        equivalents (priors on ``e``/``w`` while fitting ``secosw``/``sesinw`` or
-        ``ecosw``/``esinw``, or on ``Tp`` while fitting ``Tc``) has no prior of its own
-        to draw from. It is instead started from a ball around its current value, with
-        spread ``0.1 * |value| + 0.01``. A free parameter with no prior in either
-        parameterisation raises a ``ValueError``.
-
-        Every candidate position is checked for astrophysical validity and for a finite
-        log-prior, and is redrawn up to ``max_attempts`` times if either check fails.
-
-        Examples
-        --------
-        >>> # Generate positions for 10 walkers per free parameter
-        >>> nwalkers = 10 * len(gpfitter.free_params_names)
-        >>> initial_positions = gpfitter.generate_initial_walker_positions_random(nwalkers)
-        >>> gpfitter.run_mcmc(initial_positions, nwalkers, max_steps=2000)
-        """
-        if len(self.free_params_values) == 0:
-            raise ValueError(
-                "Cannot generate walker positions: no free parameters to sample. "
-                "At least one parameter must be set as free (fixed=False)."
-            )
-
-        if verbose:
-            print("Free parameters:", self.free_params_names)
-
-        # Checked once, before the walker loop, rather than on every draw.
-        via_equivalents = self._validate_before_fit()
-        for param_name, equivalents in via_equivalents.items():
-            logging.debug(
-                f"{param_name} has no prior of its own; its prior was given on "
-                f"{equivalents} in the default parameterisation. Initialising it with a "
-                f"ball around its current value."
-            )
-
-        mcmc_init = []
-
-        # Built once, outside the walker loop: every argument is fitter-level
-        # (priors, kernel, data), so the object is identical for every
-        # walker and only its log_prior call depends on the position.
-        lp = GPLogPosterior(
-            self.planet_letters,
-            self.parameterisation,
-            self.gp_kernel,
-            self.priors,
-            self.fixed_params_values_dict,
-            self.free_params_names,
-            self.time,
-            self.vel,
-            self.velerr,
-            self.t0,
-            self.instrument,
-            self.unique_instruments,
-        )
-
-        for walker_idx in range(nwalkers):
-            attempts = 0
-            while attempts < max_attempts:
-                walker_position = []
-                for param_name in self.free_params_names:
-                    # Check if we have a direct prior for this parameter
-                    # (because user may be fitting in a transformed parameterisation, but gave priors in the default parameterisation instead)
-                    if param_name in self.priors:
-                        prior = self.priors[param_name]
-
-                        if isinstance(prior, ravest.prior.Normal):
-                            walker_position.append(np.random.normal(loc=prior.mean, scale=prior.std))
-
-                        elif isinstance(prior, ravest.prior.HalfNormal):
-                            walker_position.append(np.abs(np.random.normal(loc=0, scale=prior.std)))
-
-                        elif isinstance(prior, ravest.prior.Uniform):
-                            walker_position.append(np.random.uniform(low=prior.lower, high=prior.upper))
-
-                        elif isinstance(prior, ravest.prior.TruncatedNormal):
-                            walker_position.append(np.random.uniform(low=prior.lower, high=prior.upper))
-
-                        elif isinstance(prior, ravest.prior.Beta):
-                            walker_position.append(np.random.uniform(low=0, high=1))
-
-                        elif isinstance(prior, ravest.prior.EccentricityUniform):
-                            walker_position.append(np.random.uniform(low=0, high=prior.upper))
-
-                        else:
-                            raise ValueError(f"Unsupported prior type for walker generation: {type(prior)}")
-
-                    elif param_name in via_equivalents:
-                        # No prior of its own: the prior was given on the default-parameterisation
-                        # equivalents (e.g. e/w while fitting secosw/sesinw). Start from a ball
-                        # around the current value.
-                        #
-                        # The ball is deliberate. Drawing e and w from their priors and converting
-                        # them to secosw/sesinw looks more faithful to the prior, but was tested
-                        # and made sampling worse, leaving stranded walkers far more often. Each
-                        # starting position is still checked against the e/w priors below, so a
-                        # region they exclude is still rejected.
-                        centre_val = self.params[param_name].value
-                        # Add small random perturbation (10% of current value + small fixed amount for near-zero values)
-                        perturbation = np.random.normal(0, abs(centre_val) * 0.1 + 0.01)
-                        walker_position.append(centre_val + perturbation)
-
-                    else:
-                        # Unreachable after the check above, but without it a free parameter with
-                        # no prior anywhere would silently start in the ball as if it had one.
-                        raise ValueError(f"No prior for free parameter {param_name}")
-
-                # Check astrophysical validity and prior compliance
-                try:
-                    # Convert walker position to full parameter dict (free + fixed)
-                    free_params_dict = dict(zip(self.free_params_names, walker_position))
-                    all_params_dict = self.fixed_params_values_dict | free_params_dict
-
-                    # Check astrophysical validity
-                    self._validate_astrophysical_validity(all_params_dict)
-
-                    # Check prior compliance using GPLogPosterior (built above), rather than
-                    # calling priors direct (because it handles Transformed->Default
-                    # parameter transformations already, if needed)
-                    # Check the log-prior probability is finite (i.e. proposed initial values are within prior bounds)
-                    params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
-                    log_prior = lp.log_prior(params_for_prior)
-                    if not np.isfinite(log_prior):
-                        raise ValueError(f"Outside prior bounds (log_prior = {log_prior})")
-
-                    # If both astrophysical and priors validations pass, we have a valid walker position
-                    break
-                except ValueError:
-                    # Validation failed. Generate a new set of values and try again.
-                    attempts += 1
-                    continue
-
-            if attempts >= max_attempts:
-                raise ValueError(f"Could not generate astrophysically valid walker {walker_idx} after {max_attempts} attempts. "
-                               f"Consider relaxing priors or checking parameter constraints.")
-
-            if verbose:
-                print(f"Walker {walker_idx} position: {walker_position} (valid after {attempts + 1} attempts)")
-            mcmc_init.append(walker_position)
-
-        mcmc_init = np.array(mcmc_init)
-        if verbose:
-            print(f"Generated MCMC initial positions with shape: {mcmc_init.shape}")
-
-        return mcmc_init
-
-    def generate_initial_walker_positions_around_point(
-        self,
-        centre: np.ndarray | list,
-        nwalkers: int,
-        scale: float = 1e-4,
-        relative: bool = True,
-        verbose: bool = False,
-        max_attempts: int = 1000
-    ) -> np.ndarray:
-        """Generate initial walker positions in a ball around a supplied centre point.
-
-        Creates starting positions for MCMC walkers clustered around a centre point
-        (e.g., MAP estimate). Each walker is generated by adding small random perturbations
-        to the centre values. Validates that both the centre point and all generated
-        walker positions satisfy priors and are astrophysically valid.
-
-        Parameters
-        ----------
-        centre : np.ndarray or list
-            Centre point for walker positions. Must have length equal to the number
-            of free parameters and be in the order of free_params_names.
-        nwalkers : int
-            Number of MCMC walkers to generate positions for
-        scale : float, default 1e-4
-            Scale of perturbations around centre point
-        relative : bool, default True
-            If True, perturbations scale with parameter values (scale * centre * random).
-            If False, perturbations are absolute (scale * random).
-        verbose : bool, default False
-            If True, print walker positions during generation
-        max_attempts : int, default 1000
-            Maximum attempts to generate a valid walker position
-
-        Returns
-        -------
-        np.ndarray
-            Array of shape (nwalkers, ndim) where ndim is the number of free parameters.
-            Each row represents the starting position for one walker in the order of
-            free_params_names.
-
-        Raises
-        ------
-        ValueError
-            If a free parameter has no prior, if centre has wrong length, if centre
-            point is invalid, or if unable to generate valid positions after
-            max_attempts
-
-        Examples
-        --------
-        >>> # Generate walkers around MAP estimate
-        >>> map_result = gpfitter.find_map_estimate()
-        >>> initial_positions = gpfitter.generate_initial_walker_positions_around_point(
-        ...     centre=map_result.x, nwalkers=40, scale=1e-4
-        ... )
-        >>> gpfitter.run_mcmc(initial_positions, nwalkers=40, max_steps=2000)
-        """
-        if len(self.free_params_values) == 0:
-            raise ValueError(
-                "Cannot generate walker positions: no free parameters to sample. "
-                "At least one parameter must be set as free (fixed=False)."
-            )
-
-        self._validate_before_fit()
-
-        centre = np.asarray(centre)
-
-        if len(centre) != len(self.free_params_names):
-            raise ValueError(
-                f"Centre must have length {len(self.free_params_names)} "
-                f"(number of free parameters), got {len(centre)}"
-            )
-
-        if verbose:
-            print("Free parameters:", self.free_params_names)
-            print(f"Centre values: {centre}")
-
-        # Validate centre point first
-        try:
-            free_params_dict = dict(zip(self.free_params_names, centre))
-            all_params_dict = self.fixed_params_values_dict | free_params_dict
-
-            # Check astrophysical validity
-            self._validate_astrophysical_validity(all_params_dict)
-
-            # Check prior compliance
-            lp = GPLogPosterior(
-                self.planet_letters,
-                self.parameterisation,
-                self.gp_kernel,
-                self.priors,
-                self.fixed_params_values_dict,
-                self.free_params_names,
-                self.time,
-                self.vel,
-                self.velerr,
-                self.t0,
-                self.instrument,
-                self.unique_instruments,
-            )
-            params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
-            log_prior = lp.log_prior(params_for_prior)
-            if not np.isfinite(log_prior):
-                raise ValueError(f"Centre point outside prior bounds (log_prior = {log_prior})")
-
-            if verbose:
-                print(f"Centre point validated (log_prior = {log_prior})")
-
-        except ValueError as e:
-            raise ValueError(f"Supplied centre point is not valid: {e}")
-
-        # Generate walker positions around centre
-        mcmc_init = []
-
-        if verbose and relative and np.any(centre == 0.0):
-            zero_names = [self.free_params_names[i] for i in range(len(centre)) if centre[i] == 0.0]
-            print(f"Note: centre value is exactly 0.0 for {zero_names}; "
-                  f"using absolute perturbation (scale={scale}) for these parameters.")
-
-        for walker_idx in range(nwalkers):
-            attempts = 0
-            while attempts < max_attempts:
-                # Generate perturbation
-                random_vals = np.random.randn(len(centre))
-                if relative:
-                    # Relative perturbation: scales with parameter values.
-                    # When a centre value is exactly 0.0, the relative
-                    # perturbation (scale * randn * |0|) is always zero,
-                    # producing identical walker values in that dimension.
-                    # This causes emcee to reject the walkers as linearly
-                    # dependent (condition number check). Fall back to
-                    # absolute perturbation for those parameters.
-                    perturbation = np.empty(len(centre))
-                    for i in range(len(centre)):
-                        if centre[i] == 0.0:
-                            perturbation[i] = scale * random_vals[i]
-                        else:
-                            perturbation[i] = scale * random_vals[i] * np.abs(centre[i])
-                else:
-                    # Absolute perturbation: same scale for all parameters
-                    perturbation = scale * random_vals
-
-                walker_position = centre + perturbation
-
-                # Validate this walker position
-                try:
-                    free_params_dict = dict(zip(self.free_params_names, walker_position))
-                    all_params_dict = self.fixed_params_values_dict | free_params_dict
-
-                    # Check astrophysical validity
-                    self._validate_astrophysical_validity(all_params_dict)
-
-                    # Check prior compliance
-                    params_for_prior = lp._convert_params_for_prior_evaluation(free_params_dict)
-                    log_prior = lp.log_prior(params_for_prior)
-                    if not np.isfinite(log_prior):
-                        raise ValueError(f"Outside prior bounds (log_prior = {log_prior})")
-
-                    # If validation passes, we have a valid walker position
-                    break
-                except ValueError:
-                    # Validation failed, try again
-                    attempts += 1
-                    continue
-
-            if attempts >= max_attempts:
-                raise ValueError(
-                    f"Could not generate astrophysically valid walker {walker_idx} after {max_attempts} attempts. "
-                    f"Consider using a larger scale parameter or checking that the centre point is not too close to prior/physical boundaries."
-                )
-
-            if verbose:
-                print(f"Walker {walker_idx} position: {walker_position} (valid after {attempts + 1} attempts)")
-            mcmc_init.append(walker_position)
-
-        mcmc_init = np.array(mcmc_init)
-        if verbose:
-            print(f"Generated MCMC initial positions with shape: {mcmc_init.shape}")
-
-        return mcmc_init
-
-    def generate_initial_walker_positions_from_map(
-        self,
-        map_result: scipy.optimize.OptimizeResult,
-        nwalkers: int,
-        scale: float = 1e-4,
-        relative: bool = True,
-        verbose: bool = False,
-        max_attempts: int = 1000
-    ) -> np.ndarray:
-        """Generate initial walker positions around MAP estimate.
-
-        Convenience function that generates walker positions clustered around
-        MAP parameter estimates from a pre-computed MAP result.
-
-        Parameters
-        ----------
-        map_result : scipy.optimize.OptimizeResult
-            Result from find_map_estimate()
-        nwalkers : int
-            Number of MCMC walkers to generate positions for
-        scale : float, default 1e-4
-            Scale of perturbations around MAP values
-        relative : bool, default True
-            If True, perturbations scale with parameter values.
-            If False, perturbations are absolute.
-        verbose : bool, default False
-            If True, print walker positions during generation
-        max_attempts : int, default 1000
-            Maximum attempts to generate a valid walker position
-
-        Returns
-        -------
-        np.ndarray
-            Array of shape (nwalkers, ndim) where ndim is the number of free parameters.
-            Each row represents the starting position for one walker.
-
-        Raises
-        ------
-        ValueError
-            If unable to generate valid positions
-
-        Examples
-        --------
-        >>> # Find MAP then generate walkers around it
-        >>> map_result = gpfitter.find_map_estimate()
-        >>> initial_positions = gpfitter.generate_initial_walker_positions_from_map(
-        ...     map_result=map_result, nwalkers=40
-        ... )
-        >>> gpfitter.run_mcmc(initial_positions, nwalkers=40, max_steps=2000)
-        """
-        if len(self.free_params_values) == 0:
-            raise ValueError(
-                "Cannot generate walker positions: no free parameters to sample. "
-                "At least one parameter must be set as free (fixed=False)."
-            )
-
-        self._validate_before_fit()
-
-        return self.generate_initial_walker_positions_around_point(
-            centre=map_result.x,
-            nwalkers=nwalkers,
-            scale=scale,
-            relative=relative,
-            verbose=verbose,
-            max_attempts=max_attempts
-        )
-
-    def run_mcmc(self, initial_positions: np.ndarray, nwalkers: int, max_steps: int = 5000, progress: bool = True, multiprocessing: bool = False, check_convergence: bool = False, convergence_check_interval: int = 1000, convergence_check_start: int = 0) -> None:
-        """Run MCMC sampling from given initial walker positions.
-
-        Parameters
-        ----------
-        initial_positions : np.ndarray
-            Starting positions for all MCMC walkers. Shape must be (nwalkers, ndim)
-            where ndim is the number of free parameters. Each row represents the
-            starting position for one walker in the order of free_params_names.
-        nwalkers : int
-            Number of MCMC walkers (must match first dimension of initial_positions)
-        max_steps : int, optional
-            Maximum number of MCMC steps to run. If check_convergence=False, runs for
-            exactly this many steps. If check_convergence=True, runs up to this many
-            steps, stopping early when convergence criteria are met (default: 5000)
-        progress : bool, optional
-            Whether to show progress bar during MCMC (default: True)
-        multiprocessing : bool, optional
-            Whether to use multiprocessing for MCMC (default: False)
-        check_convergence : bool, optional
-            If True, check for convergence and stop early when criteria met.
-            Convergence requires: chain length > 50 times max autocorrelation time,
-            and autocorrelation time estimate stable to 1 percent.
-            If False, run for exactly max_steps (default: False)
-        convergence_check_interval : int, optional
-            Steps between convergence checks (only used if check_convergence=True) (default: 1000)
-        convergence_check_start : int, optional
-            Minimum iteration before starting convergence checks. Set this sensibly
-            (e.g. 2x burn-in) to avoid inaccurate tau estimates on short chains (default: 0)
-
-        Raises
-        ------
-        ValueError
-            If there are no free parameters, if a free parameter has no prior, or if
-            nwalkers is less than 2 * ndim
-        """
-        if len(self.free_params_values) == 0:
-            raise ValueError(
-                "Cannot run MCMC: no free parameters to sample. "
-                "At least one parameter must be set as free (fixed=False)."
-            )
-
-        self._validate_before_fit()
-
-        # Initialize log-posterior object for MCMC sampling
-        gp_lp = GPLogPosterior(
-            self.planet_letters,
-            self.parameterisation,
-            self.gp_kernel,
-            self.priors,
-            self.fixed_params_values_dict,
-            self.free_params_names,
-            self.time,
-            self.vel,
-            self.velerr,
-            self.t0,
-            self.instrument,
-            self.unique_instruments,
-        )
-
-        # Enforce minimum number of walkers (though users ideally should have many more than this)
-        if nwalkers < 2 * self.ndim:
-            raise ValueError(f"nwalkers must be at least 2 * ndim = {2 * self.ndim} ({self.ndim} free parameters), got {nwalkers}.")
-        self.nwalkers = nwalkers
-
-        # Validate walker positions shape
-        if initial_positions.shape != (nwalkers, self.ndim):
-            raise ValueError(f"initial_positions must have shape ({nwalkers}, {self.ndim}), got {initial_positions.shape}")
-
-        # Validate every walker position for astrophysical validity and prior compliance
-        # (we don't want to start any chains in invalid parameter space)
-        for i, walker_position in enumerate(initial_positions):
-            walker_params_dict = dict(zip(self.free_params_names, walker_position))
-            all_params_dict = self.fixed_params_values_dict | walker_params_dict
-
-            # Check astrophysical validity
-            try:
-                self._validate_astrophysical_validity(all_params_dict)
-            except ValueError as e:
-                raise ValueError(f"Walker {i} has invalid astrophysical parameters: {e}") from e
-
-            # Check prior compliance
-            params_for_prior = gp_lp._convert_params_for_prior_evaluation(walker_params_dict)
-            log_prior = gp_lp.log_prior(params_for_prior)
-            if not np.isfinite(log_prior):
-                raise ValueError(f"Walker {i} is outside prior bounds (log_prior = {log_prior})")
-
-        # TODO: parameter_names argument does slightly impact performance - but not sure if it can be avoided, we do need the names
-        # and I'm not sure constructing the dictionary later ourselves manually is any quicker than passing parameter_names argument
-
-        # Create sampler
-        if multiprocessing:
-            pool = mp.get_context("spawn").Pool()  # Use 'spawn' instead of 'fork' to avoid issues on some Linux platforms
-            sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, gp_lp.log_probability,
-                                            parameter_names=self.free_params_names,
-                                            pool=pool)
-        else:
-            sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, gp_lp.log_probability,
-                                            parameter_names=self.free_params_names)
-
-        # Warn if convergence arguments provided but convergence checking disabled
-        if not check_convergence:
-            if convergence_check_interval != 1000 or convergence_check_start != 0:
-                logging.warning(
-                    "Convergence checking arguments provided but check_convergence=False. "
-                    "These arguments will be ignored. Did you forget to set check_convergence=True?"
-                )
-
-        # Guard: if convergence checking is enabled but the first check can never
-        # occur within max_steps, the run would silently behave as fixed-length.
-        if check_convergence:
-            if convergence_check_interval <= 0:
-                raise ValueError(
-                    f"convergence_check_interval must be a positive integer, got {convergence_check_interval}."
-                )
-            # First check fires at the smallest multiple of the interval that is
-            # at least convergence_check_start (and at least one interval in).
-            n_intervals = max(1, -(-convergence_check_start // convergence_check_interval))
-            first_check_iteration = n_intervals * convergence_check_interval
-            if first_check_iteration > max_steps:
-                raise ValueError(
-                    f"check_convergence=True but the first convergence check would occur at "
-                    f"iteration {first_check_iteration} (first multiple of convergence_check_interval="
-                    f"{convergence_check_interval} at or after convergence_check_start="
-                    f"{convergence_check_start}), which exceeds max_steps={max_steps}. No convergence "
-                    f"check would ever run. Increase max_steps, or reduce convergence_check_interval "
-                    f"and/or convergence_check_start."
-                )
-
-        # Run MCMC with or without convergence checking
-        if not check_convergence:
-            # Fixed-length mode - run for exactly max_steps
-            logging.info(f"Starting MCMC for {max_steps} steps...")
-            sampler.run_mcmc(initial_state=initial_positions, nsteps=max_steps, progress=progress)
-            logging.info("...MCMC done.")
-        else:
-            # Convergence checking - run up to max_steps, stopping early if converged
-            logging.info(f"Starting MCMC with convergence checks. (Maximum {max_steps} steps, checking convergence every {convergence_check_interval} steps after iteration {convergence_check_start})...")
-
-            # Initialize autocorrelation history storage
-            self.autocorr_history = {}
-
-            old_tau = np.inf
-
-            for sample in sampler.sample(initial_state=initial_positions, iterations=max_steps, progress=progress):
-                # Only check at specified intervals
-                if sampler.iteration % convergence_check_interval != 0:
-                    continue
-
-                # Don't check before we have reached convergence_check_start
-                if sampler.iteration < convergence_check_start:
-                    continue
-
-                # Get autocorrelation time estimate
-                tau = sampler.get_autocorr_time(tol=0)
-
-                # Store autocorrelation history for plotting/diagnostics later
-                self.autocorr_history[sampler.iteration] = tau.copy()
-
-                # Log progress
-                logging.info(f"Convergence check: Step {sampler.iteration}: mean(tau)={np.mean(tau):.1f}, max(tau)={np.max(tau):.1f}")
-
-                # Check convergence criteria
-                check_chain_length = np.all(sampler.iteration > 50 * tau)  # Chain length > 50 * tau
-                check_stable_tau = np.all(np.abs(old_tau - tau) / tau < 0.01)  # Tau stable to 1 percent
-                converged = check_chain_length and check_stable_tau
-
-                if converged:
-                    logging.info(f"Converged at iteration {sampler.iteration}")
-                    break
-                else:
-                    logging.info(f"Not yet converged (N/50>tau check: {check_chain_length}, tau stability check: {check_stable_tau})")
-
-                # Warn if approaching max steps without convergence
-                if sampler.iteration > 0.8 * max_steps:
-                    logging.warning(f"Approaching max iterations ({max_steps}) without convergence! (max tau={np.max(tau):.1f}, tau stability change={np.abs(old_tau - tau) / tau})")
-
-                # Update old tau for next check
-                old_tau = tau
-
-            # Final log
-            final_steps = sampler.iteration
-            logging.info(f"MCMC complete: {final_steps} steps total")
-
-        # Close multiprocessing pool if used
-        if multiprocessing:
-            pool.close()
-            pool.join()
-
-        self.sampler = sampler
-
-    def get_samples_np(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, flat: bool = False) -> np.ndarray:
-        """Return a contiguous numpy array of MCMC samples.
-
-        Samples can be discarded from the start and/or the end of the array. You can
-        also thin (take only every n-th sample), and you can flatten the array
-        so that each walker's chain is merged into one chain.
-
-        This is the foundational method for accessing MCMC samples. All the other
-        get_samples methods build on this.
-
-        Parameters
-        ----------
-        discard_start : int, optional
-            Discard the first `discard_start` steps from the start of the chain (default: 0)
-        discard_end : int, optional
-            Discard the last `discard_end` steps from the end of the chain (default: 0)
-        thin : int, optional
-            Use only every `thin` steps from the chain (default: 1)
-        flat : bool, optional
-            Whether to flatten each walker's chain into one chain. (default: False)
-            If True, return flattened array with shape (nsteps_after_discard_thin * nwalkers, ndim)
-            If False, return unflattened array with shape (nsteps_after_discard_thin, nwalkers, ndim)
-
-        Returns
-        -------
-        np.ndarray
-            Contiguous array of MCMC samples. Shape depends on `flat` parameter:
-            - flat=False: (nsteps_after_discard_thin, nwalkers, ndim)
-            - flat=True: (nsteps_after_discard_thin * nwalkers, ndim)
-
-        Notes
-        -----
-        We enforce np.ascontiguousarray() on the return, because np.reshape() does
-        not guarantee a contiguous array in memory.
-        """
-        # Get the full chain from emcee without any processing
-        full_samples = self.sampler.get_chain(discard=0, thin=1, flat=False)
-
-        # Match emcee's slicing logic: [discard + thin - 1 : end : thin]
-        # But adapted - we also allow for discarding from the end
-        start_idx = discard_start + thin - 1
-        if discard_end == 0:
-            end_idx = full_samples.shape[0]
-        else:
-            end_idx = full_samples.shape[0] - discard_end
-
-        # Check the start and end points are valid
-        if start_idx >= end_idx:
-            raise ValueError(f"Invalid parameters: start_idx ({start_idx}) >= end_idx ({end_idx}). "
-                            f"Try reducing discard_start ({discard_start}), discard_end ({discard_end}), or thin ({thin}).")
-
-        # Apply the slicing
-        samples = full_samples[start_idx:end_idx:thin]
-
-        # Flatten if requested (after discarding) - flatten steps and walkers into single dimension
-        if flat:
-            # (steps, walkers, ndim) -> (steps*walkers, ndim)
-            nsteps, nwalkers, ndim = samples.shape
-            samples = samples.reshape(nsteps * nwalkers, ndim)
-
-        return np.ascontiguousarray(samples)
-
-    def get_samples_df(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> pd.DataFrame:
-        """Return a pandas DataFrame of flattened MCMC samples.
-
-        Each row represents one sample, each column represents one free
-        parameter. Built on get_samples_np().
-
-        Parameters
-        ----------
-        discard_start : int, optional
-            Discard the first `discard_start` steps from the start of the chain (default: 0)
-        discard_end : int, optional
-            Discard the last `discard_end` steps from the end of the chain (default: 0)
-        thin : int, optional
-            Use only every `thin` steps from the chain (default: 1)
-
-        Returns
-        -------
-        pd.DataFrame
-            DataFrame with shape (nsteps_after_discard_thin * nwalkers, ndim).
-            Columns are free_params_names, in that order.
-        """
-        flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
-        return pd.DataFrame(flat_samples, columns=self.free_params_names)
-
-    def get_samples_dict(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> Dict[str, np.ndarray]:
-        """Return a dict of flattened MCMC samples.
-
-        Each free parameter gets a 1D (flattened) contiguous array of all its samples.
-
-        Parameters
-        ----------
-        discard_start : int, optional
-            Discard the first `discard_start` steps from the start of the chain (default: 0)
-        discard_end : int, optional
-            Discard the last `discard_end` steps from the end of the chain (default: 0)
-        thin : int, optional
-            Use only every `thin` steps from the chain (default: 1)
-
-        Returns
-        -------
-        dict
-            Dictionary mapping free parameter names to 1D arrays of samples, in
-            free_params_names order. Each array has shape (nsteps_after_discard_thin * nwalkers,)
-
-        Examples
-        --------
-        >>> samples_dict = gpfitter.get_samples_dict(discard_start=1000)
-        >>> K_b_samples = samples_dict['K_b']  # All samples for parameter K for planet b
-        >>> gp_amp_samples = samples_dict['gp_amp']  # All samples for GP amplitude
-        """
-        flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
-
-        # Direct numpy slicing - much faster than pandas operations
-        return {name: flat_samples[:, i] for i, name in enumerate(self.free_params_names)}
-
-    def get_sampler_lnprob(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, flat: bool = False) -> np.ndarray:
-        """Returns the log probability at each step of the sampler.
-
-        Parameters
-        ----------
-        discard_start : int, optional
-            Discard the first `discard_start` steps from the start of the chain (default: 0)
-        discard_end : int, optional
-            Discard the last `discard_end` steps from the end of the chain (default: 0)
-        thin : int, optional
-            Use only every `thin` steps from the chain (default: 1)
-        flat : bool, optional
-            If True, return flattened array shape (nsteps_after_discard_thin * nwalkers)
-            If False, return unflattened array shape (nsteps_after_discard_thin, nwalkers) (default: False)
-
-        Returns
-        -------
-        np.ndarray
-            Array of log probabilities of the function at each sample.
-        """
-        # Get the full log prob chain from emcee without any processing
-        full_lnprob = self.sampler.get_log_prob(discard=0, thin=1, flat=False)
-
-        # Match emcee's slicing logic: [discard + thin - 1 : end : thin]
-        # But adapted - we also allow for discarding from the end
-        start_idx = discard_start + thin - 1
-        if discard_end == 0:
-            end_idx = full_lnprob.shape[0]
-        else:
-            end_idx = full_lnprob.shape[0] - discard_end
-
-        # Check the start and end points are valid
-        if start_idx >= end_idx:
-            raise ValueError(f"Invalid parameters: start_idx ({start_idx}) >= end_idx ({end_idx}). "
-                            f"Try reducing discard_start ({discard_start}), discard_end ({discard_end}), or thin ({thin}).")
-
-        # Apply the slicing
-        lnprob = full_lnprob[start_idx:end_idx:thin]
-
-        # Flatten if requested (after discarding) - flatten steps and walkers into single dimension
-        if flat:
-            # (steps, walkers) -> (steps*walkers,)
-            nsteps, nwalkers = lnprob.shape
-            lnprob = lnprob.reshape(nsteps * nwalkers)
-
-        return np.ascontiguousarray(lnprob)
-
-    def get_mcmc_posterior_dict(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> dict:
-        """Return dict combining fixed parameter values, and MCMC samples for the free ones.
-
-        This method creates a unified dictionary containing all model parameters:
-        fixed parameters as single float values, and free parameters as arrays
-        of MCMC samples. This format is ideal for functions like calculate_mpsini
-        that need all parameters (whether free or fixed), and that should propagate uncertainties from
-        the free parameters samples.
-
-        Parameters
-        ----------
-        discard_start : int, optional
-            Discard the first `discard_start` steps from the start of the chain (default: 0)
-        discard_end : int, optional
-            Discard the last `discard_end` steps from the end of the chain (default: 0)
-        thin : int, optional
-            Use only every `thin` steps from the chain (default: 1)
-
-        Returns
-        -------
-        dict
-            Dictionary of all parameters:
-            - Fixed parameters: single float values
-            - Free parameters: 1D arrays of MCMC samples with shape (nsteps_after_discard_thin * nwalkers,)
-        """
-        fixed_params_dict = self.fixed_params_values_dict
-        free_samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
-        return fixed_params_dict | free_samples_dict
-
-    def calculate_log_likelihood(self, params_dict: Dict[str, float]) -> float:
-        """Calculate log-likelihood for given parameter values.
-
-        Note this does not include (log-)prior probabilities, this is just the
-        (log-) *likelihood* primarily for use in AICc & BIC calculation.
-
-        Parameters
-        ----------
-        params_dict : dict
-            Dictionary of all parameter values (both fixed and free)
-
-        Returns
-        -------
-        float
-            The log-likelihood value
-        """
-        # Create GPLogLikelihood object (same as in find_map_estimate and run_mcmc)
-        gp_log_likelihood = GPLogLikelihood(
-            time=self.time,
-            vel=self.vel,
-            velerr=self.velerr,
-            t0=self.t0,
-            instrument=self.instrument,
-            unique_instruments=self.unique_instruments,
+        return GPLogPosterior(
             planet_letters=self.planet_letters,
             parameterisation=self.parameterisation,
             gp_kernel=self.gp_kernel,
+            priors=self.priors,
+            fixed_params=self.fixed_params_values_dict,
+            free_params_names=self.free_params_names,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
         )
-        return gp_log_likelihood(params_dict)
 
-    def build_params_dict(self, free_params: np.ndarray | list | Dict[str, float]) -> Dict[str, float]:
-        """Build a params dict by providing free param vals, combine with fixed param vals.
-
-        Takes free parameter float values (from any source e.g. MAP results,
-        MCMC posteriors, or any custom values) and combines them with the fixed
-        parameter values to create a complete parameter dictionary. This dict is
-        ideal for calculating chi2, log-likelihood, AICc, and BIC.
-
-        This is designed for a single value per parameter. For combining the MCMC posterior
-        chains for free parameters and the fixed values for fixed parameters, use
-        `get_mcmc_posterior_dict` method.
-
-        Parameters
-        ----------
-        free_params : list, np.ndarray, or dict
-            Free parameter values from any source:
-            - list/array: values in order of self.free_params_names
-            - dict: mapping of free param names to values
+    def _build_log_likelihood(self) -> "GPLogLikelihood":
+        """Build the GP log likelihood from the fitter's model, kernel and data.
 
         Returns
         -------
-        Dict[str, float]
-            Complete parameters dict with both free and fixed parameter values
-
-        Examples
-        --------
-        >>> # From MAP optimization result
-        >>> map_result = gpfitter.find_map_estimate()
-        >>> params = gpfitter.build_params_dict(map_result.x)
-        >>> aicc = gpfitter.calculate_aicc(params)
-        >>>
-        >>> # From best MCMC sample
-        >>> best_sample = gpfitter.get_sample_with_best_lnprob(discard_start=1000)
-        >>> params = gpfitter.build_params_dict(best_sample)
-        >>> bic = gpfitter.calculate_bic(params)
-        >>>
-        >>> # From custom array of values (in order of free_params_names, GP hyperparameters last)
-        >>> custom_values = [5.0, 50.0, 0.1, 0.0, 2450000.0, 10.0, 5.0, 0.5, 30.0]  # example values
-        >>> params = gpfitter.build_params_dict(custom_values)
-        >>> log_like = gpfitter.calculate_log_likelihood(params)
+        GPLogLikelihood
+            A new GP log likelihood, called with a full params dict (GP hyperparameters included).
         """
-        if isinstance(free_params, dict):
-            # Validate that all expected free parameters are present
-            expected_names = set(self.free_params_names)
-            provided_names = set(free_params.keys())
-
-            missing = expected_names - provided_names
-            if missing:
-                raise ValueError(f"Missing required free parameters: {missing}")
-
-            extra = provided_names - expected_names
-            if extra:
-                raise ValueError(f"Unexpected parameters provided: {extra}")
-
-            return self.fixed_params_values_dict | free_params
-        else:
-            # Validate that array/list has correct length
-            if len(free_params) != len(self.free_params_names):
-                raise ValueError(
-                    f"Expected {len(self.free_params_names)} free parameter values "
-                    f"but got {len(free_params)} "
-                    f"(expecting {len(self.free_params_names)} values for {self.free_params_names})"
-                )
-
-            free_dict = dict(zip(self.free_params_names, free_params))
-            return self.fixed_params_values_dict | free_dict
+        return GPLogLikelihood(
+            planet_letters=self.planet_letters,
+            parameterisation=self.parameterisation,
+            gp_kernel=self.gp_kernel,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
+        )
 
     @staticmethod
     @jax.jit
@@ -5531,7 +4096,7 @@ class GPFitter:
         GP kernel and observational uncertainties. This properly accounts
         for correlated noise structure.
 
-        Uses GPLogLikelihood._calculate_mean_model to avoid code duplication.
+        Uses the likelihood's mean model (planets, trend, gammas) to avoid code duplication.
 
         Parameters
         ----------
@@ -5544,20 +4109,12 @@ class GPFitter:
             Chi-squared value
         """
         # Create GPLogLikelihood instance to reuse mean model calculation
-        gp_ll = GPLogLikelihood(
-            time=self.time,
-            vel=self.vel,
-            velerr=self.velerr,
-            t0=self.t0,
-            instrument=self.instrument,
-            unique_instruments=self.unique_instruments,
-            planet_letters=self.planet_letters,
-            parameterisation=self.parameterisation,
-            gp_kernel=self.gp_kernel
-        )
+        gp_ll = self._build_log_likelihood()
 
         # Calculate mean model using GPLogLikelihood method
         mean_model = gp_ll._calculate_mean_model(params_dict)
+        if mean_model is None:
+            return np.inf  # a planet's parameters are invalid (as Fitter.calculate_chi2)
 
         # Calculate residuals
         residuals = gp_ll.jax_vel - mean_model
@@ -5576,348 +4133,6 @@ class GPFitter:
 
         # Calculate chi^2 = r^T K^(-1) r using full covariance matrix
         return float(self._compute_gp_chi2(kernel, gp_ll.jax_time, velerr_jitter_squared, residuals))
-
-    def calculate_aicc(self, params_dict: Dict[str, float]) -> float:
-        r"""Calculate corrected Akaike Information Criterion (AICc).
-
-        .. math::
-
-            \text{AICc} = 2k - 2\ln\mathcal{L} + \frac{2k^2 + 2k}{n - k - 1}
-
-        where :math:`k` is the number of free parameters,
-        :math:`n` is the number of observations, and :math:`\mathcal{L}` is
-        the likelihood. Converges to AIC for large :math:`n`.
-
-        Parameters
-        ----------
-        params_dict : dict
-            Dictionary of all parameter values (both fixed and free)
-
-        Returns
-        -------
-        float
-            AICc value
-        """
-        k = self.ndim
-        n = len(self.time)
-        log_like = self.calculate_log_likelihood(params_dict)
-        aic = 2 * k - 2 * log_like  # traditional AIC
-        correction = (2 * k**2 + 2 * k) / (n - k - 1)  # small-sample correction
-        return aic + correction
-
-    def calculate_bic(self, params_dict: Dict[str, float]) -> float:
-        r"""Calculate Bayesian Information Criterion (BIC) for given parameters.
-
-        .. math::
-
-            \text{BIC} = k \ln n - 2 \ln \mathcal{L}
-
-        where :math:`k` is the number of free parameters,
-        :math:`n` is the number of observations, and :math:`\mathcal{L}` is
-        the likelihood.
-
-        Parameters
-        ----------
-        params_dict : dict
-            Dictionary of all parameter values (both fixed and free)
-
-        Returns
-        -------
-        float
-            BIC value
-        """
-        log_like = self.calculate_log_likelihood(params_dict)
-        return self.ndim * np.log(len(self.time)) - 2 * log_like
-
-    def get_sample_with_best_lnprob(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1) -> Dict[str, float]:
-        """Get free parameter values from the MCMC sample with the highest log probability.
-
-        Parameters
-        ----------
-        discard_start : int, optional
-            Discard the first `discard_start` steps from the start of the chain (default: 0)
-        discard_end : int, optional
-            Discard the last `discard_end` steps from the end of the chain (default: 0)
-        thin : int, optional
-            Use only every `thin` steps from the chain (default: 1)
-
-        Returns
-        -------
-        Dict[str, float]
-            Dictionary of free parameter names to values from the best sample
-        """
-        # Get samples and log probabilities
-        samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
-        lnprob = self.get_sampler_lnprob(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
-
-        # Find index of maximum log probability
-        best_idx = np.argmax(lnprob)
-        best_lnprob = lnprob[best_idx]
-
-        print(f"Best sample found with log probability {best_lnprob:.6f} at index {best_idx} of samples (with discard_start={discard_start}, discard_end={discard_end}, thin={thin})")
-
-        # Get parameter values at that index
-        best_values = samples[best_idx]
-
-        # Return as dictionary
-        return dict(zip(self.free_params_names, best_values))
-
-    def plot_autocorr_estimates(
-        self,
-        params: list[str] | None = None,
-        plot_mean: bool = False,
-        show_legend: bool = True,
-        title: str | None = "Autocorrelation Time Estimates",
-        xlabel: str | None = "Step number",
-        ylabel: str | None = r"Autocorrelation time $\tau$",
-        save: bool = False,
-        fname: str = "autocorr_plot.png",
-        dpi: int = 100
-    ) -> None:
-        r"""Plot autocorrelation time estimates from adaptive MCMC run.
-
-        Shows how autocorrelation time evolved during the MCMC run and
-        the convergence threshold line (N / 50).
-
-        Only available if run_mcmc was called with check_convergence=True.
-
-        Parameters
-        ----------
-        params : list[str] or None, optional
-            List of parameter names to plot. If None, plots all free parameters (default: None)
-        plot_mean : bool, optional
-            If True, plot mean tau instead of individual parameter taus.
-            Overrides params argument (default: False)
-        show_legend : bool, optional
-            Whether to show legend (default: True)
-        title : str or None, optional
-            Plot title (default: "Autocorrelation Time Estimates"). Set to None or "" to skip.
-        xlabel : str or None, optional
-            X-axis label (default: "Step number"). Set to None or "" to skip.
-        ylabel : str or None, optional
-            Y-axis label (default: r"Autocorrelation time $\tau$"). Set to None or "" to skip.
-        save : bool, optional
-            Save the plot to path `fname` (default: False)
-        fname : str, optional
-            The path to save the plot to (default: "autocorr_plot.png")
-        dpi : int, optional
-            The dpi to save the image at (default: 100)
-
-        Raises
-        ------
-        ValueError
-            If no autocorrelation history is available (run_mcmc was not called
-            with check_convergence=True, or has not been called yet)
-        """
-        # Check if data available
-        if not hasattr(self, 'autocorr_history') or len(self.autocorr_history) == 0:
-            raise ValueError(
-                "No autocorrelation history available. "
-                "Please run run_mcmc() with check_convergence=True first."
-            )
-
-        iterations = np.array(list(self.autocorr_history.keys()))
-        max_iteration = np.max(iterations)
-        tau_history = np.array(list(self.autocorr_history.values()))  # Shape: (n_checks, n_params)
-
-        # Create plot
-        fig, ax = plt.subplots(1, figsize=(10, 6))
-        if title:
-            fig.suptitle(title)
-
-        # Plot convergence threshold (N/50)
-        ax.plot([0, max_iteration], [0, max_iteration / 50], "--k", linewidth=2,
-                label="N/50")
-
-        if plot_mean:
-            # Plot mean tau
-            mean_tau = np.mean(tau_history, axis=1)
-            ax.plot(iterations, mean_tau, linewidth=2, label=r"Mean $\tau$")
-        else:
-            # Determine which parameters to plot
-            if params is None:
-                params_to_plot = self.free_params_names
-                indices_to_plot = range(len(self.free_params_names))
-            else:
-                params_to_plot = []
-                indices_to_plot = []
-                for param in params:
-                    if param in self.free_params_names:
-                        idx = self.free_params_names.index(param)
-                        params_to_plot.append(param)
-                        indices_to_plot.append(idx)
-                    else:
-                        logging.warning(f"Parameter '{param}' not found in free parameters, skipping")
-
-            # Plot individual parameter taus
-            for i, param_name in zip(indices_to_plot, params_to_plot):
-                ax.plot(iterations, tau_history[:, i], alpha=0.7, label=param_key_to_latex(param_name))
-
-        ax.set_xlim(0, iterations.max())
-        ax.set_ylim(bottom=0)
-        if xlabel:
-            ax.set_xlabel(xlabel)
-        if ylabel:
-            ax.set_ylabel(ylabel)
-
-        if show_legend:
-            ax.legend(loc='upper left')
-
-        ax.grid(True, alpha=0.3)
-
-        if save:
-            plt.savefig(fname=fname, dpi=dpi)
-            print(f"Saved {fname}")
-        plt.show()
-
-    def plot_chains(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, truths: list = None, title: str | None = "Chains plot", xlabel: str | None = "Step number", save: bool = False, fname: str = "chains_plot.png", dpi: int = 100) -> None:
-        """Plot MCMC chains for all free parameters.
-
-        Displays the evolution of each free parameter across MCMC steps for all walkers.
-        Useful for diagnosing convergence, burn-in, and mixing of the MCMC chains.
-        Each parameter gets its own subplot showing all walker traces.
-
-        Parameters
-        ----------
-        discard_start : int, optional
-            Discard the first `discard_start` steps from the start of the chain (default: 0)
-        discard_end : int, optional
-            Discard the last `discard_end` steps from the end of the chain (default: 0)
-        thin : int, optional
-            Use only every `thin` steps from the chain (default: 1)
-        truths : list, optional
-            List of true parameter values to overplot as horizontal lines.
-            Must match the number of free parameters. Use None for parameters
-            without known truth values (default: None)
-        title : str or None, optional
-            Plot title (default: "Chains plot"). Set to None or "" to skip.
-        xlabel : str or None, optional
-            X-axis label (default: "Step number"). Set to None or "" to skip.
-        save : bool, optional
-            Save the plot (default: False)
-        fname : str, optional
-            Filename to save (default: "chains_plot.png")
-        dpi : int, optional
-            Resolution for saving (default: 100)
-        """
-        # Scale figure height to maintain consistent subplot size
-        subplot_height_inches = 1.25
-        fig, axes = plt.subplots(self.ndim, figsize=(10, self.ndim * subplot_height_inches),
-                                sharex=True, constrained_layout=True)
-        if title:
-            fig.suptitle(title)
-
-        if self.ndim == 1:
-            axes = [axes]
-
-        if truths is not None:
-            if not len(truths) == self.ndim:
-                raise ValueError(f"Length of truths ({len(truths)}) must match number of free parameters ({self.ndim})")
-
-        samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=False)
-        for i in range(self.ndim):
-            ax = axes[i]
-            ax.set_xlim(0, len(samples))
-            ax.set_ylabel(param_key_to_latex(self.free_params_names[i]))
-
-            to_plot = samples[:, :, i]
-            ax.plot(to_plot, "k", alpha=0.3)
-            if truths is not None and truths[i] is not None:
-                ax.axhline(truths[i], color="tab:blue")
-
-        fig.align_ylabels(axes)
-        if xlabel:
-            axes[-1].set_xlabel(xlabel)
-        if save:
-            plt.savefig(fname=fname, dpi=dpi)
-            print(f"Saved {fname}")
-        plt.show()
-
-    def plot_lnprob(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, title: str | None = "Log Probability Traces", xlabel: str | None = "Step number", ylabel: str | None = "Log probability", save: bool = False, fname: str = "lnprob_plot.png", dpi: int = 100) -> None:
-        """Plot log probability traces for all walkers.
-
-        Useful for diagnosing MCMC convergence and identifying problematic
-        walkers/parameters. You can use `discard_start` and `discard_end` to
-        focus in on specific steps in the chains.
-
-        Parameters
-        ----------
-        discard_start : int, optional
-            Discard the first `discard_start` steps from the start of the chain (default: 0)
-        discard_end : int, optional
-            Discard the last `discard_end` steps from the end of the chain (default: 0)
-        thin : int, optional
-            Use only every `thin` steps from the chain (default: 1)
-        title : str or None, optional
-            Plot title (default: "Log Probability Traces"). Set to None or "" to skip.
-        xlabel : str or None, optional
-            X-axis label (default: "Step number"). Set to None or "" to skip.
-        ylabel : str or None, optional
-            Y-axis label (default: "Log probability"). Set to None or "" to skip.
-        save : bool, optional
-            Save the plot to path `fname` (default: False)
-        fname : str, optional
-            The path to save the plot to (default: "lnprob_plot.png")
-        dpi : int, optional
-            The dpi to save the image at (default: 100)
-        """
-        fig, ax = plt.subplots(1, figsize=(10, 6))
-        if title:
-            fig.suptitle(title)
-
-        lnprobs = self.get_sampler_lnprob(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=False)
-
-        nsteps, nwalkers = lnprobs.shape
-        for i in range(nwalkers):
-            to_plot = lnprobs[:, i]
-            ax.plot(to_plot, "k", alpha=0.3)
-
-        ax.set_xlim(0, nsteps)
-        if xlabel:
-            ax.set_xlabel(xlabel)
-        if ylabel:
-            ax.set_ylabel(ylabel)
-
-        if save:
-            plt.savefig(fname=fname, dpi=dpi)
-            print(f"Saved {fname}")
-        plt.show()
-
-    def plot_corner(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, plot_datapoints: bool = False, truths: list[float] = None, title: str | None = "Corner plots", save: bool = False, fname: str = "corner_plot.png", dpi: int = 100) -> None:
-        """Create a corner plot of MCMC samples.
-
-        Parameters
-        ----------
-        discard_start : int, optional
-            Discard the first `discard_start` steps from the start of the chain (default: 0)
-        discard_end : int, optional
-            Discard the last `discard_end` steps from the end of the chain (default: 0)
-        thin : int, optional
-            Use only every `thin` steps from the chain (default: 1)
-        plot_datapoints : bool, optional
-            Show individual data points in addition to contours (default: False)
-        truths : list of float, optional
-            True parameter values to overplot as vertical/horizontal lines (default: None).
-            Must match the order of free parameters if provided.
-        save : bool, optional
-            Save the plot (default: False)
-        fname : str, optional
-            Filename to save (default: "corner_plot.png")
-        dpi : int, optional
-            Resolution for saving (default: 100)
-        """
-        flat_samples = self.get_samples_np(discard_start=discard_start, discard_end=discard_end, thin=thin, flat=True)
-        param_labels = [param_key_to_latex(n) for n in self.free_params_names]
-        fig = corner.corner(
-            flat_samples, labels=param_labels, show_titles=True,
-            plot_datapoints=plot_datapoints, quantiles=[0.1585, 0.5, 0.8415],
-            truths=truths,
-        )
-        fig.suptitle("Corner plots")
-        if save:
-            plt.savefig(fname=fname, dpi=dpi)
-            print(f"Saved {fname}")
-        plt.show()
 
     def _plot_rv(self, params: Dict[str, float], title: str = "RV Model", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "rv_plot.png", dpi: int = 100) -> None:
         """Helper function to plot RV model with given parameters.
@@ -6134,7 +4349,7 @@ class GPFitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def _plot_phase(self, planet_letter: str, params: Dict[str, float], title: str = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "phase_plot.png", dpi: int = 100, n_smooth: int = 1000) -> None:
+    def _plot_phase(self, planet_letter: str, params: Dict[str, float], title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "phase_plot.png", dpi: int = 100, n_smooth: int = 1000) -> None:
         """Helper function to plot phase-folded RV model for a single planet with given parameters.
 
         For GP fitting, this handles the challenge that the GP component cannot be
@@ -6148,8 +4363,8 @@ class GPFitter:
             Letter identifying the planet to plot (e.g., 'b', 'c', 'd')
         params : dict
             Dictionary of parameter values (both free and fixed)
-        title : str, optional
-            Plot title (default: f"Planet {planet_letter} Phase Plot"). Set to None or "" to skip.
+        title : str or None, optional
+            Plot title, drawn as given (default: None, no title).
         ylabel_main : str or None, optional
             Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
@@ -6167,9 +4382,6 @@ class GPFitter:
         dpi : int, optional
             Resolution for saving (default: 100)
         """
-        if title is None:
-            title = f"Planet {planet_letter} Phase Plot"
-
         # Calculate per-instrument jitter for error bars
         velerr_with_jit = np.zeros_like(self.velerr)
         for inst in self.unique_instruments:
@@ -6345,7 +4557,7 @@ class GPFitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_posterior_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = "Posterior predictions (with GP)", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_rv.png", dpi: int = 100, n_smooth: int = 1000) -> None:
+    def plot_posterior_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, n_smooth: int = 1000, title: str | None = "Posterior RV", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_rv.png", dpi: int = 100) -> None:
         """Plot the posterior GP RV model with uncertainty bands from MCMC samples.
 
         Calculates RV model predictions for each MCMC sample, then plots the median
@@ -6362,8 +4574,11 @@ class GPFitter:
             Use only every `thin` steps from the chain (default: 1)
         show_CI : bool, optional
             Show 68.3% credible interval band (default: True)
+        n_smooth : int, optional
+            Number of points in smooth time grid for plotting model curves (default: 1000).
+            Reduce for faster plotting, increase for smoother curves.
         title : str or None, optional
-            Title for the main RV plot (default: "Posterior predictions (with GP)"). Set to None or "" to skip.
+            Title for the main RV plot (default: "Posterior RV"). Set to None or "" to skip.
         ylabel_main : str or None, optional
             Y-axis label for main RV plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
         xlabel : str or None, optional
@@ -6384,9 +4599,6 @@ class GPFitter:
             The path to save the plot to (default: "posterior_rv.png")
         dpi : int, optional
             The dpi to save the image at (default: 100)
-        n_smooth : int, optional
-            Number of points in smooth time grid for plotting model curves (default: 1000).
-            Reduce for faster plotting, increase for smoother curves.
         """
         # Create smooth time curve for plotting
         _tmin, _tmax = self.time.min(), self.time.max()
@@ -6566,7 +4778,7 @@ class GPFitter:
             print(f"Saved {fname}")
         plt.show()
 
-    def plot_posterior_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_phase.png", dpi: int = 100, n_smooth: int = 500, freeze_params: dict[str, float | None] | None = None) -> None:
+    def plot_posterior_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, show_CI: bool = True, freeze_params: dict[str, float | None] | None = None, n_smooth: int = 1000, title: str | None = "Posterior Phase Plot - Planet {planet_letter}", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "posterior_phase.png", dpi: int = 100) -> None:
         """Plot phase-folded GP RV model with uncertainty bands from MCMC samples.
 
         Calculates phase-folded planetary signal with uncertainty bands calculated
@@ -6585,27 +4797,6 @@ class GPFitter:
             Use only every `thin` steps from the chain (default: 1)
         show_CI : bool, optional
             Show 68.3% credible interval band (default: True)
-        title : str or None, optional
-            Title for the main phase plot (default: "Posterior Phase Plot (with GP) - Planet {planet_letter}"). Set to None or "" to skip.
-        ylabel_main : str or None, optional
-            Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
-        xlabel : str or None, optional
-            X-axis label for residuals plot (default: "Orbital phase"). Set to None or "" to skip.
-        ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
-        ylim : tuple or None, optional
-            (ymin, ymax) limits for the main phase plot y-axis (default: None, auto-scaled)
-        res_ylim : tuple or None, optional
-            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
-        save : bool, optional
-            Save the plot to path `fname` (default: False)
-        fname : str, optional
-            The path to save the plot to (default: "posterior_phase.png")
-        dpi : int, optional
-            The dpi to save the image at (default: 100)
-        n_smooth : int, optional
-            Number of points in the one-period smooth model curve (default: 500).
-            Reduce for faster plotting, increase for smoother curves.
         freeze_params : dict[str, float or None] or None, optional
             Freeze named planet parameters to fixed values during the
             per-sample RV calculation (default: None, no freezing). Keys are
@@ -6622,6 +4813,28 @@ class GPFitter:
             conditioned on the residuals from the (frozen) planet and trend
             model, so the removed GP component stays self-consistent with the
             frozen parameters.
+        n_smooth : int, optional
+            Number of points in the one-period smooth model curve (default: 1000).
+            Reduce for faster plotting, increase for smoother curves.
+        title : str or None, optional
+            Title for the main phase plot (default: "Posterior Phase Plot - Planet {planet_letter}"). Any
+            ``{planet_letter}`` in it is replaced by the planet's letter. Set to None or "" to skip.
+        ylabel_main : str or None, optional
+            Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
+        xlabel : str or None, optional
+            X-axis label for residuals plot (default: "Orbital phase"). Set to None or "" to skip.
+        ylabel_residuals : str or None, optional
+            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
+        ylim : tuple or None, optional
+            (ymin, ymax) limits for the main phase plot y-axis (default: None, auto-scaled)
+        res_ylim : tuple or None, optional
+            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
+        save : bool, optional
+            Save the plot to path `fname` (default: False)
+        fname : str, optional
+            The path to save the plot to (default: "posterior_phase.png")
+        dpi : int, optional
+            The dpi to save the image at (default: 100)
 
             Only planet parameters of the active parameterisation can be frozen,
             not trend, instrument or GP-hyperparameter parameters (``gd``,
@@ -6841,10 +5054,9 @@ class GPFitter:
         ax1.xaxis.set_major_locator(MultipleLocator(0.25))  # Set x-ticks every 0.25
         if ylabel_main:
             ax1.set_ylabel(ylabel_main)
-        if title is None:
-            ax1.set_title(f"Posterior Phase Plot (with GP) - Planet {planet_letter}")
-        elif title:
-            ax1.set_title(title)
+        if title:
+            # str.replace, not str.format, so LaTeX braces are left alone
+            ax1.set_title(title.replace("{planet_letter}", planet_letter))
         ax1.legend(loc="upper right")
         ax1.tick_params(axis='x', labelbottom=False, bottom=True, top=False, direction='in')
         ax1.tick_params(axis='y', direction='in')
@@ -6879,410 +5091,6 @@ class GPFitter:
             plt.savefig(fname=fname, dpi=dpi)
             print(f"Saved {fname}")
         plt.show()
-
-    def plot_MAP_rv(self, map_result: scipy.optimize.OptimizeResult, title: str | None = "MAP RV (with GP)", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "MAP_rv.png", dpi: int = 100) -> None:
-        """Plot the MAP RV model.
-
-        Uses the Maximum A Posteriori (MAP) parameter estimates to plot the
-        GP model including both mean model (planets + trend) and GP component.
-
-        Parameters
-        ----------
-        map_result : scipy.optimize.OptimizeResult
-            Result from find_map_estimate()
-        title : str or None, optional
-            Plot title (default: "MAP RV (with GP)"). Set to None or "" to skip.
-        ylabel_main : str or None, optional
-            Y-axis label for main RV plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
-        xlabel : str or None, optional
-            X-axis label for residuals plot (default: "Time [days]"). Set to None or "" to skip.
-        ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
-        xlim : tuple or None, optional
-            (xmin, xmax) limits for the main RV plot x-axis (default: None, uses data range)
-        ylim : tuple or None, optional
-            (ymin, ymax) limits for the main RV plot y-axis (default: None, auto-scaled)
-        res_xlim : tuple or None, optional
-            (xmin, xmax) limits for the residuals plot x-axis (default: None, uses data range)
-        res_ylim : tuple or None, optional
-            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
-        save : bool, optional
-            Save the plot (default: False)
-        fname : str, optional
-            Filename to save (default: "MAP_rv.png")
-        dpi : int, optional
-            Resolution for saving (default: 100)
-        """
-        # Get MAP parameter values from the optimization result
-        map_params = dict(zip(self.free_params_names, map_result.x))
-
-        # Combine with fixed parameters
-        all_params = map_params | self.fixed_params_values_dict
-
-        # Use helper function to create the plot
-        self._plot_rv(all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
-
-    def plot_MAP_phase(self, planet_letter: str, map_result: scipy.optimize.OptimizeResult, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "MAP_phase.png", dpi: int = 100) -> None:
-        """Plot the MAP phase model.
-
-        Uses the Maximum A Posteriori (MAP) parameter estimates to plot the
-        phase-folded GP model for a specific planet, including both mean model
-        (planets + trend) and GP component.
-
-        Parameters
-        ----------
-        planet_letter : str
-            Letter identifying the planet to plot (e.g., 'b', 'c', 'd')
-        map_result : scipy.optimize.OptimizeResult
-            Result from find_map_estimate()
-        title : str or None, optional
-            Plot title (default: f"MAP Phase Plot (with GP) - Planet {planet_letter}"). Set to None or "" to skip.
-        ylabel_main : str or None, optional
-            Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
-        xlabel : str or None, optional
-            X-axis label for residuals plot (default: "Orbital phase"). Set to None or "" to skip.
-        ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
-        ylim : tuple or None, optional
-            (ymin, ymax) limits for the main phase plot y-axis (default: None, auto-scaled)
-        res_ylim : tuple or None, optional
-            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
-        save : bool, optional
-            Save the plot (default: False)
-        fname : str, optional
-            Filename to save (default: "MAP_phase.png")
-        dpi : int, optional
-            Resolution for saving (default: 100)
-        """
-        # Get MAP parameter values from the optimization result
-        map_params = dict(zip(self.free_params_names, map_result.x))
-
-        # Combine with fixed parameters
-        all_params = map_params | self.fixed_params_values_dict
-
-        # Set default title if not provided
-        if title is None:
-            title = f"MAP Phase Plot (with GP) - Planet {planet_letter}"
-
-        # Use helper function to create the plot
-        self._plot_phase(planet_letter, all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
-
-    def plot_custom_rv(self, params: dict, title: str | None = "Custom GP RV Plot", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, n_smooth: int = 1000, save: bool = False, fname: str = "custom_rv.png", dpi: int = 100) -> None:
-        """Plot GP radial velocity data and model using custom parameter and hyperparameter values.
-
-        Allows plotting with arbitrary parameter and hyperparameter values for exploring
-        parameter space or comparing theoretical models. The GP component will be
-        conditioned on the residuals from the mean model (planets + trend).
-
-        Parameters
-        ----------
-        params : dict
-            Dictionary of parameter and hyperparameter values to use for plotting.
-            Keys should match parameter and hyperparameter names, values should be floats.
-            Must include all required parameters and hyperparameters for the current
-            parameterisation and GP kernel.
-        title : str or None, optional
-            Plot title (default: "Custom GP RV Plot"). Set to None or "" to skip.
-        ylabel_main : str or None, optional
-            Y-axis label for main RV plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
-        xlabel : str or None, optional
-            X-axis label for residuals plot (default: "Time [days]"). Set to None or "" to skip.
-        ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
-        xlim : tuple or None, optional
-            (xmin, xmax) limits for the main RV plot x-axis (default: None, uses data range)
-        ylim : tuple or None, optional
-            (ymin, ymax) limits for the main RV plot y-axis (default: None, auto-scaled)
-        res_xlim : tuple or None, optional
-            (xmin, xmax) limits for the residuals plot x-axis (default: None, uses data range)
-        res_ylim : tuple or None, optional
-            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
-        n_smooth : int, optional
-            Number of points in the smooth model curve (default: 1000)
-        save : bool, optional
-            Save the plot (default: False)
-        fname : str, optional
-            Filename to save (default: "custom_rv.png")
-        dpi : int, optional
-            Resolution for saving (default: 100)
-
-        Examples
-        --------
-        >>> # Plot with custom values (must include all required parameters + hyperparameters)
-        >>> gpfitter.plot_custom_rv({"P_b": 4.25, "K_b": 55.0, "e_b": 0.1,
-        ...                          "w_b": 1.57, "Tc_b": 2456325.5,
-        ...                          "g": -10.2, "gd": 0.0, "gdd": 0.0, "jit": 2.0,
-        ...                          "gp_amp": 15.0, "gp_lambda_e": 50.0,
-        ...                          "gp_lambda_p": 0.5, "gp_period": 25.0})
-        """
-        # Validate that all required parameters are present
-        expected_params = set(self.free_params_names + list(self.fixed_params_names))
-        provided_params = set(params.keys())
-        missing_params = expected_params - provided_params
-        if missing_params:
-            raise ValueError(f"Missing required parameters: {missing_params}")
-
-        # Use helper function to create the plot
-        self._plot_rv(params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, n_smooth=n_smooth, save=save, fname=fname, dpi=dpi)
-
-    def plot_custom_phase(self, planet_letter: str, params: dict, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "custom_phase.png", dpi: int = 100) -> None:
-        """Plot GP phase-folded radial velocity data and model using custom parameter and hyperparameter values.
-
-        Allows plotting phase-folded data with arbitrary parameter and hyperparameter values
-        for exploring parameter space or comparing theoretical models. The GP component
-        will be conditioned on the residuals from the mean model (planets + trend).
-
-        Parameters
-        ----------
-        planet_letter : str
-            Letter identifying the planet to plot (e.g., 'b', 'c', 'd')
-        params : dict
-            Dictionary of parameter and hyperparameter values to use for plotting.
-            Keys should match parameter and hyperparameter names, values should be floats.
-            Must include all required parameters and hyperparameters for the current
-            parameterisation and GP kernel.
-        title : str or None, optional
-            Plot title (default: f"Custom GP Phase Plot - Planet {planet_letter}"). Set to None or "" to skip.
-        ylabel_main : str or None, optional
-            Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
-        xlabel : str or None, optional
-            X-axis label for residuals plot (default: "Orbital phase"). Set to None or "" to skip.
-        ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
-        ylim : tuple or None, optional
-            (ymin, ymax) limits for the main phase plot y-axis (default: None, auto-scaled)
-        res_ylim : tuple or None, optional
-            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
-        save : bool, optional
-            Save the plot (default: False)
-        fname : str, optional
-            Filename to save (default: "custom_phase.png")
-        dpi : int, optional
-            Resolution for saving (default: 100)
-
-        Examples
-        --------
-        >>> # Plot phase curve with custom values
-        >>> gpfitter.plot_custom_phase("b", {"P_b": 4.25, "K_b": 55.0, "e_b": 0.1,
-        ...                                  "w_b": 1.57, "Tc_b": 2456325.5,
-        ...                                  "g": -10.2, "gd": 0.0, "gdd": 0.0, "jit": 2.0,
-        ...                                  "gp_amp": 15.0, "gp_lambda_e": 50.0,
-        ...                                  "gp_lambda_p": 0.5, "gp_period": 25.0})
-        """
-        # Validate that all required parameters are present
-        expected_params = set(self.free_params_names + list(self.fixed_params_names))
-        provided_params = set(params.keys())
-        missing_params = expected_params - provided_params
-        if missing_params:
-            raise ValueError(f"Missing required parameters: {missing_params}")
-
-        # Set default title if not provided
-        if title is None:
-            title = f"Custom GP Phase Plot - Planet {planet_letter}"
-
-        # Use helper function to create the plot
-        self._plot_phase(planet_letter, params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
-
-    def plot_best_sample_rv(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, title: str | None = "Best Sample RV Plot (with GP)", ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Time [days]", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", xlim: tuple | None = None, ylim: tuple | None = None, res_xlim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "best_sample_rv.png", dpi: int = 100) -> None:
-        """Plot radial velocity data and model using parameter and hyperparameter values from the MCMC sample with highest log probability.
-
-        This is useful for comparing with plot_MAP_rv() to diagnose potential issues with
-        MAP convergence or MCMC mixing. The two plots should be very similar if both
-        MAP and MCMC are working correctly.
-
-        Parameters
-        ----------
-        discard_start : int, optional
-            Discard the first `discard_start` steps from the start of the chain (default: 0)
-        discard_end : int, optional
-            Discard the last `discard_end` steps from the end of the chain (default: 0)
-        thin : int, optional
-            Use only every `thin` steps from the chain (default: 1)
-        title : str or None, optional
-            Title for the main RV plot (default: "Best Sample RV Plot (with GP)"). Set to None or "" to skip.
-        ylabel_main : str or None, optional
-            Y-axis label for main RV plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
-        xlabel : str or None, optional
-            X-axis label for residuals plot (default: "Time [days]"). Set to None or "" to skip.
-        ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
-        xlim : tuple or None, optional
-            (xmin, xmax) limits for the main RV plot x-axis (default: None, uses data range)
-        ylim : tuple or None, optional
-            (ymin, ymax) limits for the main RV plot y-axis (default: None, auto-scaled)
-        res_xlim : tuple or None, optional
-            (xmin, xmax) limits for the residuals plot x-axis (default: None, uses data range)
-        res_ylim : tuple or None, optional
-            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
-        save : bool, optional
-            Save the plot (default: False)
-        fname : str, optional
-            Filename to save (default: "best_sample_rv.png")
-        dpi : int, optional
-            Resolution for saving (default: 100)
-        """
-        # Get free parameter values from best sample
-        best_sample_params = self.get_sample_with_best_lnprob(discard_start=discard_start, discard_end=discard_end, thin=thin)
-
-        # Combine with fixed parameters
-        all_params = best_sample_params | self.fixed_params_values_dict
-
-        # Use helper function to create the plot
-        self._plot_rv(all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals, xlim=xlim, ylim=ylim, res_xlim=res_xlim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
-
-    def plot_best_sample_phase(self, planet_letter: str, discard_start: int = 0, discard_end: int = 0, thin: int = 1, title: str | None = None, ylabel_main: str | None = "Radial velocity [m s$^{-1}$]", xlabel: str | None = "Orbital phase", ylabel_residuals: str | None = "Residuals [m s$^{-1}$]", ylim: tuple | None = None, res_ylim: tuple | None = None, save: bool = False, fname: str = "best_sample_phase.png", dpi: int = 100) -> None:
-        """Plot phase-folded radial velocity data and model using parameter and hyperparameter values from the MCMC sample with highest log probability.
-
-        This is useful for comparing with plot_MAP_phase() to diagnose potential issues with
-        MAP convergence or MCMC mixing. The two plots should be very similar if both
-        MAP and MCMC are working correctly.
-
-        Parameters
-        ----------
-        planet_letter : str
-            Letter identifying the planet to plot (e.g., 'b', 'c', 'd')
-        discard_start : int, optional
-            Discard the first `discard_start` steps from the start of the chain (default: 0)
-        discard_end : int, optional
-            Discard the last `discard_end` steps from the end of the chain (default: 0)
-        thin : int, optional
-            Use only every `thin` steps from the chain (default: 1)
-        title : str or None, optional
-            Title for the main phase plot (default: "Best Sample Phase Plot (with GP) - Planet {planet_letter}"). Set to None or "" to skip.
-        ylabel_main : str or None, optional
-            Y-axis label for main phase plot (default: "Radial velocity [m s$^{-1}$]"). Set to None or "" to skip.
-        xlabel : str or None, optional
-            X-axis label for residuals plot (default: "Orbital phase"). Set to None or "" to skip.
-        ylabel_residuals : str or None, optional
-            Y-axis label for residuals plot (default: "Residuals [m s$^{-1}$]"). Set to None or "" to skip.
-        ylim : tuple or None, optional
-            (ymin, ymax) limits for the main phase plot y-axis (default: None, auto-scaled)
-        res_ylim : tuple or None, optional
-            (ymin, ymax) limits for the residuals plot y-axis (default: None, symmetric around 0)
-        save : bool, optional
-            Save the plot (default: False)
-        fname : str, optional
-            Filename to save (default: "best_sample_phase.png")
-        dpi : int, optional
-            Resolution for saving (default: 100)
-        """
-        # Get free parameter values from best sample
-        best_sample_params = self.get_sample_with_best_lnprob(discard_start=discard_start, discard_end=discard_end, thin=thin)
-
-        # Combine with fixed parameters
-        all_params = best_sample_params | self.fixed_params_values_dict
-
-        # Set default title if not provided
-        if title is None:
-            title = f"Best Sample Phase Plot (with GP) - Planet {planet_letter}"
-
-        # Use helper function to create the plot
-        self._plot_phase(planet_letter, all_params, title=title, ylabel_main=ylabel_main, xlabel=xlabel, ylabel_residuals=ylabel_residuals,
-                        ylim=ylim, res_ylim=res_ylim, save=save, fname=fname, dpi=dpi)
-
-    def _resolve_freeze_params(self, freeze_params: dict[str, float | None] | None, discard_start: int = 0, discard_end: int = 0, thin: int = 1, planet_letter: str | None = None) -> dict[str, float] | None:
-        """Validate and resolve a ``freeze_params`` mapping for phase plotting.
-
-        Parameters
-        ----------
-        freeze_params : dict[str, float or None] or None
-            Mapping of full planet-parameter names (e.g. ``"P_c"``, ``"Tc_c"``)
-            to the value to freeze them at. A value of ``None`` freezes the
-            parameter at its posterior median, computed from the requested
-            samples (a fixed parameter resolves to its fixed value). If
-            ``None``, this method returns ``None``.
-        discard_start : int, optional
-            Discard the first ``discard_start`` steps from the chain (default: 0).
-            Only used to compute medians for any ``None``-valued entries.
-        discard_end : int, optional
-            Discard the last ``discard_end`` steps from the chain (default: 0).
-            Only used to compute medians for any ``None``-valued entries.
-        thin : int, optional
-            Use only every ``thin`` steps from the chain (default: 1).
-            Only used to compute medians for any ``None``-valued entries.
-        planet_letter : str or None, optional
-            The planet the freeze is being applied for (default: None). If
-            given, a key whose planet letter differs from ``planet_letter``
-            warns, since freezing usually targets the plotted planet.
-
-        Returns
-        -------
-        dict[str, float] or None
-            Mapping with every value resolved to a float, or ``None`` if
-            ``freeze_params`` was ``None``.
-
-        Raises
-        ------
-        ValueError
-            If a key is not a recognised planet parameter of the active
-            parameterisation.
-
-        Warns
-        -----
-        UserWarning
-            If a key names a parameter that is already fixed (not free), or (when
-            ``planet_letter`` is given) a parameter for a different planet.
-            Neither is forbidden, but both usually mean the wrong key was passed.
-        """
-        if freeze_params is None:
-            return None
-
-        valid_names = {f"{par}_{letter}" for par in self.parameterisation.pars for letter in self.planet_letters}
-        unknown = set(freeze_params) - valid_names
-        if unknown:
-            raise ValueError(
-                f"Unknown freeze_params key(s): {sorted(unknown)}. Keys must be "
-                f"planet parameters of the active parameterisation, i.e. one of "
-                f"{sorted(valid_names)}."
-            )
-
-        # Warn if a key targets a planet other than the one being plotted: the
-        # phase plot is for a single planet, so freezing another planet's
-        # parameter almost always means the wrong planet letter was passed. Not
-        # forbidden (it still applies when removing that planet's signal).
-        if planet_letter is not None:
-            wrong_planet = [key for key in freeze_params if key.rsplit("_", 1)[-1] != planet_letter]
-            if wrong_planet:
-                warnings.warn(
-                    f"freeze_params names parameter(s) for a different planet than "
-                    f"'{planet_letter}': {sorted(wrong_planet)}. Freezing is intended "
-                    f"for the target planet's parameters (typically P and Tc); check "
-                    f"the planet letter.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-
-        # Freezing only matters for parameters that vary across samples. Freezing
-        # a parameter that is already fixed has no de-smearing effect, so it most
-        # likely signals a wrong parameter name or a misunderstanding of what
-        # freezing does. It is not forbidden (freezing a fixed parameter to a
-        # different value is still allowed), but warn loudly.
-        fixed_frozen = [key for key in freeze_params if key not in self.free_params_names]
-        if fixed_frozen:
-            warnings.warn(
-                f"freeze_params names parameter(s) that are already fixed, not free: "
-                f"{sorted(fixed_frozen)}. Freezing only affects parameters that vary "
-                f"across posterior samples, so this has no de-smearing effect "
-                f"(a None value just resolves to the fixed value). Did you mean a "
-                f"free parameter, or pass the wrong name?",
-                UserWarning,
-                stacklevel=2,
-            )
-
-        resolved: dict[str, float] = {}
-        samples_dict = None  # only loaded if a None value needs a median
-        for key, value in freeze_params.items():
-            if value is None:
-                if samples_dict is None:
-                    samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
-                if key in samples_dict:
-                    resolved[key] = float(np.median(samples_dict[key]))
-                else:
-                    # Fixed parameter: its "median" is just its fixed value.
-                    resolved[key] = float(self.fixed_params_values_dict[key])
-            else:
-                resolved[key] = float(value)
-        return resolved
 
     def calculate_rv_planet_from_samples(self, planet_letter: str, times: np.ndarray, discard_start: int = 0, discard_end: int = 0, thin: int = 1, progress: bool = True, freeze_params: dict[str, float | None] | None = None) -> np.ndarray:
         """Calculate planetary RV for each MCMC sample.
@@ -7417,9 +5225,9 @@ class GPFitter:
 
         # Pre-calculate mean RV (Trend + Planets) at data times for all samples
         # These are used to condition the GP
-        mean_rv_at_data = self.calculate_rv_trend_from_samples(self.time, discard_start, discard_end, thin)
+        mean_rv_at_data = self.calculate_rv_trend_from_samples(self.time, discard_start, discard_end, thin, progress=progress)
         for planet_letter in self.planet_letters:
-            mean_rv_at_data += self.calculate_rv_planet_from_samples(planet_letter, self.time, discard_start, discard_end, thin)
+            mean_rv_at_data += self.calculate_rv_planet_from_samples(planet_letter, self.time, discard_start, discard_end, thin, progress=progress)
 
         iterator = tqdm(enumerate(samples), total=len(samples), disable=not progress, desc="Calculating GP from samples")
         for i, combined_sample in iterator:
@@ -7457,10 +5265,7 @@ class GPFitter:
             Shape (n_samples, len(times)) - Total RV for each sample
         """
         # Calculate trend + planets at requested times (for output)
-        total_rvs = self.calculate_rv_trend_from_samples(times, discard_start, discard_end, thin)
-        for planet_letter in self.planet_letters:
-            planet_rvs = self.calculate_rv_planet_from_samples(planet_letter, times, discard_start, discard_end, thin)
-            total_rvs += planet_rvs
+        total_rvs = super().calculate_rv_total_from_samples(times=times, discard_start=discard_start, discard_end=discard_end, thin=thin, progress=progress)
 
         # Calculate the GP component (conditioned on residuals from mean_rv_at_data)
         gp_rvs = self.calculate_rv_gp_from_samples(times=times, discard_start=discard_start, discard_end=discard_end, thin=thin, progress=progress)
@@ -7469,73 +5274,6 @@ class GPFitter:
         total_rvs += gp_rvs
 
         return total_rvs
-
-    def calculate_rv_planet_custom(self, planet_letter: str, times: np.ndarray, params: dict[str, float]) -> np.ndarray:
-        """Calculate planetary RV for a single set of custom parameters.
-
-        Parameters
-        ----------
-        planet_letter : str
-            Planet letter to calculate RV for (e.g., 'b', 'c')
-        times : np.ndarray
-            Time points to calculate RV at
-        params : dict[str, float]
-            Complete parameter dictionary (free + fixed parameters).
-            Can be created using build_params_dict().
-
-        Returns
-        -------
-        np.ndarray
-            Planetary RV values at the requested times
-
-        Examples
-        --------
-        >>> # Using MAP result
-        >>> map_result = gpfitter.find_map_estimate()
-        >>> params = gpfitter.build_params_dict(map_result.x)
-        >>> planet_rv = gpfitter.calculate_rv_planet_custom('b', times, params)
-        >>>
-        >>> # Using best lnprob sample
-        >>> best_params = gpfitter.get_sample_with_best_lnprob(discard_start=1000)
-        >>> params = gpfitter.build_params_dict(best_params)
-        >>> planet_rv = gpfitter.calculate_rv_planet_custom('b', times, params)
-        """
-        # Extract planet parameters
-        planet_params = {}
-        for par in self.parameterisation.pars:
-            key = f"{par}_{planet_letter}"
-            planet_params[par] = params[key]
-
-        # Calculate planet RV
-        planet = ravest.model.Planet(planet_letter, self.parameterisation, planet_params)
-        return planet.radial_velocity(times)
-
-    def calculate_rv_trend_custom(self, times: np.ndarray, params: dict[str, float]) -> np.ndarray:
-        """Calculate trend RV for a single set of custom parameters.
-
-        Parameters
-        ----------
-        times : np.ndarray
-            Time points to calculate RV at
-        params : dict[str, float]
-            Complete parameter dictionary (free + fixed parameters).
-            Can be created using build_params_dict().
-
-        Returns
-        -------
-        np.ndarray
-            Trend RV values at the requested times
-
-        Examples
-        --------
-        >>> # Using MAP result
-        >>> map_result = gpfitter.find_map_estimate()
-        >>> params = gpfitter.build_params_dict(map_result.x)
-        >>> trend_rv = gpfitter.calculate_rv_trend_custom(times, params)
-        """
-        # Calculate trend RV (no gamma offset - that's per-instrument)
-        trend = ravest.model.Trend(params={"gd": params["gd"], "gdd": params["gdd"]}, t0=self.t0)
-        return trend.radial_velocity(times)
 
     def calculate_rv_gp_custom(self, times: np.ndarray, params: dict[str, float]) -> np.ndarray:
         """Calculate GP component for a single set of custom parameters.
@@ -7624,10 +5362,7 @@ class GPFitter:
         >>> total_rv = gpfitter.calculate_rv_total_custom(times, params)
         """
         # Calculate trend + planets
-        total_rv = self.calculate_rv_trend_custom(times, params)
-        for planet_letter in self.planet_letters:
-            planet_rv = self.calculate_rv_planet_custom(planet_letter, times, params)
-            total_rv += planet_rv
+        total_rv = super().calculate_rv_total_custom(times=times, params=params)
 
         # Add GP component
         gp_rv = self.calculate_rv_gp_custom(times, params)
@@ -7636,15 +5371,17 @@ class GPFitter:
         return total_rv
 
 
-class GPLogPosterior:
+class GPLogPosterior(LogPosterior):
     """Log posterior probability for GP MCMC sampling.
 
     Combines GP log likelihood and log priors. GP hyperparameters are parameters like any
     other here: their names sit in the same priors, fixed_params and free_params_names.
+    A LogPosterior that builds a GPLogLikelihood and checks the kernel values first.
     """
 
     def __init__(
         self,
+        *,
         planet_letters: list[str],
         parameterisation: Parameterisation,
         gp_kernel: GPKernel,
@@ -7654,9 +5391,9 @@ class GPLogPosterior:
         time: np.ndarray,
         vel: np.ndarray,
         velerr: np.ndarray,
-        t0: float,
         instrument: np.ndarray,
-        unique_instruments: list[str],
+        unique_instruments: np.ndarray,
+        t0: float,
     ) -> None:
         """Initialize the GPLogPosterior object.
 
@@ -7680,386 +5417,111 @@ class GPLogPosterior:
             Radial velocity at each time [m/s].
         velerr : np.ndarray
             Uncertainty on the radial velocity at each time [m/s].
+        instrument : np.ndarray
+            Instrument name for each observation.
+        unique_instruments : np.ndarray
+            Unique instrument names in the data.
         t0 : float
             Reference time for the trend [days].
-        instrument : np.ndarray
-            Instrument label for each observation.
-        unique_instruments : list[str]
-            List of unique instrument names.
         """
-        self.planet_letters = planet_letters
-        self.parameterisation = parameterisation
+        # Set before super().__init__(), which builds the likelihood via _build_log_likelihood()
         self.gp_kernel = gp_kernel
-        self.priors = priors
-        self.fixed_params = fixed_params
-        self.free_params_names = free_params_names
-        self.time = time
-        self.vel = vel
-        self.velerr = velerr
-        self.t0 = t0
-        self.instrument = instrument
-        self.unique_instruments = unique_instruments
+        super().__init__(
+            planet_letters=planet_letters,
+            parameterisation=parameterisation,
+            priors=priors,
+            fixed_params=fixed_params,
+            free_params_names=free_params_names,
+            time=time,
+            vel=vel,
+            velerr=velerr,
+            instrument=instrument,
+            unique_instruments=unique_instruments,
+            t0=t0,
+        )
 
-        # Create GP log-likelihood and GP log-prior objects for later
-        self.gp_log_likelihood = GPLogLikelihood(
-            time=self.time,
-            vel=self.vel,
-            velerr=self.velerr,
-            t0=self.t0,
-            instrument=self.instrument,
-            unique_instruments=self.unique_instruments,
+    def _build_log_likelihood(self) -> "GPLogLikelihood":
+        """Build the GP log likelihood from the model, kernel and data.
+
+        Returns
+        -------
+        GPLogLikelihood
+            A new GP log likelihood, called with a full params dict (GP hyperparameters included).
+        """
+        return GPLogLikelihood(
             planet_letters=self.planet_letters,
             parameterisation=self.parameterisation,
             gp_kernel=self.gp_kernel,
+            time=self.time,
+            vel=self.vel,
+            velerr=self.velerr,
+            instrument=self.instrument,
+            unique_instruments=self.unique_instruments,
+            t0=self.t0,
         )
-
-        # Create LogPrior object (covers the GP hyperparameters' priors too)
-        self.log_prior = LogPrior(self.priors)
-
-        (
-            self._logprob_jacobian_correction,
-            self._logprob_prior_renorm_correction,
-            self._logprob_correction_breakdown,
-        ) = self._compute_logprob_corrections()
-
-    def _classify_planet_case(self, letter: str) -> str:
-        """Classify a single planet's log-posterior correction case.
-
-        Parameters
-        ----------
-        letter : str
-            Single-character planet identifier.
-
-        Returns
-        -------
-        str
-            One of "CASE_1", "CASE_2", "CASE_3".
-
-        Raises
-        ------
-        NotImplementedError
-            If the planet has a prior on (secosw, sesinw) that is not both
-            Uniform(-1, 1) - such priors are unsupported; express the
-            eccentricity belief on (e, w) instead.
-        RuntimeError
-            If neither a (secosw, sesinw) nor an (e, w) prior pair is found
-            for this planet (should be unreachable given prior validation).
-        """
-        if self.parameterisation.log_jacobian_determinant() == 0.0:
-            return "CASE_1"
-
-        if f"secosw_{letter}" not in self.free_params_names:
-            # secosw/sesinw are fixed for this planet (coupling enforced at
-            # GPFitter._validate_parameter_coupling)
-            return "CASE_1"
-
-        secosw_key, sesinw_key = f"secosw_{letter}", f"sesinw_{letter}"
-        e_key, w_key = f"e_{letter}", f"w_{letter}"
-
-        if secosw_key in self.priors and sesinw_key in self.priors:
-            secosw_prior = self.priors[secosw_key]
-            sesinw_prior = self.priors[sesinw_key]
-            if (
-                isinstance(secosw_prior, Uniform)
-                and isinstance(sesinw_prior, Uniform)
-                and secosw_prior.lower == -1
-                and secosw_prior.upper == 1
-                and sesinw_prior.lower == -1
-                and sesinw_prior.upper == 1
-            ):
-                return "CASE_2"
-            raise NotImplementedError(
-                f"Unsupported priors on (secosw_{letter}, sesinw_{letter}): "
-                f"{secosw_prior!r}, {sesinw_prior!r}. Only Uniform(-1, 1) priors "
-                "on (secosw, sesinw) are supported for evidence-correct log-posterior "
-                "corrections. A separable, rotationally-symmetric belief about "
-                "eccentricity can always be re-expressed as a prior on e instead - "
-                f"place priors on (e_{letter}, w_{letter}) using one of Ravest's "
-                "eccentricity priors (HalfNormal, Rayleigh, VanEylen19Mixture, Beta, "
-                "EccentricityUniform, TruncatedNormal)."
-            )
-        elif e_key in self.priors and w_key in self.priors:
-            return "CASE_3"
-        else:
-            raise RuntimeError(
-                f"Could not classify log-posterior correction case for planet "
-                f"'{letter}': no priors found on either (secosw, sesinw) or (e, w)."
-            )
-
-    def _compute_logprob_corrections(self) -> tuple[float, float, dict[str, dict]]:
-        """Compute per-planet log-posterior corrections, summed across planets.
-
-        Returns
-        -------
-        tuple[float, float, dict[str, dict]]
-            Total log-Jacobian correction, total log-prior-renormalisation
-            correction, and a per-planet breakdown of case/contributions.
-        """
-        log_jac = self.parameterisation.log_jacobian_determinant()
-        total_jacobian = 0.0
-        total_renorm = 0.0
-        breakdown: dict[str, dict] = {}
-
-        for letter in self.planet_letters:
-            case = self._classify_planet_case(letter)
-            jacobian = log_jac if case == "CASE_3" else 0.0
-            renorm = np.log(4.0 / np.pi) if case == "CASE_2" else 0.0
-
-            total_jacobian += jacobian
-            total_renorm += renorm
-            breakdown[letter] = {"case": case, "jacobian": jacobian, "renorm": renorm}
-            # DEBUG, not INFO: the case is a constant derived from the
-            # parameterisation and the priors, so it is identical for every fit
-            # of a given setup, and was previously emitted once per
-            # log-posterior object construction. Anything anomalous raises in
-            # _classify_planet_case rather than being logged; enable DEBUG
-            # logging to see these lines again.
-            logging.debug(
-                f"Planet {letter}: log-posterior correction case {case} "
-                f"(jacobian={jacobian}, renorm={renorm})"
-            )
-
-        return total_jacobian, total_renorm, breakdown
-
-    def _convert_params_for_prior_evaluation(self, free_params_dict: dict[str, float]) -> Dict[str, float]:
-        """Convert free parameters for prior evaluation if needed.
-
-        Parameters
-        ----------
-        free_params_dict : dict
-            Free parameters in current parameterisation
-
-        Returns
-        -------
-        dict
-            Parameters with names/values converted for prior evaluation
-        """
-        # Three cases:
-        # Case 1: User is fitting in transformed parameterisation, but priors are in same transformed parameterisation
-        # Case 2: User is fitting in default parameterisation, and priors are also in default parameterisation
-        # Case 3: User is fitting in transformed parameterisation, but priors are in default parameterisation
-
-        # Simple detection: do prior keys match our current free parameter names?
-        prior_keys = set(self.priors.keys())
-        free_param_keys = set(self.free_params_names)
-        if prior_keys == free_param_keys:
-            # No conversion needed (Cases 1 & 2)
-            return free_params_dict
-        else:
-            # Conversion needed (Case 3) - convert to default parameterisation equivalents
-            # Start with just the non-planetary parameters that match
-            params_for_prior = {key: value for key, value in free_params_dict.items()
-                              if key in prior_keys}
-
-            all_params = self.fixed_params | free_params_dict
-
-            # Convert each planet's parameters
-            for planet_letter in self.planet_letters:
-                # Get current planet parameters
-                planet_params = {par: all_params[f"{par}_{planet_letter}"]
-                               for par in self.parameterisation.pars}
-
-                # Convert to default parameterisation
-                default_params = self.parameterisation.convert_pars_to_default_parameterisation(planet_params)
-
-                # Add the converted parameter values for priors that need them
-                for default_par, value in default_params.items():
-                    default_param_key = f"{default_par}_{planet_letter}"
-                    if default_param_key in prior_keys:  # Only add if we have a prior for it
-                        params_for_prior[default_param_key] = value
-
-            return params_for_prior
 
     def log_probability(self, free_params_dict: Dict[str, float]) -> float:
         """Calculate log posterior probability for given free parameters.
 
+        Returns -inf straight away if a GP hyperparameter value is unphysical for the
+        kernel; otherwise as LogPosterior.log_probability, with the GP likelihood.
+
         Parameters
         ----------
         free_params_dict : Dict[str, float]
-            Dictionary of free parameter values
+            Dictionary of free parameter values, GP hyperparameters included
 
         Returns
         -------
         float
             Log posterior probability (log likelihood + log prior)
         """
-        # Fast fail for invalid jitter (before expensive prior/likelihood calculations)
-        # We have to check jitter specifically because all other params will ultimately
-        # get checked/raise Exceptions when they are used to calculate an RV.
-        # Jitter doesn't directly contribute to calculated RV, so needs to be checked manually.
-        _all_params_for_ll = self.fixed_params | free_params_dict
-        for inst in self.unique_instruments:
-            if _all_params_for_ll[f"jit_{inst}"] < 0:
-                return -np.inf
-
         # Fast fail for invalid GP hyperparameters
         # This is a check for unphysical values, not for if they are within their priors or not
         try:
-            self.gp_kernel._validate_hyperparams_values(_all_params_for_ll)
+            self.gp_kernel._validate_hyperparams_values(self.fixed_params | free_params_dict)
         except ValueError:
             return -np.inf
 
-        # Evaluate priors on the free parameters. If any parameters are outside priors
-        # (i.e. priors are infinite), then fail fast by returning -inf early (before expensive likelihood calc).
-        # We attempt to convert free parameters (if needed) for prior evaluation
-        # This is for if the user is fitting in transformed parameterisation,
-        # but defining their priors in the default parameterisation
-        try:
-            params_for_prior = self._convert_params_for_prior_evaluation(free_params_dict)
-            lp = self.log_prior(params_for_prior)
-        except ValueError:
-            # Invalid parameter conversion (e.g., unphysical eccentricity)
-            return -np.inf
-        if not np.isfinite(lp):
-            return -np.inf
-
-        # Calculate GP log-likelihood with all parameters
-        ll = self.gp_log_likelihood(_all_params_for_ll)
-
-        # Return combined log-posterior (log-likelihood + log-prior),
-        # plus the constant per-planet Jacobian/prior-renormalisation corrections
-        # needed for evidence-correct (u, v) parameterisation sampling. These are
-        # constants so they cancel in the MCMC acceptance ratio and only matter
-        # for Bayesian evidence estimation (e.g. via harmonic/LHME).
-        logprob = ll + lp
-        logprob += self._logprob_jacobian_correction
-        logprob += self._logprob_prior_renorm_correction
-        return logprob
-
-    def _negative_log_probability_for_MAP(self, free_params_vals: list[float]) -> float:
-        """For MAP: run __call__ only passing in a list, not dict, of params.
-
-        Because scipy.optimize.minimise only takes list of values, not a dict,
-        we need to assign the values back to their corresponding keys, and pass
-        that to __call__().
-
-        This does not check that the values are in the correct order, it is
-        assumed. As we're dealing with dicts, this hopefully is the case.
-
-        Parameters
-        ----------
-        free_params_vals : list
-            float values of the free parameters
-        """
-        # Create dicts from the names and values
-        # (Assumes the order of names matches the order of values)
-        free_params_dict = dict(zip(self.free_params_names, free_params_vals))
-
-        # Calculate *negative* log_probability (MAP is backwards from MCMC)
-        logprob = self.log_probability(free_params_dict)
-        neg_logprob = -logprob
-
-        # Handle -inf log_probability to prevent scipy RuntimeWarnings during optimisation
-        # scipy's optimizer can't handle -inf values in arithmetic operations
-        # (This does mean there is a non-zero chance we could end up returning a solution that doesn't satisfy the prior functions)
-        if not np.isfinite(neg_logprob):
-            return 1e30  # Very large finite number instead of +inf
-
-        return neg_logprob
+        return super().log_probability(free_params_dict)
 
 
-class GPLogLikelihood:
+class GPLogLikelihood(LogLikelihood):
     """GP version of Log likelihood calculation for radial velocity data.
 
     Calculates log likelihood given RV model parameters and data, and GP hyperparameters.
+    A LogLikelihood whose mean model (planets, trend, gammas) is the GP's mean function.
     """
 
     def __init__(
         self,
-        time: np.ndarray,
-        vel: np.ndarray,
-        velerr: np.ndarray,
-        t0: float,
-        instrument: np.ndarray,
-        unique_instruments: list[str],
+        *,
         planet_letters: list[str],
         parameterisation: Parameterisation,
         gp_kernel: GPKernel,
+        time: np.ndarray,
+        vel: np.ndarray,
+        velerr: np.ndarray,
+        instrument: np.ndarray,
+        unique_instruments: np.ndarray,
+        t0: float,
     ) -> None:
-        self.time = time
-        self.vel = vel
-        self.velerr = velerr
-        self.t0 = t0
-        self.instrument = instrument
-        self.unique_instruments = unique_instruments
-        self.planet_letters = planet_letters
-        self.parameterisation = parameterisation
+        super().__init__(
+            planet_letters=planet_letters,
+            parameterisation=parameterisation,
+            time=time,
+            vel=vel,
+            velerr=velerr,
+            instrument=instrument,
+            unique_instruments=unique_instruments,
+            t0=t0,
+        )
         self.gp_kernel = gp_kernel
 
         # Convert data to JAX array for tinygp
         self.jax_time = jnp.array(self.time)
         self.jax_vel = jnp.array(self.vel)
         self.jax_velerr = jnp.array(self.velerr)
-
-        # Precompute a per-observation integer index array (same pattern as LogLikelihood).
-        # For each observation, store which instrument it came from as an integer:
-        #   e.g. unique_instruments = ["HARPS", "ESPRESSO"]
-        #        instrument          = ["HARPS", "HARPS", "ESPRESSO", "HARPS", ...]
-        #        _instrument_indices = [0,       0,       1,          0,       ...]
-        # This lets us use JAX fancy indexing to expand per-instrument values to length-N
-        # arrays in one operation, rather than looping with boolean mask slices.
-        _inst_to_idx = {inst: i for i, inst in enumerate(self.unique_instruments)}
-        self._instrument_indices = jnp.array([_inst_to_idx[inst] for inst in self.instrument])
-
-        # Precompute parameter key strings for gamma and jitter lookups.
-        # These strings (e.g. "g_HARPS", "jit_ESPRESSO") are constant for the lifetime
-        # of this object - precomputing them avoids rebuilding f-strings on every call.
-        self._gamma_keys = [f"g_{inst}" for inst in self.unique_instruments]
-        self._jitter_keys = [f"jit_{inst}" for inst in self.unique_instruments]
-
-        # Precompute jax_velerr squared - constant (as observed data doesn't change) so no need to recalculate every time
-        self._velerr_sq = self.jax_velerr ** 2
-
-    def _calculate_mean_model(self, params: Dict[str, float]) -> jnp.ndarray:
-        """Calculate the Keplerian RV model (the mean function for the GP).
-
-        Takes planetary parameters, trend parameters, and per-instrument gamma offsets.
-
-        Parameters
-        ----------
-        params : Dict[str, float]
-            Dictionary of all parameter values
-
-        Returns
-        -------
-        jnp.ndarray
-            Mean model RV values at observation times
-        """
-        rv_total = jnp.zeros(len(self.time))
-
-        # Step 1: Calculate RV contributions from each planet
-        for letter in self.planet_letters:
-            # get just the parameters for this planet (and strip the _letter suffix from the keys)
-            _this_planet_params = {
-                par: params[f"{par}_{letter}"]
-                for par in self.parameterisation.pars
-            }
-
-            try:
-                _this_planet = ravest.model.Planet(letter, self.parameterisation, _this_planet_params)
-                _this_planet_rv = _this_planet.radial_velocity(self.time)
-            except ValueError:
-                # Planet.__init__ validates parameters and raises ValueError for invalid params
-                return -np.inf  # fail-fast: return -inf log-likelihood
-
-            # add this planet's RV contribution to the total
-            rv_total += _this_planet_rv
-
-        # Step 2: Calculate and add the RV from the system Trend (no gamma - that's per-instrument)
-        _trend_params = {"gd": params["gd"], "gdd": params["gdd"]}
-        _this_trend = ravest.model.Trend(params=_trend_params, t0=self.t0)
-        _rv_trend = _this_trend.radial_velocity(self.time)
-        rv_total += jnp.array(_rv_trend)
-
-        # Step 3: Add per-instrument gamma offsets using vectorised fancy indexing.
-        # Build a small array of gamma values, one per instrument (length K), then use
-        # _instrument_indices to select the right gamma for each of the N observations.
-        # JAX arrays are immutable so we use addition rather than in-place update.
-        gamma_per_instrument = jnp.array([params[k] for k in self._gamma_keys])
-        gamma_at_each_obs = gamma_per_instrument[self._instrument_indices]
-        rv_total = rv_total + gamma_at_each_obs
-
-        return rv_total
 
     @staticmethod
     @jax.jit
@@ -8096,7 +5558,7 @@ class GPLogLikelihood:
 
         # Check if mean model calculation failed
         # (no point doing expensive GP calculation if we don't need to)
-        if not jnp.isfinite(mean_model).all():
+        if mean_model is None or not np.isfinite(mean_model).all():
             return -np.inf
 
         # Build GP kernel with hyperparameters
