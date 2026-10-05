@@ -3784,6 +3784,8 @@ class TestGPFitterSubclass:
         "calculate_rv_total_from_samples", "calculate_rv_total_custom",
         # The GP posterior and likelihood
         "_build_log_posterior", "_build_log_likelihood",
+        # The kernel, fixed when the GPFitter is created
+        "gp_kernel",
         # GP statistics, RVs and plots
         "calculate_chi2", "_compute_gp_chi2", "calculate_rv_gp_from_samples", "calculate_rv_gp_custom",
         "_plot_rv", "_plot_phase", "plot_posterior_rv", "plot_posterior_phase",
@@ -4238,3 +4240,68 @@ class TestPlanetLetters:
         samples = fitter.get_samples_df()
         assert list(samples.columns) == free
         assert samples.shape == (20 * nwalkers, len(free))
+
+
+class TestFixedModelAttributes:
+    """planet_letters, parameterisation and gp_kernel are fixed when the fitter is created.
+
+    params and priors are built for that model, so changing it afterwards would leave them
+    mismatched. Assigning raises, naming the class to make instead.
+    """
+
+    @staticmethod
+    def _make(kind):
+        if kind == "Fitter":
+            return Fitter(["c", "b"], Parameterisation("P K e w Tc"))
+        return GPFitter(["c", "b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+
+    @staticmethod
+    def _message(name, kind):
+        return re.escape(f"{name} is fixed when the {kind} is created. Changing it can cause Bad Things to "
+                         f"happen, so please make a new {kind} instead.")
+
+    @pytest.mark.parametrize("kind, name, new_value", [
+        ("Fitter", "planet_letters", ["b"]),
+        ("Fitter", "parameterisation", Parameterisation("P K e w Tp")),
+        ("GPFitter", "planet_letters", ["b"]),
+        ("GPFitter", "parameterisation", Parameterisation("P K e w Tp")),
+        ("GPFitter", "gp_kernel", GPKernel("Quasiperiodic")),
+    ], ids=["Fitter-planet_letters", "Fitter-parameterisation", "GPFitter-planet_letters",
+            "GPFitter-parameterisation", "GPFitter-gp_kernel"])
+    def test_assignment_raises(self, kind, name, new_value) -> None:
+        """Assigning raises AttributeError naming the attribute and the class, and changes nothing."""
+        fitter = self._make(kind)
+        before = getattr(fitter, name)
+
+        with pytest.raises(AttributeError, match=self._message(name, kind)):
+            setattr(fitter, name, new_value)
+
+        after = getattr(fitter, name)
+        assert after == before if name == "planet_letters" else after is before
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    def test_planet_letters_copy_cannot_change_fitter(self, kind) -> None:
+        """planet_letters returns a fresh list, so editing it leaves the fitter's letters alone."""
+        fitter = self._make(kind)
+
+        letters = fitter.planet_letters
+        letters.append("d")
+        letters[0] = "z"
+
+        assert fitter.planet_letters == ["b", "c"]
+        assert fitter.planet_letters is not fitter.planet_letters
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    def test_values_read_back(self, kind) -> None:
+        """The constructor's values read back: letters sorted, the same Parameterisation and GPKernel."""
+        parameterisation = Parameterisation("P K e w Tc")
+        kernel = GPKernel("Quasiperiodic")
+        if kind == "Fitter":
+            fitter = Fitter(["c", "b"], parameterisation)
+        else:
+            fitter = GPFitter(["c", "b"], parameterisation, kernel)
+
+        assert fitter.planet_letters == ["b", "c"]
+        assert fitter.parameterisation is parameterisation
+        if kind == "GPFitter":
+            assert fitter.gp_kernel is kernel
