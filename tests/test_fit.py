@@ -4035,3 +4035,35 @@ class TestPlotArgumentOrder:
 
         assert set(names) <= set(self.ORDER), set(names) - set(self.ORDER)
         assert names == [name for name in self.ORDER if name in names]
+
+
+class TestParamsDictOrder:
+    """build_params_dict and get_mcmc_posterior_dict return keys in fitter.params order."""
+
+    def test_build_params_dict_from_list(self, plot_fitter) -> None:
+        """Free values given as a list: keys follow fitter.params, values are unchanged."""
+        point = plot_fitter.build_params_dict(plot_fitter.free_params_values)
+
+        assert list(point) == list(plot_fitter.params)
+        assert point == {name: p.value for name, p in plot_fitter.params.items()}
+
+    def test_build_params_dict_from_dict(self, plot_fitter) -> None:
+        """Free values given as a dict, in any order: keys still follow fitter.params."""
+        free = dict(reversed(list(zip(plot_fitter.free_params_names, plot_fitter.free_params_values))))
+
+        point = plot_fitter.build_params_dict(free)
+
+        assert list(point) == list(plot_fitter.params)
+        assert point == {name: p.value for name, p in plot_fitter.params.items()}
+
+    def test_get_mcmc_posterior_dict(self, plot_fitter) -> None:
+        """Keys follow fitter.params; fixed values and free samples are as before."""
+        posterior = plot_fitter.get_mcmc_posterior_dict(discard_start=100)
+        samples = plot_fitter.get_samples_dict(discard_start=100)
+
+        assert list(posterior) == list(plot_fitter.params)
+        for name, param in plot_fitter.params.items():
+            if param.fixed:
+                assert posterior[name] == param.value
+            else:
+                np.testing.assert_array_equal(posterior[name], samples[name])

@@ -1519,13 +1519,14 @@ class Fitter:
         Returns
         -------
         dict
-            Dictionary of all parameters:
+            Dictionary of all parameters, in ``params`` order:
             - Fixed parameters: single float values
             - Free parameters: 1D arrays of MCMC samples with shape (nsteps_after_discard_thin * nwalkers,)
         """
         fixed_params_dict = self.fixed_params_values_dict
         free_samples_dict = self.get_samples_dict(discard_start=discard_start, discard_end=discard_end, thin=thin)
-        return fixed_params_dict | free_samples_dict
+        all_params = fixed_params_dict | free_samples_dict
+        return {name: all_params[name] for name in self.params}
 
     def calculate_log_likelihood(self, params_dict: Dict[str, float]) -> float:
         """Calculate log-likelihood for given parameter values.
@@ -1569,7 +1570,7 @@ class Fitter:
         Returns
         -------
         Dict[str, float]
-            Complete parameters dict with both free and fixed parameter values
+            Complete parameters dict with both free and fixed parameter values, in ``params`` order
 
         Examples
         --------
@@ -1601,7 +1602,7 @@ class Fitter:
             if extra:
                 raise ValueError(f"Unexpected parameters provided: {extra}")
 
-            return self.fixed_params_values_dict | free_params
+            all_params = self.fixed_params_values_dict | free_params
         else:
             # Validate that array/list has correct length
             if len(free_params) != len(self.free_params_names):
@@ -1612,7 +1613,9 @@ class Fitter:
                 )
 
             free_dict = dict(zip(self.free_params_names, free_params))
-            return self.fixed_params_values_dict | free_dict
+            all_params = self.fixed_params_values_dict | free_dict
+
+        return {name: all_params[name] for name in self.params}
 
     def calculate_chi2(self, params_dict: Dict[str, float]) -> float:
         r"""Calculate chi-squared for given parameter values.
