@@ -1314,6 +1314,9 @@ class Fitter:
                     f"and/or convergence_check_start."
                 )
 
+        # Each run starts with an empty history, so autocorrelation plots never show an earlier run
+        self.autocorr_history = {}
+
         # Run MCMC with or without convergence checking
         if not check_convergence:
             # Fixed-length mode - run for exactly max_steps
@@ -1323,9 +1326,6 @@ class Fitter:
         else:
             # Convergence checking - run up to max_steps, stopping early if converged
             logging.info(f"Starting MCMC with convergence checks. (Maximum {max_steps} steps, checking convergence every {convergence_check_interval} steps after iteration {convergence_check_start})...")
-
-            # Initialize autocorrelation history storage
-            self.autocorr_history = {}
 
             old_tau = np.inf
 

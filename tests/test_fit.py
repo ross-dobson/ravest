@@ -947,6 +947,34 @@ class TestAdaptiveConvergence:
         with pytest.raises(ValueError, match="No autocorrelation history available"):
             fitter.plot_autocorr_estimates()
 
+    def test_fixed_length_run_clears_earlier_history(self, setup_fitter):
+        """A fixed-length run after a convergence run leaves no autocorrelation history."""
+        fitter, initial_positions = setup_fitter
+
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=200, progress=False,
+                        check_convergence=True, convergence_check_interval=100)
+        assert len(fitter.autocorr_history) > 0
+
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=100, progress=False, check_convergence=False)
+
+        assert fitter.autocorr_history == {}
+        with pytest.raises(ValueError, match="No autocorrelation history available"):
+            fitter.plot_autocorr_estimates()
+
+    def test_second_convergence_run_replaces_history(self, setup_fitter):
+        """A second convergence run's history holds only its own check steps."""
+        fitter, initial_positions = setup_fitter
+
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=300, progress=False,
+                        check_convergence=True, convergence_check_interval=100)
+        assert 100 in fitter.autocorr_history
+
+        # The first check can never converge, so both checks run whatever the taus are
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=140, progress=False,
+                        check_convergence=True, convergence_check_interval=70)
+
+        assert list(fitter.autocorr_history) == [70, 140]
+
     def test_plot_autocorr_stores_history(self, setup_fitter):
         """Test that autocorr history is stored when convergence checking enabled."""
         fitter, initial_positions = setup_fitter
