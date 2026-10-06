@@ -1218,21 +1218,28 @@ class Fitter:
         multiprocessing : bool, optional
             Whether to use multiprocessing for MCMC (default: False)
         check_convergence : bool, optional
-            If True, check for convergence and stop early when criteria met.
-            Convergence requires: chain length > 50 times max autocorrelation time,
-            and autocorrelation time estimate stable to 1 percent.
+            If True, estimate the autocorrelation time tau of every free parameter
+            at each check, and stop early once both hold for every parameter:
+            the chain is longer than 50 * tau, and tau has changed by less than
+            1% since the previous check (so the first check can never pass).
             If False, run for exactly max_steps (default: False)
         convergence_check_interval : int, optional
-            Steps between convergence checks (only used if check_convergence=True) (default: 1000)
+            Steps between convergence checks. Each check re-estimates tau over the
+            whole chain so far, so small intervals can cost more than the sampling;
+            values below 250 log a warning (default: 1000)
         convergence_check_start : int, optional
-            Minimum iteration before starting convergence checks. Set this sensibly
-            (e.g. 2x burn-in) to avoid inaccurate tau estimates on short chains (default: 0)
+            Step of the first convergence check; later checks follow every
+            convergence_check_interval steps. Set it past burn-in (e.g. twice the
+            expected burn-in) so tau isn't estimated on a short, unsettled chain.
+            0 means the first check is at convergence_check_interval (default: 0)
 
         Raises
         ------
         ValueError
             If there are no free parameters, if a free parameter has no prior, or if
-            nwalkers is less than 2 * ndim
+            nwalkers is less than 2 * ndim. With check_convergence=True, also if
+            convergence_check_interval is not positive, convergence_check_start is
+            negative, or the first check would come after max_steps
         """
         if len(self.free_params_values) == 0:
             raise ValueError(
@@ -1328,14 +1335,14 @@ class Fitter:
         # Run MCMC with or without convergence checking
         if not check_convergence:
             # Fixed-length mode - run for exactly max_steps
-            logging.info(f"Starting MCMC for {max_steps} steps...")
+            logging.info(f"Starting MCMC (without convergence checks) for {max_steps} steps...")
             sampler.run_mcmc(initial_state=initial_positions, nsteps=max_steps, progress=progress)
             logging.info("...MCMC done.")
         else:
             # Convergence checking - run up to max_steps, stopping early if converged
-            logging.info(f"Starting MCMC with convergence checks. (Maximum {max_steps} steps, checking convergence every {convergence_check_interval} steps after iteration {convergence_check_start})...")
+            logging.info(f"Starting MCMC with convergence checks: maximum {max_steps} steps, checking convergence every {convergence_check_interval} steps starting at step {first_check_iteration}...")
 
-            old_tau = np.inf
+            previous_tau = None
 
             for sample in sampler.sample(initial_state=initial_positions, iterations=max_steps, progress=progress):
                 # Check at first_check_iteration, then every convergence_check_interval steps
@@ -1349,30 +1356,22 @@ class Fitter:
                 # Store autocorrelation history for plotting/diagnostics later
                 self.autocorr_history[sampler.iteration] = tau.copy()
 
-                # Log progress
-                logging.info(f"Convergence check: Step {sampler.iteration}: mean(tau)={np.mean(tau):.1f}, max(tau)={np.max(tau):.1f}")
-
-                # Check convergence criteria
-                check_chain_length = np.all(sampler.iteration > 50 * tau)  # Chain length > 50 * tau
-                check_stable_tau = np.all(np.abs(old_tau - tau) / tau < 0.01)  # Tau stable to 1 percent
-                converged = check_chain_length and check_stable_tau
-
+                # Judge this check against both targets and log one line
+                converged, line = self._assess_convergence(sampler.iteration, tau, previous_tau, self.free_params_names)
+                logging.info(line)
                 if converged:
-                    logging.info(f"Converged at iteration {sampler.iteration}")
                     break
-                else:
-                    logging.info(f"Not yet converged (N/50>tau check: {check_chain_length}, tau stability check: {check_stable_tau})")
 
                 # Warn if approaching max steps without convergence
                 if sampler.iteration > 0.8 * max_steps:
-                    logging.warning(f"Approaching max iterations ({max_steps}) without convergence! (max tau={np.max(tau):.1f}, tau stability change={np.abs(old_tau - tau) / tau})")
+                    logging.warning(f"Approaching max iterations ({max_steps}) without convergence! (max tau={np.max(tau):.1f})")
 
-                # Update old tau for next check
-                old_tau = tau
+                # Keep this estimate to compare against at the next check
+                previous_tau = tau
 
             # Final log
             final_steps = sampler.iteration
-            logging.info(f"MCMC complete: {final_steps} steps total")
+            logging.info(f"...MCMC complete: {final_steps} steps total")
 
         # Close multiprocessing pool if used
         if multiprocessing:
@@ -1380,6 +1379,50 @@ class Fitter:
             pool.join()
 
         self.sampler = sampler
+
+    @staticmethod
+    def _assess_convergence(step: int, tau: np.ndarray, previous_tau: np.ndarray | None, names: list[str]) -> tuple[bool, str]:
+        """Judge one convergence check and word its log line.
+
+        Parameters
+        ----------
+        step : int
+            Number of steps in the chain at this check
+        tau : np.ndarray
+            Autocorrelation time estimate of each free parameter
+        previous_tau : np.ndarray or None
+            The estimate at the previous check, or None at the first check
+        names : list of str
+            Free parameter names, in the order of tau
+
+        Returns
+        -------
+        tuple of (bool, str)
+            Whether both convergence tests pass for every parameter, and the log line
+        """
+        # Check 1: is the chain long enough? Check if N > 50 * tau for every parameter
+        chain_long_enough = np.all(step > 50 * tau)  # check that ALL parameters have chain length > 50 * tau
+        line = (f"Convergence check at step {step}: max tau {np.max(tau):.1f} ({names[np.argmax(tau)]}), "
+                f"needs < {step / 50:.1f} (N/50); ")
+
+        # Check 2: is tau estimate stable? Tau should change by less than 1% since the previous check
+        if previous_tau is None:
+            # Of course, this means the very first check can't pass, as there's nothing to compare to!
+            tau_stable = False
+            line += "tau change: first check, nothing to compare yet."
+        else:
+            # else, compare to previous tau estimate, for every parameter
+            change = np.abs(previous_tau - tau) / tau
+            tau_stable = np.all(change < 0.01)  # check that ALL parameters' tau estimates are stable to 1 percent
+            line += f"max tau change {100 * np.max(change):.2f}% ({names[np.argmax(change)]}), needs < 1%."
+
+        # Final convergence decision: both checks must pass for all parameters
+        converged = bool(chain_long_enough and tau_stable)
+        if converged:
+            line += " Converged."
+        else:
+            line += " Not converged."
+        return converged, line
 
     def get_samples_np(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, flat: bool = False) -> np.ndarray:
         """Return a contiguous numpy array of MCMC samples.

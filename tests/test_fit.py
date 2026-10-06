@@ -2,6 +2,7 @@ import logging
 import re
 import warnings
 
+import emcee
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -1155,6 +1156,149 @@ class TestAdaptiveConvergence:
         import matplotlib
         matplotlib.use('Agg')
         fitter.plot_autocorr_estimates(show_legend=False)
+
+    @staticmethod
+    def _script_taus(monkeypatch, taus):
+        """Make get_autocorr_time return the given taus, one per check, in order."""
+        scripted = iter([np.array(tau, dtype=float) for tau in taus])
+        monkeypatch.setattr(emcee.EnsembleSampler, "get_autocorr_time", lambda self, **kwargs: next(scripted))
+
+    def test_one_info_line_per_check_until_converged(self, setup_fitter, monkeypatch, caplog):
+        """Each check logs one INFO line; the run stops at the first check that passes both tests."""
+        fitter, initial_positions = setup_fitter
+        # Free params K_b, jit_HARPS. Step 50: too long; 100: N/50 = 2 passes, change fails; 150: both pass
+        self._script_taus(monkeypatch, [[100.0, 100.0], [1.5, 1.0], [1.5, 1.0], [1.5, 1.0]])
+        with caplog.at_level(logging.INFO):
+            fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=500, progress=False,
+                            check_convergence=True, convergence_check_interval=50)
+
+        check_records = [r for r in caplog.records if r.getMessage().startswith("Convergence check at step")]
+        assert [r.levelno for r in check_records] == [logging.INFO] * 3
+        assert [r.getMessage().split(":")[0] for r in check_records] == [
+            "Convergence check at step 50", "Convergence check at step 100", "Convergence check at step 150"]
+        assert check_records[0].getMessage().endswith("tau change: first check, nothing to compare yet. Not converged.")
+        assert check_records[1].getMessage().endswith("Not converged.")
+        assert check_records[2].getMessage().endswith("Converged.")
+        assert fitter.sampler.iteration == 150
+        assert caplog.records[-1].getMessage() == "...MCMC complete: 150 steps total"
+
+        all_text = "\n".join(r.getMessage() for r in caplog.records)
+        for old_text in ["Convergence check:", "Not yet converged", "Converged at iteration", "mean(tau)"]:
+            assert old_text not in all_text
+
+    @pytest.mark.parametrize(
+        "start, interval, max_steps, expected",
+        [
+            (50, 300, 100, "Starting MCMC with convergence checks: maximum 100 steps, "
+                           "checking convergence every 300 steps starting at step 50..."),
+            (0, 50, 50, "Starting MCMC with convergence checks: maximum 50 steps, "
+                        "checking convergence every 50 steps starting at step 50..."),
+        ],
+    )
+    def test_convergence_start_line(self, setup_fitter, caplog, start, interval, max_steps, expected):
+        """The convergence start line names the maximum, the interval and the first check's step."""
+        fitter, initial_positions = setup_fitter
+        with caplog.at_level(logging.INFO):
+            fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=max_steps, progress=False,
+                            check_convergence=True, convergence_check_interval=interval,
+                            convergence_check_start=start)
+
+        assert expected in [r.getMessage() for r in caplog.records]
+
+    def test_fixed_length_start_and_end_lines(self, setup_fitter, caplog):
+        """A fixed-length run logs its start line, ends with '...MCMC done.' and logs no 'MCMC complete'."""
+        fitter, initial_positions = setup_fitter
+        with caplog.at_level(logging.INFO):
+            fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=50, progress=False, check_convergence=False)
+
+        messages = [r.getMessage() for r in caplog.records]
+        assert "Starting MCMC (without convergence checks) for 50 steps..." in messages
+        assert messages[-1] == "...MCMC done."
+        assert not any("MCMC complete" in m for m in messages)
+
+
+class TestAssessConvergence:
+    """Tests for Fitter._assess_convergence, which judges one convergence check and words its log line."""
+
+    NAMES = ["K_c", "e_b"]
+
+    def test_first_check_never_converges(self):
+        """With no previous estimate the stability test can't pass, however short tau is."""
+        converged, line = Fitter._assess_convergence(15000, np.array([1.0, 1.0]), None, self.NAMES)
+        assert not converged
+        assert line == (
+            "Convergence check at step 15000: max tau 1.0 (K_c), needs < 300.0 (N/50); "
+            "tau change: first check, nothing to compare yet. Not converged."
+        )
+
+    def test_first_check_too_long(self):
+        """First check with tau too long: the values and target are shown."""
+        converged, line = Fitter._assess_convergence(15000, np.array([536.2, 120.0]), None, self.NAMES)
+        assert not converged
+        assert line == (
+            "Convergence check at step 15000: max tau 536.2 (K_c), needs < 300.0 (N/50); "
+            "tau change: first check, nothing to compare yet. Not converged."
+        )
+
+    def test_not_converged_names_furthest_parameters(self):
+        """Each criterion names the parameter with the largest value, which can differ between them."""
+        converged, line = Fitter._assess_convergence(
+            16000, np.array([540.6, 125.0]), np.array([540.0, 124.0]), self.NAMES)
+        assert not converged
+        assert line == (
+            "Convergence check at step 16000: max tau 540.6 (K_c), needs < 320.0 (N/50); "
+            "max tau change 0.80% (e_b), needs < 1%. Not converged."
+        )
+
+    def test_converged(self):
+        """Both tests pass for every parameter."""
+        converged, line = Fitter._assess_convergence(
+            32000, np.array([629.7, 100.0]), np.array([627.2, 100.2]), self.NAMES)
+        assert converged
+        assert line == (
+            "Convergence check at step 32000: max tau 629.7 (K_c), needs < 640.0 (N/50); "
+            "max tau change 0.40% (K_c), needs < 1%. Converged."
+        )
+
+    def test_stable_but_too_long_not_converged(self):
+        """Stable tau alone is not enough."""
+        converged, _ = Fitter._assess_convergence(1000, np.array([30.0, 10.0]), np.array([30.0, 10.0]), self.NAMES)
+        assert not converged
+
+    def test_chain_exactly_50_tau_not_converged(self):
+        """N == 50 * tau fails the strict N > 50 * tau test."""
+        converged, line = Fitter._assess_convergence(
+            1000, np.array([20.0, 10.0]), np.array([20.0, 10.0]), self.NAMES)
+        assert not converged
+        assert "max tau 20.0 (K_c), needs < 20.0 (N/50)" in line
+
+    def test_change_exactly_1_percent_not_stable(self):
+        """A change of exactly 1% fails the strict < 1% test."""
+        converged, line = Fitter._assess_convergence(
+            100000, np.array([100.0, 10.0]), np.array([101.0, 10.0]), self.NAMES)
+        assert not converged
+        assert "max tau change 1.00% (K_c), needs < 1%" in line
+
+    def test_nan_tau_not_converged(self):
+        """A NaN tau counts as not converged and doesn't raise."""
+        converged, _ = Fitter._assess_convergence(
+            100000, np.array([np.nan, 10.0]), np.array([10.0, 10.0]), self.NAMES)
+        assert not converged
+
+    @pytest.mark.parametrize(
+        "step, tau, previous_tau",
+        [
+            (15000, [536.2, 120.0], None),
+            (16000, [540.6, 125.0], [540.0, 124.0]),
+            (32000, [629.7, 100.0], [627.2, 100.2]),
+        ],
+    )
+    def test_line_has_no_array_or_newline(self, step, tau, previous_tau):
+        """The line names single parameters, never prints an array, and is one line."""
+        previous = None if previous_tau is None else np.array(previous_tau)
+        _, line = Fitter._assess_convergence(step, np.array(tau), previous, self.NAMES)
+        assert "[" not in line
+        assert "\n" not in line
 
 
 class TestRVCalculations:
