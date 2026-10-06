@@ -1313,6 +1313,14 @@ class Fitter:
                     f"check would ever run. Increase max_steps, or reduce convergence_check_start "
                     f"(or convergence_check_interval, if convergence_check_start is 0)."
                 )
+            # Each check re-estimates tau over the whole chain, so frequent checks can dominate the run time
+            if convergence_check_interval < 250:
+                logging.warning(
+                    f"convergence_check_interval={convergence_check_interval} is quite small: each check "
+                    f"re-estimates tau over the whole chain so far, so checking convergence too frequently "
+                    f"can actually take longer than the MCMC would itself. An interval of 1000 or more is "
+                    f"usually plenty."
+                )
 
         # Each run starts with an empty history, so autocorrelation plots never show an earlier run
         self.autocorr_history = {}

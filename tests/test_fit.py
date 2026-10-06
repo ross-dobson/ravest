@@ -971,6 +971,48 @@ class TestAdaptiveConvergence:
                             check_convergence=True, convergence_check_interval=100,
                             convergence_check_start=-100)
 
+    SMALL_INTERVAL_TEXT = "is quite small"
+
+    def test_small_interval_warns_once_at_start(self, setup_fitter, caplog):
+        """An interval below 250 logs one warning, before the first check."""
+        fitter, initial_positions = setup_fitter
+        with caplog.at_level(logging.INFO):
+            fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=100, progress=False,
+                            check_convergence=True, convergence_check_interval=249,
+                            convergence_check_start=50)
+
+        messages = [r.getMessage() for r in caplog.records]
+        small = [r for r in caplog.records if self.SMALL_INTERVAL_TEXT in r.getMessage()]
+        assert len(small) == 1
+        assert small[0].levelno == logging.WARNING
+        assert small[0].getMessage() == (
+            "convergence_check_interval=249 is quite small: each check re-estimates tau over the whole chain "
+            "so far, so checking convergence too frequently can actually take longer than the MCMC would "
+            "itself. An interval of 1000 or more is usually plenty."
+        )
+        first_check = next(i for i, m in enumerate(messages) if "Convergence check" in m)
+        assert messages.index(small[0].getMessage()) < first_check
+
+    @pytest.mark.parametrize("interval", [250, 1000])
+    def test_interval_250_or_more_does_not_warn(self, setup_fitter, caplog, interval):
+        """Intervals of 250 or more log no small-interval warning."""
+        fitter, initial_positions = setup_fitter
+        with caplog.at_level(logging.INFO):
+            fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=50, progress=False,
+                            check_convergence=True, convergence_check_interval=interval,
+                            convergence_check_start=50)
+
+        assert not any(self.SMALL_INTERVAL_TEXT in r.getMessage() for r in caplog.records)
+
+    def test_small_interval_without_convergence_checks_does_not_warn(self, setup_fitter, caplog):
+        """With check_convergence=False no checks run, so a small interval logs no small-interval warning."""
+        fitter, initial_positions = setup_fitter
+        with caplog.at_level(logging.INFO):
+            fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=50, progress=False,
+                            check_convergence=False, convergence_check_interval=100)
+
+        assert not any(self.SMALL_INTERVAL_TEXT in r.getMessage() for r in caplog.records)
+
     def test_plot_autocorr_without_convergence_check_raises(self, setup_fitter):
         """Test that plotting without convergence checking raises informative error."""
         fitter, initial_positions = setup_fitter
