@@ -936,6 +936,41 @@ class TestAdaptiveConvergence:
                 convergence_check_start=200,
             )
 
+    @pytest.mark.parametrize(
+        "start, interval, first_checks",
+        [
+            (150, 100, [150, 250]),  # start not a multiple of the interval
+            (200, 100, [200, 300]),  # start a multiple of the interval
+            (0, 100, [100, 200]),  # start 0: first check one interval in
+        ],
+    )
+    def test_checks_anchored_at_convergence_check_start(self, setup_fitter, start, interval, first_checks):
+        """Checks run at convergence_check_start, then every convergence_check_interval steps."""
+        fitter, initial_positions = setup_fitter
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=first_checks[1], progress=False,
+                        check_convergence=True, convergence_check_interval=interval,
+                        convergence_check_start=start)
+
+        # The first check can never converge, so the second always runs
+        assert list(fitter.autocorr_history) == first_checks
+
+    def test_first_check_at_max_steps_runs(self, setup_fitter):
+        """A first check falling exactly on max_steps runs, even if start isn't a multiple of the interval."""
+        fitter, initial_positions = setup_fitter
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=150, progress=False,
+                        check_convergence=True, convergence_check_interval=100,
+                        convergence_check_start=150)
+
+        assert list(fitter.autocorr_history) == [150]
+
+    def test_negative_convergence_check_start_raises(self, setup_fitter):
+        """A negative convergence_check_start raises ValueError."""
+        fitter, initial_positions = setup_fitter
+        with pytest.raises(ValueError, match="convergence_check_start must be"):
+            fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=200, progress=False,
+                            check_convergence=True, convergence_check_interval=100,
+                            convergence_check_start=-100)
+
     def test_plot_autocorr_without_convergence_check_raises(self, setup_fitter):
         """Test that plotting without convergence checking raises informative error."""
         fitter, initial_positions = setup_fitter
