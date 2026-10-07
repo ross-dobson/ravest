@@ -1198,7 +1198,7 @@ class Fitter:
             max_attempts=max_attempts
         )
 
-    def run_mcmc(self, initial_positions: np.ndarray, nwalkers: int, max_steps: int = 5000, progress: bool = True, multiprocessing: bool = False, check_convergence: bool = False, convergence_check_interval: int = 1000, convergence_check_start: int = 0) -> None:
+    def run_mcmc(self, initial_positions: np.ndarray, nwalkers: int, max_steps: int = 50000, progress: bool = True, multiprocessing: bool = False, check_convergence: bool = False, convergence_check_interval: int = 1000, convergence_check_start: int = 15000) -> None:
         """Run MCMC sampling from given initial walker positions.
 
         Parameters
@@ -1212,7 +1212,7 @@ class Fitter:
         max_steps : int, optional
             Maximum number of MCMC steps to run. If check_convergence=False, runs for
             exactly this many steps. If check_convergence=True, runs up to this many
-            steps, stopping early when convergence criteria are met (default: 5000)
+            steps, stopping early when convergence criteria are met (default: 50000)
         progress : bool, optional
             Whether to show progress bar during MCMC (default: True)
         multiprocessing : bool, optional
@@ -1233,7 +1233,7 @@ class Fitter:
             Step of the first convergence check; later checks follow every
             convergence_check_interval steps. Set it past burn-in (e.g. twice the
             expected burn-in) so tau isn't estimated on a short, unsettled chain.
-            0 means the first check is at convergence_check_interval (default: 0)
+            0 means the first check is at convergence_check_interval (default: 15000)
 
         Raises
         ------
@@ -1296,7 +1296,7 @@ class Fitter:
 
         # Warn if convergence arguments provided but convergence checking disabled
         if not check_convergence:
-            if convergence_check_interval != 1000 or convergence_check_start != 0:
+            if convergence_check_interval != 1000 or convergence_check_start != 15000:
                 logging.warning(
                     "Convergence checking arguments provided but check_convergence=False. "
                     "These arguments will be ignored. Did you forget to set check_convergence=True?"

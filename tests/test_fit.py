@@ -988,6 +988,44 @@ class TestAdaptiveConvergence:
                             check_convergence=True, convergence_check_interval=100,
                             convergence_check_start=-100)
 
+    def test_run_mcmc_defaults(self):
+        """run_mcmc runs up to 50000 steps; convergence checks start at step 15000, then every 1000 steps."""
+        import inspect
+        parameters = inspect.signature(Fitter.run_mcmc).parameters
+
+        assert parameters["max_steps"].default == 50000
+        assert parameters["check_convergence"].default is False
+        assert parameters["convergence_check_interval"].default == 1000
+        assert parameters["convergence_check_start"].default == 15000
+
+    def test_default_start_needs_room_for_two_checks(self, setup_fitter):
+        """With the default start, max_steps must reach the second check at step 16000."""
+        fitter, initial_positions = setup_fitter
+        with pytest.raises(ValueError, match="the first would be at step 15000 and the second at step 16000"):
+            fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=1000, progress=False, check_convergence=True)
+
+    IGNORED_TEXT = "These arguments will be ignored"
+
+    @pytest.mark.parametrize("kwargs", [{"convergence_check_start": 0}, {"convergence_check_interval": 500}],
+                             ids=["start", "interval"])
+    def test_convergence_arguments_without_checks_warn(self, setup_fitter, caplog, kwargs):
+        """A non-default convergence argument with check_convergence=False logs the "will be ignored" warning."""
+        fitter, initial_positions = setup_fitter
+        with caplog.at_level(logging.INFO):
+            fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=50, progress=False, **kwargs)
+
+        assert any(self.IGNORED_TEXT in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.parametrize("kwargs", [{}, {"convergence_check_start": 15000, "convergence_check_interval": 1000}],
+                             ids=["omitted", "defaults-passed"])
+    def test_default_convergence_arguments_without_checks_do_not_warn(self, setup_fitter, caplog, kwargs):
+        """With check_convergence=False, the default convergence arguments log no "will be ignored" warning."""
+        fitter, initial_positions = setup_fitter
+        with caplog.at_level(logging.INFO):
+            fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=50, progress=False, **kwargs)
+
+        assert not any(self.IGNORED_TEXT in r.getMessage() for r in caplog.records)
+
     SMALL_INTERVAL_TEXT = "is quite small"
 
     def test_small_interval_warns_once_at_start(self, setup_fitter, caplog):
@@ -1046,7 +1084,8 @@ class TestAdaptiveConvergence:
         fitter, initial_positions = setup_fitter
 
         fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=200, progress=False,
-                        check_convergence=True, convergence_check_interval=100)
+                        check_convergence=True, convergence_check_interval=100,
+                        convergence_check_start=0)
         assert len(fitter.autocorr_history) > 0
 
         fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=100, progress=False, check_convergence=False)
@@ -1060,12 +1099,14 @@ class TestAdaptiveConvergence:
         fitter, initial_positions = setup_fitter
 
         fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=300, progress=False,
-                        check_convergence=True, convergence_check_interval=100)
+                        check_convergence=True, convergence_check_interval=100,
+                        convergence_check_start=0)
         assert 100 in fitter.autocorr_history
 
         # The first check can never converge, so both checks run whatever the taus are
         fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=140, progress=False,
-                        check_convergence=True, convergence_check_interval=70)
+                        check_convergence=True, convergence_check_interval=70,
+                        convergence_check_start=0)
 
         assert list(fitter.autocorr_history) == [70, 140]
 
@@ -1186,7 +1227,8 @@ class TestAdaptiveConvergence:
         self._script_taus(monkeypatch, [[100.0, 100.0], [1.5, 1.0], [1.5, 1.0], [1.5, 1.0]])
         with caplog.at_level(logging.INFO):
             fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=500, progress=False,
-                            check_convergence=True, convergence_check_interval=50)
+                            check_convergence=True, convergence_check_interval=50,
+                            convergence_check_start=0)
 
         check_records = [r for r in caplog.records if r.getMessage().startswith("Convergence check at step")]
         assert [r.levelno for r in check_records] == [logging.INFO] * 3
@@ -1245,7 +1287,8 @@ class TestAdaptiveConvergence:
         self._script_taus(monkeypatch, [[100.0, 100.0], [100.0, 100.0], [10.0, 2.0]])
         with caplog.at_level(logging.INFO):
             fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=150, progress=False,
-                            check_convergence=True, convergence_check_interval=50)
+                            check_convergence=True, convergence_check_interval=50,
+                            convergence_check_start=0)
 
         expected = ("Reached max_steps=150 without converging. At the last check (step 150): "
                     "tau too long for K_b (needs < 3.0, N/50); tau not yet stable to 1% for K_b, jit_HARPS.")
@@ -1263,7 +1306,8 @@ class TestAdaptiveConvergence:
         self._script_taus(monkeypatch, [[1.0, 1.0], [1.0, 1.5]])
         with caplog.at_level(logging.INFO):
             fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=120, progress=False,
-                            check_convergence=True, convergence_check_interval=50)
+                            check_convergence=True, convergence_check_interval=50,
+                            convergence_check_start=0)
 
         assert self._run_warnings(caplog) == [
             "Reached max_steps=120 without converging. At the last check (step 100): "
@@ -1277,7 +1321,8 @@ class TestAdaptiveConvergence:
         self._script_taus(monkeypatch, [[1.0, 1.0], [1.0, 1.0]])
         with caplog.at_level(logging.INFO):
             fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=500, progress=False,
-                            check_convergence=True, convergence_check_interval=50)
+                            check_convergence=True, convergence_check_interval=50,
+                            convergence_check_start=0)
 
         assert fitter.sampler.iteration == 100
         assert self._run_warnings(caplog) == []
@@ -2612,7 +2657,8 @@ class TestGPFitterMCMC:
         TestAdaptiveConvergence._script_taus(monkeypatch, [[100.0] * fitter.ndim, [10.0] * fitter.ndim])
         with caplog.at_level(logging.INFO):
             fitter.run_mcmc(initial_positions, nwalkers=nwalkers, max_steps=100, progress=False,
-                            check_convergence=True, convergence_check_interval=50)
+                            check_convergence=True, convergence_check_interval=50,
+                            convergence_check_start=0)
 
         all_names = ", ".join(fitter.free_params_names)
         assert any(name.startswith("gp_") for name in fitter.free_params_names)
