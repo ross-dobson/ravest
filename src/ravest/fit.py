@@ -1223,7 +1223,9 @@ class Fitter:
             the chain is longer than 50 * tau, and tau has changed by less than
             1% since the previous check (so the first check can never pass).
             If max_steps is reached first, a warning names each parameter that
-            failed and which test. If False, run for exactly max_steps
+            failed and which test. If False, run for exactly max_steps;
+            calculate_autocorr_estimates can run the same checks on the finished
+            chain afterwards, to see whether and where it would have converged
             (default: False)
         convergence_check_interval : int, optional
             Steps between convergence checks. Each check re-estimates tau over the
@@ -1884,6 +1886,85 @@ class Fitter:
 
         # Return as dictionary
         return dict(zip(self.free_params_names, best_values))
+
+    def calculate_autocorr_estimates(self, start: int = 15000, interval: int = 1000) -> dict[int, np.ndarray]:
+        """Estimate the autocorrelation time at regular steps of the finished chain.
+
+        Each estimate uses the chain up to that step, exactly as run_mcmc's
+        convergence checks do, so this works after any run, with or without
+        convergence checks. Each estimate logs the same line as a convergence
+        check, and a closing line says where both convergence tests first passed.
+        The estimates replace any saved by run_mcmc, and plot_autocorr_estimates
+        draws them. Each estimate re-reads the chain up to its step, so long
+        chains take a while; a larger interval is quicker.
+
+        Parameters
+        ----------
+        start : int, optional
+            Step of the first estimate; later estimates follow every interval
+            steps up to the end of the chain. 0 means the first estimate is at
+            interval (default: 15000)
+        interval : int, optional
+            Steps between estimates (default: 1000)
+
+        Returns
+        -------
+        dict
+            Autocorrelation time of each free parameter (in the order of
+            free_params_names), keyed by step
+
+        Raises
+        ------
+        ValueError
+            If run_mcmc has not been called yet, if interval is not positive, if
+            start is negative, or if fewer than two estimates fit in the chain
+        """
+        if not hasattr(self, "sampler"):
+            raise ValueError("No MCMC run yet: call run_mcmc() first.")
+        if interval <= 0:
+            raise ValueError(f"interval must be a positive integer, got {interval}.")
+        if start < 0:
+            raise ValueError(f"start must be a non-negative integer, got {start}.")
+
+        # As in run_mcmc: the stability test compares each estimate with the previous one, so at least two must fit
+        nsteps = self.sampler.iteration
+        if start > 0:
+            first_step = start
+        else:
+            first_step = interval
+        if first_step + interval > nsteps:
+            raise ValueError(
+                f"The chain has {nsteps} steps, too few for two autocorrelation estimates: the first would be at "
+                f"step {first_step} and the second at step {first_step + interval}. Pass a smaller start or interval."
+            )
+
+        chain = self.sampler.get_chain()
+        history = {}
+        previous_tau = None
+        first_passed = None
+        for step in range(first_step, nsteps + 1, interval):
+            # Same estimate as sampler.get_autocorr_time(tol=0) when the chain was this long
+            tau = emcee.autocorr.integrated_time(chain[:step], tol=0)
+            history[step] = tau
+
+            # Judge it as a convergence check would, but carry on: every estimate is wanted for the plot
+            converged, line = self._assess_convergence(step, tau, previous_tau, self.free_params_names)
+            logging.info(line)
+            if converged and first_passed is None:
+                first_passed = step
+            previous_tau = tau
+
+        steps = list(history)
+        summary = f"Autocorrelation estimates at {len(steps)} steps ({steps[0]} to {steps[-1]}); "
+        if first_passed is None:
+            summary += "the convergence tests never passed."
+        else:
+            summary += f"both convergence tests first passed at step {first_passed}."
+        logging.info(summary)
+
+        # Store only once every estimate is done, so a failed or interrupted call keeps the old history
+        self.autocorr_history = history
+        return dict(history)
 
     def plot_autocorr_estimates(
         self,

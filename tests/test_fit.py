@@ -1328,6 +1328,169 @@ class TestAdaptiveConvergence:
         assert self._run_warnings(caplog) == []
 
 
+class TestCalculateAutocorrEstimates:
+    """Tests for calculate_autocorr_estimates, which estimates tau from the finished chain."""
+
+    @pytest.fixture
+    def setup_fitter(self, test_data, test_circular_params, test_simple_priors):
+        """A fitter ready for MCMC, and its walkers' starting positions."""
+        fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
+        fitter.add_data(*test_data, t0=2.0)
+        fitter.params = test_circular_params
+        fitter.priors = test_simple_priors
+        map_result = fitter.find_map_estimate()
+        initial_positions = fitter.generate_initial_walker_positions_from_map(map_result, nwalkers=10)
+        return fitter, initial_positions
+
+    @pytest.fixture
+    def fitted(self, setup_fitter):
+        """The fitter after a 300-step run without convergence checks."""
+        fitter, initial_positions = setup_fitter
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=300, progress=False)
+        return fitter
+
+    @staticmethod
+    def _script_taus(monkeypatch, taus):
+        """Make integrated_time return the given taus, one per estimate, in order."""
+        scripted = iter([np.array(tau, dtype=float) for tau in taus])
+        monkeypatch.setattr(emcee.autocorr, "integrated_time", lambda x, **kwargs: next(scripted))
+
+    def test_defaults_match_run_mcmc(self):
+        """Start and interval default to run_mcmc's convergence_check_start and convergence_check_interval."""
+        import inspect
+        parameters = inspect.signature(Fitter.calculate_autocorr_estimates).parameters
+        run_mcmc_parameters = inspect.signature(Fitter.run_mcmc).parameters
+
+        assert parameters["start"].default == run_mcmc_parameters["convergence_check_start"].default == 15000
+        assert parameters["interval"].default == run_mcmc_parameters["convergence_check_interval"].default == 1000
+
+    def test_matches_live_checks(self, setup_fitter):
+        """After a convergence run, the same start and interval give the run's own estimates, bit for bit."""
+        fitter, initial_positions = setup_fitter
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=300, progress=False,
+                        check_convergence=True, convergence_check_interval=50, convergence_check_start=100)
+        live = dict(fitter.autocorr_history)
+
+        result = fitter.calculate_autocorr_estimates(start=100, interval=50)
+
+        assert list(result) == list(live)
+        for step in live:
+            assert np.array_equal(result[step], live[step])
+
+    def test_after_run_without_checks(self, fitted):
+        """After a run without checks, estimates run from start to the end of the chain and are stored."""
+        result = fitted.calculate_autocorr_estimates(start=100, interval=50)
+
+        assert list(result) == [100, 150, 200, 250, 300]
+        assert list(fitted.autocorr_history) == list(result)
+        for step, tau in result.items():
+            assert tau.shape == (fitted.ndim,)
+            assert np.array_equal(fitted.autocorr_history[step], tau)
+
+    @pytest.mark.parametrize(
+        "start, interval, steps",
+        [
+            (0, 100, [100, 200, 300]),  # start 0: first estimate one interval in
+            (100, 80, [100, 180, 260]),  # the chain's end needn't fall on an estimate
+            (200, 100, [200, 300]),  # exactly two estimates fit
+        ],
+    )
+    def test_estimate_steps(self, fitted, start, interval, steps):
+        """Estimates at start, then every interval steps, up to the chain's length."""
+        assert list(fitted.calculate_autocorr_estimates(start=start, interval=interval)) == steps
+
+    def test_replaces_run_history(self, setup_fitter, monkeypatch):
+        """A convergence run's history is replaced, not merged."""
+        fitter, initial_positions = setup_fitter
+        TestAdaptiveConvergence._script_taus(monkeypatch, [[100.0, 100.0]] * 3)
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=300, progress=False,
+                        check_convergence=True, convergence_check_interval=100, convergence_check_start=0)
+        assert list(fitter.autocorr_history) == [100, 200, 300]
+
+        fitter.calculate_autocorr_estimates(start=150, interval=50)
+
+        assert list(fitter.autocorr_history) == [150, 200, 250, 300]
+
+    def test_returns_a_copy(self, fitted):
+        """Editing the returned dict doesn't change the stored history."""
+        result = fitted.calculate_autocorr_estimates(start=100, interval=100)
+        result.clear()
+
+        assert list(fitted.autocorr_history) == [100, 200, 300]
+
+    def test_plot_after_run_without_checks(self, fitted):
+        """plot_autocorr_estimates draws the estimates after a run without checks."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        fitted.calculate_autocorr_estimates(start=100, interval=50)
+
+        fitted.plot_autocorr_estimates()
+        plt.close("all")
+
+    def test_one_line_per_estimate_then_summary(self, fitted, monkeypatch, caplog):
+        """Each estimate logs its check line, carrying on past "Converged."; a summary line ends the log."""
+        # Free params K_b, jit_HARPS. 100: too long (N/50 = 2); 150: unstable; 200: converged; 250: unstable again;
+        # 300: converged again
+        taus = [[10.0, 10.0], [1.0, 1.0], [1.0, 1.0], [1.5, 1.0], [1.5, 1.0]]
+        self._script_taus(monkeypatch, taus)
+        with caplog.at_level(logging.INFO):
+            fitted.calculate_autocorr_estimates(start=100, interval=50)
+
+        expected_lines = []
+        previous = None
+        for step, tau in zip([100, 150, 200, 250, 300], taus):
+            expected_lines.append(Fitter._assess_convergence(step, np.array(tau), previous, fitted.free_params_names)[1])
+            previous = np.array(tau)
+        messages = [r.getMessage() for r in caplog.records]
+        assert messages == expected_lines + [
+            "Autocorrelation estimates at 5 steps (100 to 300); both convergence tests first passed at step 200."
+        ]
+        assert messages[2].endswith("Converged.")
+        assert messages[3].endswith("Not converged.")
+        assert all(r.levelno == logging.INFO for r in caplog.records)
+
+    def test_summary_when_never_passed(self, fitted, monkeypatch, caplog):
+        """If no estimate passes both tests, the summary says so."""
+        self._script_taus(monkeypatch, [[10.0, 10.0]] * 3)
+        with caplog.at_level(logging.INFO):
+            fitted.calculate_autocorr_estimates(start=100, interval=100)
+
+        assert caplog.records[-1].getMessage() == (
+            "Autocorrelation estimates at 3 steps (100 to 300); the convergence tests never passed."
+        )
+
+    def test_before_run_mcmc_raises(self, setup_fitter):
+        """Before any MCMC run there is no chain to estimate from."""
+        fitter, _ = setup_fitter
+        with pytest.raises(ValueError, match=re.escape("No MCMC run yet: call run_mcmc() first.")):
+            fitter.calculate_autocorr_estimates(start=100, interval=50)
+
+    @pytest.mark.parametrize(
+        "start, interval, message",
+        [
+            (100, 0, "interval must be a positive integer, got 0."),
+            (-1, 50, "start must be a non-negative integer, got -1."),
+            (250, 100, "The chain has 300 steps, too few for two autocorrelation estimates: the first would be at "
+                       "step 250 and the second at step 350. Pass a smaller start or interval."),
+            (0, 200, "The chain has 300 steps, too few for two autocorrelation estimates: the first would be at "
+                     "step 200 and the second at step 400. Pass a smaller start or interval."),
+        ],
+    )
+    def test_invalid_schedule_raises(self, fitted, start, interval, message):
+        """A non-positive interval, a negative start, or room for fewer than two estimates raises."""
+        with pytest.raises(ValueError, match=re.escape(message)):
+            fitted.calculate_autocorr_estimates(start=start, interval=interval)
+
+    def test_failed_call_keeps_history(self, fitted):
+        """A call that raises leaves the stored history as it was."""
+        fitted.calculate_autocorr_estimates(start=100, interval=100)
+        with pytest.raises(ValueError):
+            fitted.calculate_autocorr_estimates(start=250, interval=100)
+
+        assert list(fitted.autocorr_history) == [100, 200, 300]
+
+
 class TestAssessConvergence:
     """Tests for Fitter._assess_convergence, which judges one convergence check and words its log line."""
 
@@ -2666,6 +2829,19 @@ class TestGPFitterMCMC:
             f"Reached max_steps=100 without converging. At the last check (step 100): "
             f"tau too long for {all_names} (needs < 2.0, N/50); tau not yet stable to 1% for {all_names}."
         ]
+
+    def test_calculate_autocorr_estimates_names_gp_parameters(self, setup_gpfitter, monkeypatch, caplog):
+        """calculate_autocorr_estimates' lines name GP hyperparameters."""
+        fitter, initial_positions, nwalkers = setup_gpfitter
+        fitter.run_mcmc(initial_positions, nwalkers=nwalkers, max_steps=100, progress=False)
+        gp_index = next(i for i, name in enumerate(fitter.free_params_names) if name.startswith("gp_"))
+        tau = np.ones(fitter.ndim)
+        tau[gp_index] = 100.0
+        TestCalculateAutocorrEstimates._script_taus(monkeypatch, [tau, tau])
+        with caplog.at_level(logging.INFO):
+            fitter.calculate_autocorr_estimates(start=50, interval=50)
+
+        assert f"max tau 100.0 ({fitter.free_params_names[gp_index]})" in caplog.records[0].getMessage()
 
     def test_backward_compatibility_positional_args(self, setup_gpfitter):
         """Test backward compatibility with positional arguments."""
