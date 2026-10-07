@@ -1241,7 +1241,7 @@ class Fitter:
             If there are no free parameters, if a free parameter has no prior, or if
             nwalkers is less than 2 * ndim. With check_convergence=True, also if
             convergence_check_interval is not positive, convergence_check_start is
-            negative, or the first check would come after max_steps
+            negative, or fewer than two checks would fit within max_steps
         """
         if len(self.free_params_values) == 0:
             raise ValueError(
@@ -1302,8 +1302,10 @@ class Fitter:
                     "These arguments will be ignored. Did you forget to set check_convergence=True?"
                 )
 
-        # Guard: if convergence checking is enabled but the first check can never
-        # occur within max_steps, the run would silently behave as fixed-length.
+        # The stability test compares each autocorr check with the previous one (to check for % stability).
+        # So, we need to ensure at least two checks can fit before we reach max_steps. The first check is at
+        # convergence_check_start (or, if convergence_check_start is 0, then the first check is at one interval in),
+        # and the second check is one interval after that.
         if check_convergence:
             if convergence_check_interval <= 0:
                 raise ValueError(
@@ -1314,13 +1316,18 @@ class Fitter:
                     f"convergence_check_start must be a non-negative integer, got {convergence_check_start}."
                 )
             # First check at convergence_check_start, or one interval in if that is 0
-            first_check_iteration = convergence_check_start if convergence_check_start > 0 else convergence_check_interval
-            if first_check_iteration > max_steps:
+            if convergence_check_start > 0:
+                first_check_iteration = convergence_check_start
+            else:
+                first_check_iteration = convergence_check_interval
+            second_check_iteration = first_check_iteration + convergence_check_interval
+            if second_check_iteration > max_steps:
                 raise ValueError(
-                    f"check_convergence=True but the first convergence check would occur at "
-                    f"step {first_check_iteration}, which exceeds max_steps={max_steps}. No convergence "
-                    f"check would ever run. Increase max_steps, or reduce convergence_check_start "
-                    f"(or convergence_check_interval, if convergence_check_start is 0)."
+                    f"check_convergence=True needs at least two convergence checks within "
+                    f"max_steps={max_steps}, since the stability test compares each check with the "
+                    f"previous one, but the first would be at step {first_check_iteration} and the second "
+                    f"at step {second_check_iteration}. Increase max_steps, or reduce "
+                    f"convergence_check_start or convergence_check_interval."
                 )
             # Each check re-estimates tau over the whole chain, so frequent checks can dominate the run time
             if convergence_check_interval < 250:
@@ -1429,7 +1436,7 @@ class Fitter:
         return converged, line
 
     @staticmethod
-    def _describe_non_convergence(max_steps: int, step: int, tau: np.ndarray, previous_tau: np.ndarray | None, names: list[str]) -> str:
+    def _describe_non_convergence(max_steps: int, step: int, tau: np.ndarray, previous_tau: np.ndarray, names: list[str]) -> str:
         """Word the warning for a run that reached max_steps without converging.
 
         Parameters
@@ -1440,8 +1447,8 @@ class Fitter:
             Number of steps in the chain at the last check
         tau : np.ndarray
             Autocorrelation time estimate of each free parameter at the last check
-        previous_tau : np.ndarray or None
-            The estimate at the check before that, or None if there was only one check
+        previous_tau : np.ndarray
+            The estimate at the check before that
         names : list of str
             Free parameter names, in the order of tau
 
@@ -1459,13 +1466,10 @@ class Fitter:
             failures.append(f"tau too long for {', '.join(too_long)} (needs < {step / 50:.1f}, N/50)")
 
         # Parameters whose tau changed by 1% or more since the previous check
-        if previous_tau is None:
-            failures.append("tau stability: only one check, nothing to compare")
-        else:
-            stable = np.abs(previous_tau - tau) / tau < 0.01
-            unstable = [name for name, ok in zip(names, stable) if not ok]
-            if unstable:
-                failures.append(f"tau not yet stable to 1% for {', '.join(unstable)}")
+        stable = np.abs(previous_tau - tau) / tau < 0.01
+        unstable = [name for name, ok in zip(names, stable) if not ok]
+        if unstable:
+            failures.append(f"tau not yet stable to 1% for {', '.join(unstable)}")
 
         return (f"Reached max_steps={max_steps} without converging. At the last check (step {step}): "
                 + "; ".join(failures) + ".")

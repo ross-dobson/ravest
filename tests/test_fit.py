@@ -912,7 +912,7 @@ class TestAdaptiveConvergence:
     def test_max_steps_smaller_than_interval_raises(self, setup_fitter):
         """check_convergence with max_steps below the first check interval raises."""
         fitter, initial_positions = setup_fitter
-        with pytest.raises(ValueError, match="No convergence check would ever run"):
+        with pytest.raises(ValueError, match="needs at least two convergence checks"):
             fitter.run_mcmc(
                 initial_positions,
                 nwalkers=10,
@@ -926,7 +926,7 @@ class TestAdaptiveConvergence:
     def test_convergence_check_start_beyond_max_steps_raises(self, setup_fitter):
         """check_convergence with convergence_check_start beyond max_steps raises."""
         fitter, initial_positions = setup_fitter
-        with pytest.raises(ValueError, match="No convergence check would ever run"):
+        with pytest.raises(ValueError, match="needs at least two convergence checks"):
             fitter.run_mcmc(
                 initial_positions,
                 nwalkers=10,
@@ -955,14 +955,30 @@ class TestAdaptiveConvergence:
         # The first check can never converge, so the second always runs
         assert list(fitter.autocorr_history) == first_checks
 
-    def test_first_check_at_max_steps_runs(self, setup_fitter):
-        """A first check falling exactly on max_steps runs, even if start isn't a multiple of the interval."""
+    @pytest.mark.parametrize(
+        "start, interval, max_steps",
+        [
+            (150, 100, 150),  # first check exactly at max_steps
+            (150, 100, 249),  # second check one step past max_steps
+            (0, 50, 99),  # start 0: checks at 50 and 100
+        ],
+    )
+    def test_only_one_check_fits_raises(self, setup_fitter, start, interval, max_steps):
+        """One check can never pass the stability test, so a run with room for only one raises."""
         fitter, initial_positions = setup_fitter
-        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=150, progress=False,
+        with pytest.raises(ValueError, match="needs at least two convergence checks"):
+            fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=max_steps, progress=False,
+                            check_convergence=True, convergence_check_interval=interval,
+                            convergence_check_start=start)
+
+    def test_exactly_two_checks_fit_runs(self, setup_fitter):
+        """A second check falling exactly on max_steps runs, even if start isn't a multiple of the interval."""
+        fitter, initial_positions = setup_fitter
+        fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=250, progress=False,
                         check_convergence=True, convergence_check_interval=100,
                         convergence_check_start=150)
 
-        assert list(fitter.autocorr_history) == [150]
+        assert list(fitter.autocorr_history) == [150, 250]
 
     def test_negative_convergence_check_start_raises(self, setup_fitter):
         """A negative convergence_check_start raises ValueError."""
@@ -978,7 +994,7 @@ class TestAdaptiveConvergence:
         """An interval below 250 logs one warning, before the first check."""
         fitter, initial_positions = setup_fitter
         with caplog.at_level(logging.INFO):
-            fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=100, progress=False,
+            fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=299, progress=False,
                             check_convergence=True, convergence_check_interval=249,
                             convergence_check_start=50)
 
@@ -999,7 +1015,7 @@ class TestAdaptiveConvergence:
         """Intervals of 250 or more log no small-interval warning."""
         fitter, initial_positions = setup_fitter
         with caplog.at_level(logging.INFO):
-            fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=50, progress=False,
+            fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=50 + interval, progress=False,
                             check_convergence=True, convergence_check_interval=interval,
                             convergence_check_start=50)
 
@@ -1189,10 +1205,10 @@ class TestAdaptiveConvergence:
     @pytest.mark.parametrize(
         "start, interval, max_steps, expected",
         [
-            (50, 300, 100, "Starting MCMC with convergence checks: maximum 100 steps, "
+            (50, 300, 350, "Starting MCMC with convergence checks: maximum 350 steps, "
                            "checking convergence every 300 steps starting at step 50..."),
-            (0, 50, 50, "Starting MCMC with convergence checks: maximum 50 steps, "
-                        "checking convergence every 50 steps starting at step 50..."),
+            (0, 50, 100, "Starting MCMC with convergence checks: maximum 100 steps, "
+                         "checking convergence every 50 steps starting at step 50..."),
         ],
     )
     def test_convergence_start_line(self, setup_fitter, caplog, start, interval, max_steps, expected):
@@ -1239,19 +1255,6 @@ class TestAdaptiveConvergence:
         assert messages[-2] == expected
         assert messages[-1] == "...MCMC complete: 150 steps total"
         assert not any("Approaching max iterations" in m for m in messages)
-
-    def test_not_converged_after_one_check(self, setup_fitter, monkeypatch, caplog):
-        """With only one check the warning says there was nothing to compare tau against."""
-        fitter, initial_positions = setup_fitter
-        self._script_taus(monkeypatch, [[100.0, 0.5]])
-        with caplog.at_level(logging.INFO):
-            fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=50, progress=False,
-                            check_convergence=True, convergence_check_interval=50)
-
-        assert self._run_warnings(caplog) == [
-            "Reached max_steps=50 without converging. At the last check (step 50): "
-            "tau too long for K_b (needs < 1.0, N/50); tau stability: only one check, nothing to compare."
-        ]
 
     def test_not_converged_last_check_before_max_steps(self, setup_fitter, monkeypatch, caplog):
         """When max_steps isn't a check step, the warning cites the last check's own step."""
@@ -1398,20 +1401,6 @@ class TestDescribeNonConvergence:
         assert message == self.PREFIX + (
             "tau too long for K_b (needs < 400.0, N/50); tau not yet stable to 1% for e_b."
         )
-
-    def test_one_check_too_long(self):
-        """With no previous estimate, stability is reported as having nothing to compare."""
-        message = Fitter._describe_non_convergence(
-            20000, 20000, np.array([450.0, 100.0, 100.0, 100.0]), None, self.NAMES)
-        assert message == self.PREFIX + (
-            "tau too long for K_b (needs < 400.0, N/50); tau stability: only one check, nothing to compare."
-        )
-
-    def test_one_check_long_enough(self):
-        """With one check and every tau short enough, only the stability note remains."""
-        message = Fitter._describe_non_convergence(
-            20000, 20000, np.array([100.0, 100.0, 100.0, 100.0]), None, self.NAMES)
-        assert message == self.PREFIX + "tau stability: only one check, nothing to compare."
 
     def test_last_check_before_max_steps(self):
         """The message cites max_steps and the last check's own step."""
@@ -2620,16 +2609,16 @@ class TestGPFitterMCMC:
     def test_not_converged_warning_names_gp_parameters(self, setup_gpfitter, monkeypatch, caplog):
         """The end-of-run warning names GP hyperparameters along with the planet parameters."""
         fitter, initial_positions, nwalkers = setup_gpfitter
-        TestAdaptiveConvergence._script_taus(monkeypatch, [[100.0] * fitter.ndim])
+        TestAdaptiveConvergence._script_taus(monkeypatch, [[100.0] * fitter.ndim, [10.0] * fitter.ndim])
         with caplog.at_level(logging.INFO):
-            fitter.run_mcmc(initial_positions, nwalkers=nwalkers, max_steps=50, progress=False,
+            fitter.run_mcmc(initial_positions, nwalkers=nwalkers, max_steps=100, progress=False,
                             check_convergence=True, convergence_check_interval=50)
 
         all_names = ", ".join(fitter.free_params_names)
         assert any(name.startswith("gp_") for name in fitter.free_params_names)
         assert TestAdaptiveConvergence._run_warnings(caplog) == [
-            f"Reached max_steps=50 without converging. At the last check (step 50): "
-            f"tau too long for {all_names} (needs < 1.0, N/50); tau stability: only one check, nothing to compare."
+            f"Reached max_steps=100 without converging. At the last check (step 100): "
+            f"tau too long for {all_names} (needs < 2.0, N/50); tau not yet stable to 1% for {all_names}."
         ]
 
     def test_backward_compatibility_positional_args(self, setup_gpfitter):
