@@ -1222,7 +1222,9 @@ class Fitter:
             at each check, and stop early once both hold for every parameter:
             the chain is longer than 50 * tau, and tau has changed by less than
             1% since the previous check (so the first check can never pass).
-            If False, run for exactly max_steps (default: False)
+            If max_steps is reached first, a warning names each parameter that
+            failed and which test. If False, run for exactly max_steps
+            (default: False)
         convergence_check_interval : int, optional
             Steps between convergence checks. Each check re-estimates tau over the
             whole chain so far, so small intervals can cost more than the sampling;
@@ -1342,6 +1344,7 @@ class Fitter:
             # Convergence checking - run up to max_steps, stopping early if converged
             logging.info(f"Starting MCMC with convergence checks: maximum {max_steps} steps, checking convergence every {convergence_check_interval} steps starting at step {first_check_iteration}...")
 
+            converged = False
             previous_tau = None
 
             for sample in sampler.sample(initial_state=initial_positions, iterations=max_steps, progress=progress):
@@ -1362,12 +1365,13 @@ class Fitter:
                 if converged:
                     break
 
-                # Warn if approaching max steps without convergence
-                if sampler.iteration > 0.8 * max_steps:
-                    logging.warning(f"Approaching max iterations ({max_steps}) without convergence! (max tau={np.max(tau):.1f})")
-
-                # Keep this estimate to compare against at the next check
+                # Keep this check's numbers for the end-of-run warning, and this estimate for the next check
+                last_check = (sampler.iteration, tau, previous_tau)
                 previous_tau = tau
+
+            # Warn once if max_steps was reached without converging
+            if not converged:
+                logging.warning(self._describe_non_convergence(max_steps, *last_check, self.free_params_names))
 
             # Final log
             final_steps = sampler.iteration
@@ -1423,6 +1427,48 @@ class Fitter:
         else:
             line += " Not converged."
         return converged, line
+
+    @staticmethod
+    def _describe_non_convergence(max_steps: int, step: int, tau: np.ndarray, previous_tau: np.ndarray | None, names: list[str]) -> str:
+        """Word the warning for a run that reached max_steps without converging.
+
+        Parameters
+        ----------
+        max_steps : int
+            The run's maximum number of steps
+        step : int
+            Number of steps in the chain at the last check
+        tau : np.ndarray
+            Autocorrelation time estimate of each free parameter at the last check
+        previous_tau : np.ndarray or None
+            The estimate at the check before that, or None if there was only one check
+        names : list of str
+            Free parameter names, in the order of tau
+
+        Returns
+        -------
+        str
+            The warning, naming every parameter that failed each test, in the order of names
+        """
+        failures = []
+
+        # Parameters whose chain is not longer than 50 * tau
+        long_enough = step > 50 * tau
+        too_long = [name for name, ok in zip(names, long_enough) if not ok]
+        if too_long:
+            failures.append(f"tau too long for {', '.join(too_long)} (needs < {step / 50:.1f}, N/50)")
+
+        # Parameters whose tau changed by 1% or more since the previous check
+        if previous_tau is None:
+            failures.append("tau stability: only one check, nothing to compare")
+        else:
+            stable = np.abs(previous_tau - tau) / tau < 0.01
+            unstable = [name for name, ok in zip(names, stable) if not ok]
+            if unstable:
+                failures.append(f"tau not yet stable to 1% for {', '.join(unstable)}")
+
+        return (f"Reached max_steps={max_steps} without converging. At the last check (step {step}): "
+                + "; ".join(failures) + ".")
 
     def get_samples_np(self, discard_start: int = 0, discard_end: int = 0, thin: int = 1, flat: bool = False) -> np.ndarray:
         """Return a contiguous numpy array of MCMC samples.
