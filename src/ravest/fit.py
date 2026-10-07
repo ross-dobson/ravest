@@ -1978,12 +1978,12 @@ class Fitter:
         fname: str = "autocorr_plot.png",
         dpi: int = 100
     ) -> None:
-        r"""Plot autocorrelation time estimates from adaptive MCMC run.
+        r"""Plot the autocorrelation time estimates against step number.
 
-        Shows how autocorrelation time evolved during the MCMC run and
-        the convergence threshold line (N / 50).
-
-        Only available if run_mcmc was called with check_convergence=True.
+        Shows how the autocorrelation time estimates changed as the chain grew,
+        and the convergence threshold line (N / 50). Draws the estimates saved
+        by run_mcmc(check_convergence=True), or computed afterwards by
+        calculate_autocorr_estimates().
 
         Parameters
         ----------
@@ -2010,14 +2010,16 @@ class Fitter:
         Raises
         ------
         ValueError
-            If no autocorrelation history is available (run_mcmc was not called
-            with check_convergence=True, or has not been called yet)
+            If run_mcmc has not been called yet, or if it ran without convergence
+            checks and calculate_autocorr_estimates has not been called since
         """
-        # Check if data available
-        if not hasattr(self, 'autocorr_history') or len(self.autocorr_history) == 0:
+        # Check there are estimates to plot
+        if not hasattr(self, "sampler"):
+            raise ValueError("No MCMC run yet: call run_mcmc() first.")
+        if len(self.autocorr_history) == 0:
             raise ValueError(
-                "No autocorrelation history available. "
-                "Please run run_mcmc() with check_convergence=True first."
+                "No autocorrelation history: run_mcmc ran without convergence checks. Call "
+                "calculate_autocorr_estimates() to compute it from the chain, then plot again."
             )
 
         iterations = np.array(list(self.autocorr_history.keys()))

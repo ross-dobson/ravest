@@ -1068,6 +1068,17 @@ class TestAdaptiveConvergence:
 
         assert not any(self.SMALL_INTERVAL_TEXT in r.getMessage() for r in caplog.records)
 
+    NO_HISTORY_TEXT = (
+        "No autocorrelation history: run_mcmc ran without convergence checks. Call "
+        "calculate_autocorr_estimates() to compute it from the chain, then plot again."
+    )
+
+    def test_plot_autocorr_before_run_mcmc_raises(self, setup_fitter):
+        """Before any MCMC run the plot says to call run_mcmc first."""
+        fitter, _ = setup_fitter
+        with pytest.raises(ValueError, match=re.escape("No MCMC run yet: call run_mcmc() first.")):
+            fitter.plot_autocorr_estimates()
+
     def test_plot_autocorr_without_convergence_check_raises(self, setup_fitter):
         """Test that plotting without convergence checking raises informative error."""
         fitter, initial_positions = setup_fitter
@@ -1076,7 +1087,7 @@ class TestAdaptiveConvergence:
         fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=100, progress=False, check_convergence=False)
 
         # Should raise ValueError when trying to plot
-        with pytest.raises(ValueError, match="No autocorrelation history available"):
+        with pytest.raises(ValueError, match=re.escape(self.NO_HISTORY_TEXT)):
             fitter.plot_autocorr_estimates()
 
     def test_fixed_length_run_clears_earlier_history(self, setup_fitter):
@@ -1091,7 +1102,7 @@ class TestAdaptiveConvergence:
         fitter.run_mcmc(initial_positions, nwalkers=10, max_steps=100, progress=False, check_convergence=False)
 
         assert fitter.autocorr_history == {}
-        with pytest.raises(ValueError, match="No autocorrelation history available"):
+        with pytest.raises(ValueError, match=re.escape(self.NO_HISTORY_TEXT)):
             fitter.plot_autocorr_estimates()
 
     def test_second_convergence_run_replaces_history(self, setup_fitter):
