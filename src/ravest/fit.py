@@ -1511,6 +1511,11 @@ class Fitter:
             - flat=False: (nsteps_after_discard_thin, nwalkers, ndim)
             - flat=True: (nsteps_after_discard_thin * nwalkers, ndim)
 
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
+
         Notes
         -----
         We enforce np.ascontiguousarray() on the return, because np.reshape() does
@@ -1565,6 +1570,11 @@ class Fitter:
         pd.DataFrame
             DataFrame with shape (nsteps_after_discard_thin * nwalkers, ndim).
             Columns are free_params_names, in that order.
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -1590,6 +1600,11 @@ class Fitter:
         dict
             Dictionary mapping free parameter names to 1D arrays of samples, in
             free_params_names order. Each array has shape (nsteps_after_discard_thin * nwalkers,)
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
 
         Examples
         --------
@@ -1623,6 +1638,11 @@ class Fitter:
         -------
         np.ndarray
             Array of log probabilities of the function at each sample.
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -1677,6 +1697,11 @@ class Fitter:
             Dictionary of all parameters, in ``params`` order:
             - Fixed parameters: single float values
             - Free parameters: 1D arrays of MCMC samples with shape (nsteps_after_discard_thin * nwalkers,)
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -1885,6 +1910,11 @@ class Fitter:
         -------
         Dict[str, float]
             Dictionary of free parameter names to values from the best sample
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -1932,9 +1962,11 @@ class Fitter:
 
         Raises
         ------
+        RuntimeError
+            If run_mcmc has not been called yet
         ValueError
-            If run_mcmc has not been called yet, if interval is not positive, if
-            start is negative, or if fewer than two estimates fit in the chain
+            If interval is not positive, if start is negative, or if fewer than two
+            estimates fit in the chain
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -2026,9 +2058,11 @@ class Fitter:
 
         Raises
         ------
+        RuntimeError
+            If run_mcmc has not been called yet
         ValueError
-            If run_mcmc has not been called yet, or if it ran without convergence
-            checks and calculate_autocorr_estimates has not been called since
+            If run_mcmc ran without convergence checks and calculate_autocorr_estimates
+            has not been called since
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -2122,6 +2156,11 @@ class Fitter:
             Filename to save (default: "chains_plot.png")
         dpi : int, optional
             Resolution for saving (default: 100)
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -2185,6 +2224,11 @@ class Fitter:
             The path to save the plot to (default: "lnprob_plot.png")
         dpi : int, optional
             The dpi to save the image at (default: 100)
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -2234,6 +2278,11 @@ class Fitter:
             Filename to save (default: "corner_plot.png")
         dpi : int, optional
             Resolution for saving (default: 100)
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -2630,6 +2679,11 @@ class Fitter:
             The path to save the plot to (default: "posterior_rv.png")
         dpi : int, optional
             The dpi to save the image at (default: 100)
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -2810,6 +2864,11 @@ class Fitter:
             already fixed (not free) also warns (although you can freeze at a
             different value from the value the parameter was fixed at during
             fitting).
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -3128,6 +3187,11 @@ class Fitter:
         -------
         np.ndarray
             Shape (n_samples, len(times)) - RV for each sample
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -3185,6 +3249,11 @@ class Fitter:
         -------
         np.ndarray
             Shape (n_samples, len(times)) - Trend RV for each sample
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -3225,6 +3294,11 @@ class Fitter:
         -------
         np.ndarray
             Shape (n_samples, len(times)) - Total RV for each sample
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -3605,6 +3679,11 @@ class Fitter:
             Filename to save (default: "best_sample_rv.png")
         dpi : int, optional
             Resolution for saving (default: 100)
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -3658,6 +3737,11 @@ class Fitter:
             Filename to save (default: "best_sample_phase.png")
         dpi : int, optional
             Resolution for saving (default: 100)
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -4869,6 +4953,11 @@ class GPFitter(Fitter):
             The path to save the plot to (default: "posterior_rv.png")
         dpi : int, optional
             The dpi to save the image at (default: 100)
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -5116,6 +5205,11 @@ class GPFitter(Fitter):
             Freezing a parameter that is already fixed (not free) also warns
             (although you can freeze at a different value from the value the
             parameter was fixed at during fitting).
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -5398,6 +5492,11 @@ class GPFitter(Fitter):
         -------
         np.ndarray
             Shape (n_samples, len(times)) - RV for each sample
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -5455,6 +5554,11 @@ class GPFitter(Fitter):
         -------
         np.ndarray
             Shape (n_samples, len(times)) - Trend RV for each sample
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -5497,6 +5601,11 @@ class GPFitter(Fitter):
         -------
         np.ndarray
             Shape (n_samples, len(times)) - GP component for each sample
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
@@ -5543,6 +5652,11 @@ class GPFitter(Fitter):
         -------
         np.ndarray
             Shape (n_samples, len(times)) - Total RV for each sample
+
+        Raises
+        ------
+        RuntimeError
+            If run_mcmc has not been called yet
         """
         self._require_mcmc_run()  # Check that MCMC has been run first
 
