@@ -1198,7 +1198,7 @@ class Fitter:
             max_attempts=max_attempts
         )
 
-    def run_mcmc(self, initial_positions: np.ndarray, nwalkers: int, max_steps: int = 5000, progress: bool = True, multiprocessing: bool = False, check_convergence: bool = False, convergence_check_interval: int = 1000, convergence_check_start: int = 0) -> None:
+    def run_mcmc(self, initial_positions: np.ndarray, nwalkers: int, max_steps: int = 50000, progress: bool = True, multiprocessing: bool = False, check_convergence: bool = False, convergence_check_interval: int = 1000, convergence_check_start: int = 15000) -> None:
         """Run MCMC sampling from given initial walker positions.
 
         Parameters
@@ -1212,7 +1212,7 @@ class Fitter:
         max_steps : int, optional
             Maximum number of MCMC steps to run. If check_convergence=False, runs for
             exactly this many steps. If check_convergence=True, runs up to this many
-            steps, stopping early when convergence criteria are met (default: 5000)
+            steps, stopping early when convergence criteria are met (default: 50000)
         progress : bool, optional
             Whether to show progress bar during MCMC (default: True)
         multiprocessing : bool, optional
@@ -1223,7 +1223,9 @@ class Fitter:
             the chain is longer than 50 * tau, and tau has changed by less than
             1% since the previous check (so the first check can never pass).
             If max_steps is reached first, a warning names each parameter that
-            failed and which test. If False, run for exactly max_steps
+            failed and which test. If False, run for exactly max_steps;
+            calculate_autocorr_estimates can run the same checks on the finished
+            chain afterwards, to see whether and where it would have converged
             (default: False)
         convergence_check_interval : int, optional
             Steps between convergence checks. Each check re-estimates tau over the
@@ -1233,7 +1235,7 @@ class Fitter:
             Step of the first convergence check; later checks follow every
             convergence_check_interval steps. Set it past burn-in (e.g. twice the
             expected burn-in) so tau isn't estimated on a short, unsettled chain.
-            0 means the first check is at convergence_check_interval (default: 0)
+            0 means the first check is at convergence_check_interval (default: 15000)
 
         Raises
         ------
@@ -1241,7 +1243,7 @@ class Fitter:
             If there are no free parameters, if a free parameter has no prior, or if
             nwalkers is less than 2 * ndim. With check_convergence=True, also if
             convergence_check_interval is not positive, convergence_check_start is
-            negative, or the first check would come after max_steps
+            negative, or fewer than two checks would fit within max_steps
         """
         if len(self.free_params_values) == 0:
             raise ValueError(
@@ -1296,14 +1298,16 @@ class Fitter:
 
         # Warn if convergence arguments provided but convergence checking disabled
         if not check_convergence:
-            if convergence_check_interval != 1000 or convergence_check_start != 0:
+            if convergence_check_interval != 1000 or convergence_check_start != 15000:
                 logging.warning(
                     "Convergence checking arguments provided but check_convergence=False. "
                     "These arguments will be ignored. Did you forget to set check_convergence=True?"
                 )
 
-        # Guard: if convergence checking is enabled but the first check can never
-        # occur within max_steps, the run would silently behave as fixed-length.
+        # The stability test compares each autocorr check with the previous one (to check for % stability).
+        # So, we need to ensure at least two checks can fit before we reach max_steps. The first check is at
+        # convergence_check_start (or, if convergence_check_start is 0, then the first check is at one interval in),
+        # and the second check is one interval after that.
         if check_convergence:
             if convergence_check_interval <= 0:
                 raise ValueError(
@@ -1314,13 +1318,18 @@ class Fitter:
                     f"convergence_check_start must be a non-negative integer, got {convergence_check_start}."
                 )
             # First check at convergence_check_start, or one interval in if that is 0
-            first_check_iteration = convergence_check_start if convergence_check_start > 0 else convergence_check_interval
-            if first_check_iteration > max_steps:
+            if convergence_check_start > 0:
+                first_check_iteration = convergence_check_start
+            else:
+                first_check_iteration = convergence_check_interval
+            second_check_iteration = first_check_iteration + convergence_check_interval
+            if second_check_iteration > max_steps:
                 raise ValueError(
-                    f"check_convergence=True but the first convergence check would occur at "
-                    f"step {first_check_iteration}, which exceeds max_steps={max_steps}. No convergence "
-                    f"check would ever run. Increase max_steps, or reduce convergence_check_start "
-                    f"(or convergence_check_interval, if convergence_check_start is 0)."
+                    f"check_convergence=True needs at least two convergence checks within "
+                    f"max_steps={max_steps}, since the stability test compares each check with the "
+                    f"previous one, but the first would be at step {first_check_iteration} and the second "
+                    f"at step {second_check_iteration}. Increase max_steps, or reduce "
+                    f"convergence_check_start or convergence_check_interval."
                 )
             # Each check re-estimates tau over the whole chain, so frequent checks can dominate the run time
             if convergence_check_interval < 250:
@@ -1429,7 +1438,7 @@ class Fitter:
         return converged, line
 
     @staticmethod
-    def _describe_non_convergence(max_steps: int, step: int, tau: np.ndarray, previous_tau: np.ndarray | None, names: list[str]) -> str:
+    def _describe_non_convergence(max_steps: int, step: int, tau: np.ndarray, previous_tau: np.ndarray, names: list[str]) -> str:
         """Word the warning for a run that reached max_steps without converging.
 
         Parameters
@@ -1440,8 +1449,8 @@ class Fitter:
             Number of steps in the chain at the last check
         tau : np.ndarray
             Autocorrelation time estimate of each free parameter at the last check
-        previous_tau : np.ndarray or None
-            The estimate at the check before that, or None if there was only one check
+        previous_tau : np.ndarray
+            The estimate at the check before that
         names : list of str
             Free parameter names, in the order of tau
 
@@ -1459,13 +1468,10 @@ class Fitter:
             failures.append(f"tau too long for {', '.join(too_long)} (needs < {step / 50:.1f}, N/50)")
 
         # Parameters whose tau changed by 1% or more since the previous check
-        if previous_tau is None:
-            failures.append("tau stability: only one check, nothing to compare")
-        else:
-            stable = np.abs(previous_tau - tau) / tau < 0.01
-            unstable = [name for name, ok in zip(names, stable) if not ok]
-            if unstable:
-                failures.append(f"tau not yet stable to 1% for {', '.join(unstable)}")
+        stable = np.abs(previous_tau - tau) / tau < 0.01
+        unstable = [name for name, ok in zip(names, stable) if not ok]
+        if unstable:
+            failures.append(f"tau not yet stable to 1% for {', '.join(unstable)}")
 
         return (f"Reached max_steps={max_steps} without converging. At the last check (step {step}): "
                 + "; ".join(failures) + ".")
@@ -1881,6 +1887,85 @@ class Fitter:
         # Return as dictionary
         return dict(zip(self.free_params_names, best_values))
 
+    def calculate_autocorr_estimates(self, start: int = 15000, interval: int = 1000) -> dict[int, np.ndarray]:
+        """Estimate the autocorrelation time at regular steps of the finished chain.
+
+        Each estimate uses the chain up to that step, exactly as run_mcmc's
+        convergence checks do, so this works after any run, with or without
+        convergence checks. Each estimate logs the same line as a convergence
+        check, and a closing line says where both convergence tests first passed.
+        The estimates replace any saved by run_mcmc, and plot_autocorr_estimates
+        draws them. Each estimate re-reads the chain up to its step, so long
+        chains take a while; a larger interval is quicker.
+
+        Parameters
+        ----------
+        start : int, optional
+            Step of the first estimate; later estimates follow every interval
+            steps up to the end of the chain. 0 means the first estimate is at
+            interval (default: 15000)
+        interval : int, optional
+            Steps between estimates (default: 1000)
+
+        Returns
+        -------
+        dict
+            Autocorrelation time of each free parameter (in the order of
+            free_params_names), keyed by step
+
+        Raises
+        ------
+        ValueError
+            If run_mcmc has not been called yet, if interval is not positive, if
+            start is negative, or if fewer than two estimates fit in the chain
+        """
+        if not hasattr(self, "sampler"):
+            raise ValueError("No MCMC run yet: call run_mcmc() first.")
+        if interval <= 0:
+            raise ValueError(f"interval must be a positive integer, got {interval}.")
+        if start < 0:
+            raise ValueError(f"start must be a non-negative integer, got {start}.")
+
+        # As in run_mcmc: the stability test compares each estimate with the previous one, so at least two must fit
+        nsteps = self.sampler.iteration
+        if start > 0:
+            first_step = start
+        else:
+            first_step = interval
+        if first_step + interval > nsteps:
+            raise ValueError(
+                f"The chain has {nsteps} steps, too few for two autocorrelation estimates: the first would be at "
+                f"step {first_step} and the second at step {first_step + interval}. Pass a smaller start or interval."
+            )
+
+        chain = self.sampler.get_chain()
+        history = {}
+        previous_tau = None
+        first_passed = None
+        for step in range(first_step, nsteps + 1, interval):
+            # Same estimate as sampler.get_autocorr_time(tol=0) when the chain was this long
+            tau = emcee.autocorr.integrated_time(chain[:step], tol=0)
+            history[step] = tau
+
+            # Judge it as a convergence check would, but carry on: every estimate is wanted for the plot
+            converged, line = self._assess_convergence(step, tau, previous_tau, self.free_params_names)
+            logging.info(line)
+            if converged and first_passed is None:
+                first_passed = step
+            previous_tau = tau
+
+        steps = list(history)
+        summary = f"Autocorrelation estimates at {len(steps)} steps ({steps[0]} to {steps[-1]}); "
+        if first_passed is None:
+            summary += "the convergence tests never passed."
+        else:
+            summary += f"both convergence tests first passed at step {first_passed}."
+        logging.info(summary)
+
+        # Store only once every estimate is done, so a failed or interrupted call keeps the old history
+        self.autocorr_history = history
+        return dict(history)
+
     def plot_autocorr_estimates(
         self,
         params: list[str] | None = None,
@@ -1893,12 +1978,12 @@ class Fitter:
         fname: str = "autocorr_plot.png",
         dpi: int = 100
     ) -> None:
-        r"""Plot autocorrelation time estimates from adaptive MCMC run.
+        r"""Plot the autocorrelation time estimates against step number.
 
-        Shows how autocorrelation time evolved during the MCMC run and
-        the convergence threshold line (N / 50).
-
-        Only available if run_mcmc was called with check_convergence=True.
+        Shows how the autocorrelation time estimates changed as the chain grew,
+        and the convergence threshold line (N / 50). Draws the estimates saved
+        by run_mcmc(check_convergence=True), or computed afterwards by
+        calculate_autocorr_estimates().
 
         Parameters
         ----------
@@ -1925,14 +2010,16 @@ class Fitter:
         Raises
         ------
         ValueError
-            If no autocorrelation history is available (run_mcmc was not called
-            with check_convergence=True, or has not been called yet)
+            If run_mcmc has not been called yet, or if it ran without convergence
+            checks and calculate_autocorr_estimates has not been called since
         """
-        # Check if data available
-        if not hasattr(self, 'autocorr_history') or len(self.autocorr_history) == 0:
+        # Check there are estimates to plot
+        if not hasattr(self, "sampler"):
+            raise ValueError("No MCMC run yet: call run_mcmc() first.")
+        if len(self.autocorr_history) == 0:
             raise ValueError(
-                "No autocorrelation history available. "
-                "Please run run_mcmc() with check_convergence=True first."
+                "No autocorrelation history: run_mcmc ran without convergence checks. Call "
+                "calculate_autocorr_estimates() to compute it from the chain, then plot again."
             )
 
         iterations = np.array(list(self.autocorr_history.keys()))
