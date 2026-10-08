@@ -1073,12 +1073,6 @@ class TestAdaptiveConvergence:
         "calculate_autocorr_estimates() to compute it from the chain, then plot again."
     )
 
-    def test_plot_autocorr_before_run_mcmc_raises(self, setup_fitter):
-        """Before any MCMC run the plot says to call run_mcmc first."""
-        fitter, _ = setup_fitter
-        with pytest.raises(ValueError, match=re.escape("No MCMC run yet: call run_mcmc() first.")):
-            fitter.plot_autocorr_estimates()
-
     def test_plot_autocorr_without_convergence_check_raises(self, setup_fitter):
         """Test that plotting without convergence checking raises informative error."""
         fitter, initial_positions = setup_fitter
@@ -1470,12 +1464,6 @@ class TestCalculateAutocorrEstimates:
         assert caplog.records[-1].getMessage() == (
             "Autocorrelation estimates at 3 steps (100 to 300); the convergence tests never passed."
         )
-
-    def test_before_run_mcmc_raises(self, setup_fitter):
-        """Before any MCMC run there is no chain to estimate from."""
-        fitter, _ = setup_fitter
-        with pytest.raises(ValueError, match=re.escape("No MCMC run yet: call run_mcmc() first.")):
-            fitter.calculate_autocorr_estimates(start=100, interval=50)
 
     @pytest.mark.parametrize(
         "start, interval, message",
@@ -4483,9 +4471,8 @@ RV_PHASE_PLOTS = ["plot_MAP_rv", "plot_MAP_phase", "plot_custom_rv", "plot_custo
 ALL_PLOTS = RV_PHASE_PLOTS + ["plot_corner", "plot_chains", "plot_lnprob", "plot_autocorr_estimates"]
 
 
-@pytest.fixture(scope="module", params=["Fitter", "GPFitter"])
-def plot_fitter(request):
-    """Each fitter class after a short MCMC run with convergence checks (shared by the plot tests)."""
+def _set_up_plot_fitter(name):
+    """A Fitter or GPFitter with data, params and priors set, before any run."""
     time = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
     vel = np.array([5.0, -2.0, -5.0, 2.0, 3.0, -1.0])
     velerr = np.array([1.0, 1.1, 0.9, 0.85, 1.5, 1.0])
@@ -4497,7 +4484,7 @@ def plot_fitter(request):
         "jit_HARPS": Parameter(1.0, fixed=False),
     }
     priors = {"K_b": ravest.prior.Uniform(0, 20), "jit_HARPS": ravest.prior.Uniform(0, 5)}
-    if request.param == "Fitter":
+    if name == "Fitter":
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
     else:
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
@@ -4508,6 +4495,13 @@ def plot_fitter(request):
     fitter.add_data(time, vel, velerr, np.array(["HARPS"] * 6), t0=2.0)
     fitter.params = params
     fitter.priors = priors
+    return fitter
+
+
+@pytest.fixture(scope="module", params=["Fitter", "GPFitter"])
+def plot_fitter(request):
+    """Each fitter class after a short MCMC run with convergence checks (shared by the plot tests)."""
+    fitter = _set_up_plot_fitter(request.param)
     nwalkers = 2 * fitter.ndim
     rng = np.random.default_rng(0)
     centre = np.array(fitter.free_params_values)
@@ -4645,6 +4639,62 @@ class TestPlotArgumentOrder:
 
         assert set(names) <= set(self.ORDER), set(names) - set(self.ORDER)
         assert names == [name for name in self.ORDER if name in names]
+
+
+class TestRequireMCMCRun:
+    """Every method that needs a finished MCMC run says so when called before one.
+
+    The list is not checked against the code: a new method that reads the chain should call
+    _require_mcmc_run() first and join ARGS here.
+    """
+
+    TIMES = np.arange(3.0)
+    ARGS = {
+        "get_samples_np": {},
+        "get_samples_df": {},
+        "get_samples_dict": {},
+        "get_sampler_lnprob": {},
+        "get_mcmc_posterior_dict": {},
+        "get_sample_with_best_lnprob": {},
+        "calculate_autocorr_estimates": {},
+        "plot_autocorr_estimates": {},
+        "plot_chains": {},
+        "plot_lnprob": {},
+        "plot_corner": {},
+        "plot_posterior_rv": {},
+        "plot_posterior_phase": dict(planet_letter="b"),
+        "calculate_rv_planet_from_samples": dict(planet_letter="b", times=TIMES),
+        "calculate_rv_trend_from_samples": dict(times=TIMES),
+        "calculate_rv_total_from_samples": dict(times=TIMES),
+        "plot_best_sample_rv": {},
+        "plot_best_sample_phase": dict(planet_letter="b"),
+        "calculate_rv_gp_from_samples": dict(times=TIMES),
+    }
+    CASES = [("Fitter", method) for method in ARGS if method != "calculate_rv_gp_from_samples"] + [
+        ("GPFitter", method) for method in ARGS
+    ]
+
+    @staticmethod
+    def _fitter(name, state):
+        """A fitter that has never run: set up (data, params, priors) or bare (constructor only)."""
+        if state == "set_up":
+            return _set_up_plot_fitter(name)
+        if name == "Fitter":
+            return Fitter(["b"], Parameterisation("P K e w Tc"))
+        return GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+
+    @pytest.mark.parametrize("state", ["set_up", "bare"])
+    @pytest.mark.parametrize("name, method", CASES, ids=[f"{name}-{method}" for name, method in CASES])
+    def test_raises_before_run_mcmc(self, name, method, state) -> None:
+        """Before run_mcmc the method raises RuntimeError saying to call it first."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        fitter = self._fitter(name, state)
+
+        with pytest.raises(RuntimeError, match=re.escape("No MCMC run yet: call run_mcmc() first.")):
+            getattr(fitter, method)(**self.ARGS[method])
+        plt.close("all")
 
 
 class TestParamsDictOrder:
