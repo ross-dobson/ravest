@@ -40,9 +40,16 @@ def _build_squared_exponential(params: Mapping[str, ArrayLike]) -> kernels.Kerne
     return jnp.square(params["gp_A"]) * kernels.ExpSquared(scale=params["gp_lambda_e"])
 
 
+def _build_exponential(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
+    """Build the Exponential kernel."""
+    # LaTeX: A^2 \exp{ - \frac{|x_i - x_j|}{\lambda}}
+    return jnp.square(params["gp_A"]) * kernels.Exp(scale=params["gp_lambda"])
+
+
 _KERNELS: Dict[str, _KernelEntry] = {
     "Quasiperiodic": _KernelEntry(("gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"), _build_quasiperiodic),
     "SquaredExponential": _KernelEntry(("gp_A", "gp_lambda_e"), _build_squared_exponential),
+    "Exponential": _KernelEntry(("gp_A", "gp_lambda"), _build_exponential),
 }
 SUPPORTED_KERNELS = list(_KERNELS)
 
@@ -95,6 +102,21 @@ class GPKernel:
     tinygp: ``ExpSquared(scale=gp_lambda_e)``, times ``gp_A^2``. RadVel's ``SqExpKernel`` and
     Pyaneti's ``SEK`` have no factor 2, so their length is :math:`\sqrt{2}` times
     ``gp_lambda_e``.
+
+    **Exponential**
+
+    .. math::
+
+        k(\tau) = A^2 \exp\left(- \frac{|\tau|}{\lambda}\right)
+
+    ``param_names``, in order:
+
+    - ``gp_A`` (:math:`A`, m/s): amplitude
+    - ``gp_lambda`` (:math:`\lambda`, d): length scale (the same value decays differently in
+      Exponential, Matern32 and Matern52)
+
+    tinygp: ``Exp(scale=gp_lambda)``, times ``gp_A^2``. celerite2's ``RealTerm`` is the same
+    kernel, with ``a = gp_A^2`` and ``c = 1 / gp_lambda``.
     """
 
     def __init__(self, kernel_type: str) -> None:

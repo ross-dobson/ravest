@@ -13,7 +13,7 @@ from ravest.param import Parameter, Parameterisation
 from ravest.prior import Uniform
 
 # Kernels expected in the table, in table order
-EXPECTED_KERNELS = ["Quasiperiodic", "SquaredExponential"]
+EXPECTED_KERNELS = ["Quasiperiodic", "SquaredExponential", "Exponential"]
 
 # Evaluation grid: tau from T[0] covers 0, P/2 (6.25) and P (12.5)
 T = np.array([0.0, 0.4, 3.5, 6.25, 7.0, 12.5, 25.0, 31.3])
@@ -21,6 +21,7 @@ TAU = np.abs(T[:, None] - T[None, :])
 # One value per hyperparameter name; each kernel takes its own names from here
 VALUES = {"gp_A": 3.0, "gp_lambda_e": 30.0, "gp_lambda_p": 0.5, "gp_P": 12.5, "gp_lambda": 7.0, "gp_f": 0.4}
 A, LAMBDA_E, LAMBDA_P, P = VALUES["gp_A"], VALUES["gp_lambda_e"], VALUES["gp_lambda_p"], VALUES["gp_P"]
+LAMBDA = VALUES["gp_lambda"]
 
 
 def kernel_matrix(kernel_type: str, values: dict = VALUES) -> np.ndarray:
@@ -114,6 +115,30 @@ class TestSquaredExponential:
         george = [9.0, 8.999200035554502, 8.938957948137276, 8.806791528659051, 8.75830466752246,
                   8.25169820158826, 6.3598345007194474, 5.222375396111611]
         np.testing.assert_allclose(kernel_matrix("SquaredExponential")[0], george, rtol=1e-12)
+
+
+class TestExponential:
+    """The Exponential kernel's numbers."""
+
+    def test_closed_form(self) -> None:
+        """Matches A^2 exp(-tau/lambda)."""
+        expected = A**2 * np.exp(-TAU / LAMBDA)
+        np.testing.assert_allclose(kernel_matrix("Exponential"), expected, rtol=1e-12)
+
+    def test_hand_values(self) -> None:
+        """A^2 at tau = 0; A^2 / e at tau = lambda (T[4] = 7)."""
+        K = kernel_matrix("Exponential")
+        assert K[0, 0] == pytest.approx(A**2, rel=1e-12)
+        assert K[0, 4] == pytest.approx(A**2 * np.exp(-1), rel=1e-12)
+
+    def test_celerite2(self) -> None:
+        """Matches celerite2's RealTerm.
+
+        celerite2 0.3.3, RealTerm(a=gp_A^2, c=1/gp_lambda); row k(T[0], T).
+        """
+        celerite2 = [9.0, 8.500132232953828, 5.458775937413701, 3.6853571263712785, 3.310914970542981,
+                     1.5090952387661742, 0.25304093774074843, 0.10287876795769818]
+        np.testing.assert_allclose(kernel_matrix("Exponential")[0], celerite2, rtol=1e-12)
 
 
 class TestKernelTable:
