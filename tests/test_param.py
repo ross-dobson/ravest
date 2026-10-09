@@ -476,7 +476,7 @@ class TestLabelCoverage:
         # GP hyperparams from all supported kernels
         for kernel_type in SUPPORTED_KERNELS:
             kernel = GPKernel(kernel_type)
-            for hp in kernel.expected_hyperparams:
+            for hp in kernel.param_names:
                 keys.add(hp)
 
         # Trend and instrument params (always present)
