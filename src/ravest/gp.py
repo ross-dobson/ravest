@@ -33,8 +33,16 @@ def _build_quasiperiodic(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
     return jnp.square(params["gp_A"]) * exp_sine_squared * exp_squared
 
 
+def _build_squared_exponential(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
+    """Build the SquaredExponential kernel."""
+    # LaTeX: A^2 \exp{ - \frac{(x_i - x_j)^2}{2 {\lambda_e}^2}}
+    # where tinygp's "scale" = our "gp_lambda_e", as in the Quasiperiodic kernel
+    return jnp.square(params["gp_A"]) * kernels.ExpSquared(scale=params["gp_lambda_e"])
+
+
 _KERNELS: Dict[str, _KernelEntry] = {
     "Quasiperiodic": _KernelEntry(("gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"), _build_quasiperiodic),
+    "SquaredExponential": _KernelEntry(("gp_A", "gp_lambda_e"), _build_squared_exponential),
 }
 SUPPORTED_KERNELS = list(_KERNELS)
 
@@ -71,6 +79,22 @@ class GPKernel:
     gamma=1 / (2 gp_lambda_p^2))``, times ``gp_A^2``. RadVel's ``QuasiPerKernel`` has no factor 2
     in its decay, so its ``gp_explength`` is :math:`\sqrt{2}` times ``gp_lambda_e``; its
     ``gp_perlength`` is ``gp_lambda_p``.
+
+    **SquaredExponential**
+
+    .. math::
+
+        k(\tau) = A^2 \exp\left(- \frac{\tau^2}{2 \lambda_\mathrm{e}^2}\right)
+
+    ``param_names``, in order:
+
+    - ``gp_A`` (:math:`A`, m/s): amplitude
+    - ``gp_lambda_e`` (:math:`\lambda_\mathrm{e}`, d): length scale; the Quasiperiodic kernel's
+      decay is this same term, so the name and meaning are shared
+
+    tinygp: ``ExpSquared(scale=gp_lambda_e)``, times ``gp_A^2``. RadVel's ``SqExpKernel`` and
+    Pyaneti's ``SEK`` have no factor 2, so their length is :math:`\sqrt{2}` times
+    ``gp_lambda_e``.
     """
 
     def __init__(self, kernel_type: str) -> None:

@@ -13,7 +13,7 @@ from ravest.param import Parameter, Parameterisation
 from ravest.prior import Uniform
 
 # Kernels expected in the table, in table order
-EXPECTED_KERNELS = ["Quasiperiodic"]
+EXPECTED_KERNELS = ["Quasiperiodic", "SquaredExponential"]
 
 # Evaluation grid: tau from T[0] covers 0, P/2 (6.25) and P (12.5)
 T = np.array([0.0, 0.4, 3.5, 6.25, 7.0, 12.5, 25.0, 31.3])
@@ -31,6 +31,11 @@ def kernel_matrix(kernel_type: str, values: dict = VALUES) -> np.ndarray:
 def kernel_values(kernel_type: str) -> dict:
     """VALUES restricted to the kernel's own hyperparameters."""
     return {name: VALUES[name] for name in GPKernel(kernel_type).param_names}
+
+
+def kernel_at(kernel_type: str, tau: float, values: dict = VALUES) -> float:
+    """The kernel at a single lag tau."""
+    return float(GPKernel(kernel_type).build_kernel(values)(np.array([0.0]), np.array([tau]))[0, 0])
 
 
 def squared_exponential(tau: np.ndarray, lambda_e: float) -> np.ndarray:
@@ -76,6 +81,39 @@ class TestQuasiperiodic:
         george = [9.0, 8.819725444842941, 2.7265517271332604, 1.191869625936874, 1.2715363188127593,
                   8.25169820158826, 6.3598345007194474, 0.7069948947122298]
         np.testing.assert_allclose(kernel_matrix("Quasiperiodic")[0], george, rtol=1e-12)
+
+
+class TestSquaredExponential:
+    """The SquaredExponential kernel's numbers."""
+
+    def test_closed_form(self) -> None:
+        """Matches A^2 exp(-tau^2/(2 lambda_e^2))."""
+        expected = A**2 * squared_exponential(TAU, LAMBDA_E)
+        np.testing.assert_allclose(kernel_matrix("SquaredExponential"), expected, rtol=1e-12)
+
+    def test_hand_values(self) -> None:
+        """A^2 at tau = 0; A^2 exp(-1/2) at tau = lambda_e."""
+        assert kernel_at("SquaredExponential", 0.0) == pytest.approx(A**2, rel=1e-12)
+        assert kernel_at("SquaredExponential", LAMBDA_E) == pytest.approx(A**2 * np.exp(-0.5), rel=1e-12)
+
+    def test_radvel(self) -> None:
+        """Matches RadVel's SqExpKernel.
+
+        RadVel 1.6.6 SqExpKernel, gp_amp = gp_A, gp_length = sqrt(2) gp_lambda_e (RadVel has no
+        factor 2); row k(T[0], T).
+        """
+        radvel = [9.0, 8.999200035554502, 8.938957948137276, 8.806791528659051, 8.75830466752246,
+                  8.25169820158826, 6.3598345007194474, 5.222375396111611]
+        np.testing.assert_allclose(kernel_matrix("SquaredExponential")[0], radvel, rtol=1e-12)
+
+    def test_george(self) -> None:
+        """Matches george's ExpSquared.
+
+        george 0.4.4, gp_A^2 * ExpSquaredKernel(metric=gp_lambda_e^2); row k(T[0], T).
+        """
+        george = [9.0, 8.999200035554502, 8.938957948137276, 8.806791528659051, 8.75830466752246,
+                  8.25169820158826, 6.3598345007194474, 5.222375396111611]
+        np.testing.assert_allclose(kernel_matrix("SquaredExponential")[0], george, rtol=1e-12)
 
 
 class TestKernelTable:
@@ -173,8 +211,12 @@ class TestKernelTable:
         np.testing.assert_allclose(np.asarray(matrix(values)), kernel_matrix(kernel_type, values), rtol=1e-12)
 
 
-def make_gp_fitter(kernel_type: str) -> GPFitter:
-    """A no-planet GPFitter on two instruments, with all of the kernel's hyperparameters free."""
+def make_gp_fitter(kernel_type: str, gp_values: dict | None = None) -> GPFitter:
+    """A no-planet GPFitter on two instruments, with its GP hyperparameters free.
+
+    gp_values are the GP hyperparameters for the first params assignment (default: the
+    kernel's own names, from VALUES).
+    """
     rng = np.random.default_rng(2)
     time = np.sort(rng.uniform(0, 60, 24))
     instrument = np.array(["HARPS", "HIRES"] * 12)
@@ -187,7 +229,8 @@ def make_gp_fitter(kernel_type: str) -> GPFitter:
         "g_HIRES": Parameter(-2.0, fixed=False), "jit_HIRES": Parameter(0.7, fixed=False),
         "gd": Parameter(0.0, fixed=True), "gdd": Parameter(0.0, fixed=True),
     }
-    params |= {name: Parameter(value, fixed=False) for name, value in kernel_values(kernel_type).items()}
+    gp_values = kernel_values(kernel_type) if gp_values is None else gp_values
+    params |= {name: Parameter(value, fixed=False) for name, value in gp_values.items()}
     fitter.params = params
     fitter.priors = {name: Uniform(-50, 50) if name.startswith("g_") else Uniform(0, 100)
                      for name in fitter.free_params_names}
@@ -206,17 +249,15 @@ class TestGPFitterWithEachKernel:
 
     @pytest.mark.parametrize("kernel_type", SUPPORTED_KERNELS)
     def test_other_kernels_names_rejected(self, kernel_type) -> None:
-        """Params with another kernel's hyperparameter names raise."""
+        """A first params assignment with another kernel's hyperparameter names raises."""
         own = GPKernel(kernel_type).param_names
         others = [k for k in SUPPORTED_KERNELS if GPKernel(k).param_names != own]
         if not others:
             pytest.skip("no other kernel with different names in the table yet")
-        fitter = make_gp_fitter(kernel_type)
-        non_gp = {name: param for name, param in fitter.params.items() if name not in own}
         for other in others:
-            other_params = {name: Parameter(VALUES[name], fixed=False) for name in GPKernel(other).param_names}
+            other_values = {name: VALUES[name] for name in GPKernel(other).param_names}
             with pytest.raises(ValueError, match="parameters"):
-                fitter.params = non_gp | other_params
+                make_gp_fitter(kernel_type, gp_values=other_values)
 
     @pytest.mark.parametrize("kernel_type", SUPPORTED_KERNELS)
     def test_log_likelihood_matches_tinygp_by_hand(self, kernel_type) -> None:
