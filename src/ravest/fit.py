@@ -167,7 +167,7 @@ class Fitter:
         the free parameters are sampled: the MCMC chain's columns are
         ``free_params_names``, in that order (see ``get_samples_df``).
 
-        On a GPFitter, it also holds the GP kernel's hyperparameters (e.g. ``gp_amp``).
+        On a GPFitter, it also holds the GP kernel's hyperparameters (e.g. ``gp_A``).
         """
         return self._params
 
@@ -188,7 +188,7 @@ class Fitter:
             by the fitter: all required parameters for the
             chosen parameterisation, with planet letters (not required for
             trend or jitter parameters). On a GPFitter, also the GP kernel's
-            hyperparameters (e.g. ``gp_amp``, ``gp_lambda_e``, ``gp_lambda_p``, ``gp_period``).
+            hyperparameters (e.g. ``gp_A``, ``gp_lambda_e``, ``gp_lambda_p``, ``gp_P``).
 
         Raises
         ------
@@ -4316,7 +4316,7 @@ class GPFitter(Fitter):
         instrument, in ``unique_instruments`` order; then the trend's gd and gdd; then the
         GP kernel's hyperparameters, in the kernel's order.
         """
-        return super()._param_order() + self.gp_kernel.get_expected_hyperparams()
+        return super()._param_order() + self.gp_kernel.param_names
 
     def _validate_astrophysical_validity(self, params_values: Dict[str, float]) -> None:
         """Validate that all parameter values are astrophysically valid."""
@@ -4344,7 +4344,7 @@ class GPFitter(Fitter):
             If `free_param` is not a recognised planet, instrument, trend or GP parameter.
         """
         # GP hyperparameters are the same in all parameterisations
-        if free_param in self.gp_kernel.get_expected_hyperparams():
+        if free_param in self.gp_kernel.param_names:
             return None
 
         return super()._get_default_parameterisation_equivalent_free_param_name(free_param)
@@ -5010,7 +5010,7 @@ class GPFitter(Fitter):
         for i in tqdm(range(residuals_matrix_obs.shape[0]), desc="Computing GP predictions"):
             # Extract hyperparameters for this sample
             sample_hyperparams = {}
-            for hp in self.gp_kernel.expected_hyperparams:
+            for hp in self.gp_kernel.param_names:
                 if isinstance(params[hp], np.ndarray):
                     sample_hyperparams[hp] = params[hp][i]
                 else:
@@ -5340,7 +5340,7 @@ class GPFitter(Fitter):
         for i in tqdm(range(residuals_matrix_obs.shape[0])):
             # Extract hyperparameters for this sample
             sample_hyperparams = {}
-            for hp in self.gp_kernel.expected_hyperparams:
+            for hp in self.gp_kernel.param_names:
                 if isinstance(params[hp], np.ndarray):
                     # Free hyperparameter - take i-th sample
                     sample_hyperparams[hp] = params[hp][i]

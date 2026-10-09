@@ -450,10 +450,12 @@ class TestParamKeyToLatex:
         assert param_key_to_latex("gdd") == r"$\ddot{\gamma}$"
 
     @pytest.mark.parametrize("key, expected", [
-        ("gp_amp", r"$A_{\mathrm{GP}}$"),
-        ("gp_period", r"$P_{\mathrm{GP}}$"),
+        ("gp_A", r"$A_{\mathrm{GP}}$"),
+        ("gp_P", r"$P_{\mathrm{GP}}$"),
         ("gp_lambda_e", r"$\lambda_{\mathrm{e}}$"),
         ("gp_lambda_p", r"$\lambda_{\mathrm{p}}$"),
+        ("gp_lambda", r"$\lambda$"),
+        ("gp_f", r"$f$"),
     ])
     def test_gp_hyperparams(self, key, expected) -> None:
         """Test GP kernel hyperparameters."""
@@ -476,7 +478,7 @@ class TestLabelCoverage:
         # GP hyperparams from all supported kernels
         for kernel_type in SUPPORTED_KERNELS:
             kernel = GPKernel(kernel_type)
-            for hp in kernel.expected_hyperparams:
+            for hp in kernel.param_names:
                 keys.add(hp)
 
         # Trend and instrument params (always present)
@@ -540,8 +542,10 @@ class TestParamKeyToUnit:
         ("g_HARPS", "m/s"),
         ("gd", "m/s/d"),
         ("gdd", "m/s/d^2"),
-        ("gp_amp", "m/s"),
+        ("gp_A", "m/s"),
         ("gp_lambda_p", ""),
+        ("gp_lambda", "d"),
+        ("gp_f", ""),
     ])
     def test_plain(self, key, expected) -> None:
         """Test the default plain-text form."""

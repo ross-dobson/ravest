@@ -37,10 +37,10 @@ def _fixed_hyperparams_and_priors() -> tuple[dict, dict]:
     Isolates the corrections under test from the (unrelated) GP likelihood machinery.
     """
     fixed_hyperparams = {
-        "gp_amp": 1.0,
+        "gp_A": 1.0,
         "gp_lambda_e": 50.0,
         "gp_lambda_p": 0.5,
-        "gp_period": 10.0,
+        "gp_P": 10.0,
     }
     return fixed_hyperparams, {}
 

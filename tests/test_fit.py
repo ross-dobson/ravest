@@ -1577,7 +1577,7 @@ class TestAssessConvergence:
 class TestDescribeNonConvergence:
     """Tests for Fitter._describe_non_convergence, which words the warning when max_steps is reached first."""
 
-    NAMES = ["K_b", "e_b", "K_c", "gp_period"]
+    NAMES = ["K_b", "e_b", "K_c", "gp_P"]
     PREFIX = "Reached max_steps=20000 without converging. At the last check (step 20000): "
 
     def test_both_tests_fail(self):
@@ -1585,8 +1585,8 @@ class TestDescribeNonConvergence:
         message = Fitter._describe_non_convergence(
             20000, 20000, np.array([450.0, 100.0, 500.0, 420.0]), np.array([450.0, 98.0, 500.0, 400.0]), self.NAMES)
         assert message == self.PREFIX + (
-            "tau too long for K_b, K_c, gp_period (needs < 400.0, N/50); "
-            "tau not yet stable to 1% for e_b, gp_period."
+            "tau too long for K_b, K_c, gp_P (needs < 400.0, N/50); "
+            "tau not yet stable to 1% for e_b, gp_P."
         )
 
     def test_only_stability_fails(self):
@@ -2042,10 +2042,10 @@ def test_gp_circular_params():
 def test_gp_hyperparams():
     """Simple GP hyperparameters for testing."""
     return {
-        "gp_amp": Parameter(1.0, fixed=False),
+        "gp_A": Parameter(1.0, fixed=False),
         "gp_lambda_e": Parameter(50.0, fixed=False),
         "gp_lambda_p": Parameter(0.5, fixed=False),
-        "gp_period": Parameter(10.0, fixed=False),
+        "gp_P": Parameter(10.0, fixed=False),
     }
 
 
@@ -2062,10 +2062,10 @@ def test_gp_priors():
 def test_gp_hyperpriors():
     """Simple hyperpriors for GP testing."""
     return {
-        "gp_amp": ravest.prior.Uniform(0, 10),
+        "gp_A": ravest.prior.Uniform(0, 10),
         "gp_lambda_e": ravest.prior.Uniform(1, 100),
         "gp_lambda_p": ravest.prior.Uniform(0.1, 2.0),
-        "gp_period": ravest.prior.Uniform(1, 50),
+        "gp_P": ravest.prior.Uniform(1, 50),
     }
 
 
@@ -2148,10 +2148,10 @@ class TestGPLogLikelihood:
             "g_HARPS": 0.0, "gd": 0.0, "gdd": 0.0, "jit_HARPS": 2.0
         }
         hyperparams = {
-            "gp_amp": 1.0,
+            "gp_A": 1.0,
             "gp_lambda_e": 50.0,
             "gp_lambda_p": 0.5,
-            "gp_period": 10.0,
+            "gp_P": 10.0,
         }
 
         log_like = ll(params | hyperparams)
@@ -2177,10 +2177,10 @@ class TestGPLogLikelihood:
             "g_HARPS": 0.0, "gd": 0.0, "gdd": 0.0, "jit_HARPS": 1.0
         }
         hyperparams = {
-            "gp_amp": 1.0,
+            "gp_A": 1.0,
             "gp_lambda_e": 50.0,
             "gp_lambda_p": 0.5,
-            "gp_period": 10.0,
+            "gp_P": 10.0,
         }
 
         log_like = ll(params | hyperparams)
@@ -2249,7 +2249,7 @@ class TestGPLogPosterior:
 
         combined_dict = {
             "K_b": 5.0, "jit_HARPS": 1.0,
-            "gp_amp": 1.0, "gp_lambda_e": 50.0, "gp_lambda_p": 0.5, "gp_period": 10.0
+            "gp_A": 1.0, "gp_lambda_e": 50.0, "gp_lambda_p": 0.5, "gp_P": 10.0
         }
         log_post = lpost.log_probability(combined_dict)
 
@@ -2285,7 +2285,7 @@ class TestGPLogPosterior:
 
         combined_dict = {
             "K_b": -1.0, "jit_HARPS": 1.0,  # Invalid K_b outside prior bounds
-            "gp_amp": 1.0, "gp_lambda_e": 50.0, "gp_lambda_p": 0.5, "gp_period": 10.0
+            "gp_A": 1.0, "gp_lambda_e": 50.0, "gp_lambda_p": 0.5, "gp_P": 10.0
         }
         log_post = lpost.log_probability(combined_dict)
 
@@ -2320,30 +2320,30 @@ class TestGPOneDictInternals:
             return GPLogPosterior(
                 planet_letters=["b"], parameterisation=Parameterisation("P K e w Tc"),
                 gp_kernel=GPKernel("Quasiperiodic"),
-                priors={"K_b": U(0, 20), "jit_HARPS": U(0, 5), "gp_amp": U(0, 10),
-                        "gp_lambda_e": U(1, 100), "gp_lambda_p": U(0.1, 2.0), "gp_period": U(1, 50)},
+                priors={"K_b": U(0, 20), "jit_HARPS": U(0, 5), "gp_A": U(0, 10),
+                        "gp_lambda_e": U(1, 100), "gp_lambda_p": U(0.1, 2.0), "gp_P": U(1, 50)},
                 fixed_params={"P_b": 2.0, "e_b": 0.0, "w_b": np.pi / 2, "Tc_b": 0.0,
                               "g_HARPS": 0.0, "gd": 0.0, "gdd": 0.0},
-                free_params_names=["K_b", "jit_HARPS", "gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"],
+                free_params_names=["K_b", "jit_HARPS", "gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"],
                 **self._data(),
             )
         return GPLogPosterior(
             planet_letters=["b"], parameterisation=Parameterisation("P K secosw sesinw Tc"),
             gp_kernel=GPKernel("Quasiperiodic"),
             priors={"K_b": U(0, 20), "e_b": U(0, 1), "w_b": U(-np.pi, np.pi), "jit_HARPS": U(0, 5),
-                    "gp_amp": U(0, 10), "gp_lambda_e": U(1, 100), "gp_period": U(1, 50)},
+                    "gp_A": U(0, 10), "gp_lambda_e": U(1, 100), "gp_P": U(1, 50)},
             fixed_params={"P_b": 2.0, "Tc_b": 0.0, "g_HARPS": 0.0, "gd": 0.0, "gdd": 0.0,
                           "gp_lambda_p": 0.5},
             free_params_names=["K_b", "secosw_b", "sesinw_b", "jit_HARPS",
-                               "gp_amp", "gp_lambda_e", "gp_period"],
+                               "gp_A", "gp_lambda_e", "gp_P"],
             **self._data(),
         )
 
     POINTS = {
         "A": {"K_b": 5.0, "jit_HARPS": 1.0,
-              "gp_amp": 1.0, "gp_lambda_e": 50.0, "gp_lambda_p": 0.5, "gp_period": 10.0},
+              "gp_A": 1.0, "gp_lambda_e": 50.0, "gp_lambda_p": 0.5, "gp_P": 10.0},
         "B": {"K_b": 5.0, "secosw_b": 0.2, "sesinw_b": -0.1, "jit_HARPS": 1.0,
-              "gp_amp": 1.0, "gp_lambda_e": 50.0, "gp_period": 10.0},
+              "gp_A": 1.0, "gp_lambda_e": 50.0, "gp_P": 10.0},
     }
     REFERENCE = {"A": -39.71988723240225, "B": -40.312193275974195}
 
@@ -2353,7 +2353,7 @@ class TestGPOneDictInternals:
                              gp_kernel=GPKernel("Quasiperiodic"), **self._data())
         params = {"P_b": 2.0, "K_b": 5.0, "e_b": 0.1, "w_b": 1.0, "Tc_b": 0.3,
                   "g_HARPS": 0.5, "gd": 0.1, "gdd": 0.01, "jit_HARPS": 2.0,
-                  "gp_amp": 1.5, "gp_lambda_e": 30.0, "gp_lambda_p": 0.7, "gp_period": 8.0}
+                  "gp_A": 1.5, "gp_lambda_e": 30.0, "gp_lambda_p": 0.7, "gp_P": 8.0}
 
         assert float(ll(params)) == pytest.approx(-25.523497814852725, rel=1e-12)
 
@@ -2363,7 +2363,7 @@ class TestGPOneDictInternals:
                              gp_kernel=GPKernel("Quasiperiodic"), **self._data())
 
         with pytest.raises(TypeError):
-            ll({"P_b": 2.0}, {"gp_amp": 1.0})
+            ll({"P_b": 2.0}, {"gp_A": 1.0})
 
     @pytest.mark.parametrize("case", ["A", "B"])
     def test_posterior_one_dict_matches_reference(self, case) -> None:
@@ -2381,7 +2381,7 @@ class TestGPOneDictInternals:
         assert lp._negative_log_probability_for_MAP(values) == pytest.approx(
             -self.REFERENCE["A"], rel=1e-12)
 
-    @pytest.mark.parametrize("name, value", [("gp_period", 60.0), ("gp_amp", -1.0)],
+    @pytest.mark.parametrize("name, value", [("gp_P", 60.0), ("gp_A", -1.0)],
                              ids=["outside_prior", "unphysical"])
     def test_posterior_minus_inf_for_bad_gp_value(self, name, value) -> None:
         """A GP value outside its prior, or unphysical for the kernel, gives -inf."""
@@ -2540,13 +2540,13 @@ class TestGPFitter:
         fitter.params = test_gp_all_params
 
         assert len(fitter.params) == 13  # 5 planetary + g_HARPS + jit_HARPS + 2 trend + 4 GP
-        assert list(fitter.params)[-4:] == ["gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"]
+        assert list(fitter.params)[-4:] == ["gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"]
 
     def test_params_missing_gp_names(self, test_gp_data, test_gp_circular_params) -> None:
         """The first params assignment must include the GP hyperparameters too."""
         fitter = self._fitter(test_gp_data)
         params = test_gp_circular_params | {
-            "gp_amp": Parameter(1.0, fixed=False),
+            "gp_A": Parameter(1.0, fixed=False),
             "gp_lambda_e": Parameter(50.0, fixed=False),
         }
 
@@ -2561,7 +2561,7 @@ class TestGPFitter:
         with pytest.raises(ValueError, match="Unexpected parameters.*gp_scale"):
             fitter.params = params
 
-    @pytest.mark.parametrize("name, value", [("gp_amp", 0.0), ("gp_lambda_e", -1.0), ("gp_period", np.inf)])
+    @pytest.mark.parametrize("name, value", [("gp_A", 0.0), ("gp_lambda_e", -1.0), ("gp_P", np.inf)])
     def test_params_invalid_gp_value(self, test_gp_data, test_gp_all_params, name, value) -> None:
         """GP values are checked on assignment: finite and, for the QP kernel, positive."""
         fitter = self._fitter(test_gp_data)
@@ -2574,10 +2574,10 @@ class TestGPFitter:
         """After the first full assignment, a GP value can be updated on its own."""
         fitter = self._fitter(test_gp_data)
         fitter.params = test_gp_all_params
-        fitter.params = {"gp_period": Parameter(12.0, fixed=True)}
+        fitter.params = {"gp_P": Parameter(12.0, fixed=True)}
 
-        assert fitter.params["gp_period"].value == 12.0
-        assert "gp_period" in fitter.fixed_params_names
+        assert fitter.params["gp_P"].value == 12.0
+        assert "gp_P" in fitter.fixed_params_names
 
     def test_add_priors_valid(self, test_gp_data, test_gp_all_params, test_gp_all_priors) -> None:
         """`priors` holds a prior for every free parameter, the GP ones included."""
@@ -2585,16 +2585,16 @@ class TestGPFitter:
         fitter.params = test_gp_all_params
         fitter.priors = test_gp_all_priors
 
-        assert list(fitter.priors) == ["K_b", "jit_HARPS", "gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"]
+        assert list(fitter.priors) == ["K_b", "jit_HARPS", "gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"]
 
     def test_add_priors_missing_gp_prior(self, test_gp_data, test_gp_all_params, test_gp_all_priors) -> None:
         """A free GP hyperparameter without a prior is reported like any other."""
         fitter = self._fitter(test_gp_data)
         fitter.params = test_gp_all_params
         priors = dict(test_gp_all_priors)
-        del priors["gp_period"]
+        del priors["gp_P"]
 
-        with pytest.raises(ValueError, match="Missing priors for parameters.*gp_period"):
+        with pytest.raises(ValueError, match="Missing priors for parameters.*gp_P"):
             fitter.priors = priors
 
     def test_add_priors_for_fixed_gp_param_rejected(self, test_gp_data, test_gp_all_params,
@@ -2610,9 +2610,9 @@ class TestGPFitter:
                                                        test_gp_all_priors) -> None:
         """A GP starting value outside its prior is rejected when the priors are set."""
         fitter = self._fitter(test_gp_data)
-        fitter.params = test_gp_all_params | {"gp_period": Parameter(60.0, fixed=False)}
+        fitter.params = test_gp_all_params | {"gp_P": Parameter(60.0, fixed=False)}
 
-        with pytest.raises(ValueError, match="Initial value 60.0 of parameter gp_period is invalid"):
+        with pytest.raises(ValueError, match="Initial value 60.0 of parameter gp_P is invalid"):
             fitter.priors = test_gp_all_priors
 
     def test_get_free_params(self, test_gp_data, test_gp_all_params) -> None:
@@ -2620,7 +2620,7 @@ class TestGPFitter:
         fitter = self._fitter(test_gp_data)
         fitter.params = test_gp_all_params
 
-        assert fitter.free_params_names == ["K_b", "jit_HARPS", "gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"]
+        assert fitter.free_params_names == ["K_b", "jit_HARPS", "gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"]
         assert fitter.free_params_values == [5.0, 1.0, 1.0, 50.0, 0.5, 10.0]
         assert list(fitter.free_params_dict) == fitter.free_params_names
         assert fitter.ndim == 6
@@ -2715,13 +2715,13 @@ class TestGPFitter:
     def test_free_gp_param_alone_does_not_warn(self, test_gp_data, test_gp_all_params) -> None:
         """One free GP hyperparameter is enough to sample, so there is no all-fixed warning."""
         fitter = self._fitter(test_gp_data)
-        params = {k: Parameter(v.value, fixed=k != "gp_amp") for k, v in test_gp_all_params.items()}
+        params = {k: Parameter(v.value, fixed=k != "gp_A") for k, v in test_gp_all_params.items()}
 
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             fitter.params = params
 
-        assert fitter.free_params_names == ["gp_amp"]
+        assert fitter.free_params_names == ["gp_A"]
 
     @staticmethod
     def _all_fixed_fitter(data, all_params):
@@ -2873,7 +2873,7 @@ class TestGPFitterMCMC:
 
         df = fitter.get_samples_df()
         assert list(df.columns) == fitter.free_params_names
-        assert fitter.free_params_names == ["K_b", "jit_HARPS", "gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"]
+        assert fitter.free_params_names == ["K_b", "jit_HARPS", "gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"]
         assert len(df) == 50 * nwalkers
 
     def test_sample_retrieval_dict(self, setup_gpfitter):
@@ -3012,8 +3012,8 @@ class TestGPRVCalculations:
         assert "P_b" in params
         assert "K_b" in params
         assert "jit_HARPS" in params
-        assert "gp_amp" in params
-        assert "gp_period" in params
+        assert "gp_A" in params
+        assert "gp_P" in params
 
     def test_build_params_dict_from_dict(self, setup_gpfitter_for_rv):
         """Test building params dict from dict input."""
@@ -3104,7 +3104,7 @@ class TestGPRVCalculations:
     def test_resolve_freeze_params_rejects_non_planet_params(self, setup_gpfitter_for_rv):
         """Trend, instrument and GP hyperparameters cannot be frozen."""
         fitter = setup_gpfitter_for_rv
-        for key in ("jit_HARPS", "g_HARPS", "gd", "gp_amp", "gp_period"):
+        for key in ("jit_HARPS", "g_HARPS", "gd", "gp_A", "gp_P"):
             with pytest.raises(ValueError, match="Unknown freeze_params key"):
                 fitter._resolve_freeze_params({key: None})
 
@@ -3287,7 +3287,7 @@ class TestGPFitterIntegration:
 
         assert len(fitter.params) == 18  # 5*2 planets + 4 system + 4 GP
         assert fitter.free_params_names == ["K_b", "K_c", "jit_HARPS",
-                                            "gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"]
+                                            "gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"]
         assert fitter.ndim == 7
 
 
@@ -3347,9 +3347,9 @@ class TestGPFitterKeywords:
                         check_convergence=True, convergence_check_interval=100,
                         convergence_check_start=20)
 
-        fitter.plot_autocorr_estimates(params=["K_b", "gp_amp"])
+        fitter.plot_autocorr_estimates(params=["K_b", "gp_A"])
         with pytest.raises(TypeError):
-            fitter.plot_autocorr_estimates(hyperparams=["gp_amp"])
+            fitter.plot_autocorr_estimates(hyperparams=["gp_A"])
         plt.close("all")
 
 
@@ -3435,7 +3435,7 @@ class TestWalkerInitialisationWidths:
     ) -> None:
         """Planet and GP parameters are drawn at the same width in one GP fit.
 
-        This is the invariant the fix establishes: before it, gp_amp started within
+        This is the invariant the fix establishes: before it, gp_A started within
         1 sigma of its prior while K_b started within 2 sigma of its prior.
         """
         param_std, hyper_std = 5.0, 1.0
@@ -3444,18 +3444,18 @@ class TestWalkerInitialisationWidths:
         time, vel, velerr, instrument = test_gp_data
         fitter.add_data(time, vel, velerr, instrument, t0=2.0)
         fitter.params = (self._unbounded_prior_params() | test_gp_hyperparams
-                         | {"gp_amp": Parameter(5.0, fixed=False)})
+                         | {"gp_A": Parameter(5.0, fixed=False)})
         fitter.priors = (test_gp_hyperpriors
                          | {"K_b": ravest.prior.Normal(50.0, param_std),
                             "jit_HARPS": ravest.prior.Uniform(0, 5),
-                            "gp_amp": ravest.prior.Normal(5.0, hyper_std)})
+                            "gp_A": ravest.prior.Normal(5.0, hyper_std)})
 
         np.random.seed(self.SEED)
         positions = fitter.generate_initial_walker_positions_random(self.NWALKERS)
 
         columns = fitter.free_params_names
         param_ratio = np.std(positions[:, columns.index("K_b")], ddof=1) / param_std
-        hyper_ratio = np.std(positions[:, columns.index("gp_amp")], ddof=1) / hyper_std
+        hyper_ratio = np.std(positions[:, columns.index("gp_A")], ddof=1) / hyper_std
 
         assert self.LO <= param_ratio <= self.HI
         assert self.LO <= hyper_ratio <= self.HI
@@ -3752,14 +3752,14 @@ class TestPriorPresenceValidation:
     ) -> None:
         """A GP hyperparameter freed after priors were set is refused like any other parameter.
 
-        gp_amp is the first GP hyperparameter, so a check that only dropped the last
+        gp_A is the first GP hyperparameter, so a check that only dropped the last
         name, or mis-paired names and values, would not pass.
         """
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
         fitter.add_data(*test_gp_data, t0=2.0)
-        fitter.params = test_gp_all_params | {"gp_amp": Parameter(1.0, fixed=True)}
-        fitter.priors = {k: v for k, v in test_gp_all_priors.items() if k != "gp_amp"}
-        fitter.params = {"gp_amp": Parameter(1.0, fixed=False)}  # now free, with no prior
+        fitter.params = test_gp_all_params | {"gp_A": Parameter(1.0, fixed=True)}
+        fitter.priors = {k: v for k, v in test_gp_all_priors.items() if k != "gp_A"}
+        fitter.params = {"gp_A": Parameter(1.0, fixed=False)}  # now free, with no prior
 
         with pytest.raises(ValueError, match="No prior for free parameter") as excinfo:
             if entry_point == "random":
@@ -3767,10 +3767,10 @@ class TestPriorPresenceValidation:
             else:
                 self._call(fitter, entry_point, fitter.ndim)
 
-        assert "gp_amp" in str(excinfo.value)
+        assert "gp_A" in str(excinfo.value)
         assert "K_b" not in str(excinfo.value)
 
-    @pytest.mark.parametrize("kind, name", [("Fitter", "jit_HARPS"), ("GPFitter", "gp_amp")])
+    @pytest.mark.parametrize("kind, name", [("Fitter", "jit_HARPS"), ("GPFitter", "gp_A")])
     def test_walker_loop_refuses_param_without_prior_if_check_bypassed(
         self, test_data, test_gp_data, test_gp_all_params, test_gp_all_priors, monkeypatch,
         kind, name
@@ -3786,9 +3786,9 @@ class TestPriorPresenceValidation:
         else:
             fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
             fitter.add_data(*test_gp_data, t0=2.0)
-            fitter.params = test_gp_all_params | {"gp_amp": Parameter(1.0, fixed=True)}
-            fitter.priors = {k: v for k, v in test_gp_all_priors.items() if k != "gp_amp"}
-            fitter.params = {"gp_amp": Parameter(1.0, fixed=False)}  # now free, with no prior
+            fitter.params = test_gp_all_params | {"gp_A": Parameter(1.0, fixed=True)}
+            fitter.priors = {k: v for k, v in test_gp_all_priors.items() if k != "gp_A"}
+            fitter.params = {"gp_A": Parameter(1.0, fixed=False)}  # now free, with no prior
         monkeypatch.setattr(fitter, "_validate_before_fit", lambda: {})
 
         with pytest.raises(ValueError, match=f"No prior for free parameter {name}"):
@@ -3900,7 +3900,7 @@ class TestParamOrder:
         "gd", "gdd",
     ]
 
-    QP_ORDER = ["gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"]
+    QP_ORDER = ["gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"]
 
     FIXED = {"Tc_c", "jit_harps", "gd", "gdd", "gp_lambda_p"}
 
@@ -3916,7 +3916,7 @@ class TestParamOrder:
 
     def _priors(self, make):
         """Scrambled priors for the fitter that make builds (GPFitter's include the free GP names)."""
-        gp = {"gp_period": ravest.prior.Uniform(1, 50), "gp_amp": ravest.prior.Uniform(0, 10),
+        gp = {"gp_P": ravest.prior.Uniform(1, 50), "gp_A": ravest.prior.Uniform(0, 10),
               "gp_lambda_e": ravest.prior.Uniform(1, 100)}
         return (gp if make == "_gpfitter" else {}) | self._scrambled_priors()
 
@@ -3980,9 +3980,9 @@ class TestParamOrder:
                           GPKernel("Quasiperiodic"))
         self._add_data(fitter)
         fitter.params = {
-            "gp_period": Parameter(10.0, fixed=False),
+            "gp_P": Parameter(10.0, fixed=False),
             "gp_lambda_p": Parameter(0.5, fixed=True),
-            "gp_amp": Parameter(1.0, fixed=False),
+            "gp_A": Parameter(1.0, fixed=False),
             "gp_lambda_e": Parameter(50.0, fixed=False),
         } | self._scrambled_params()
         return fitter
@@ -4039,7 +4039,7 @@ class TestParamOrder:
         fitter = getattr(self, make)()
         fitter.priors = self._priors(make)
 
-        gp = ["gp_amp", "gp_lambda_e", "gp_period"] if make == "_gpfitter" else []
+        gp = ["gp_A", "gp_lambda_e", "gp_P"] if make == "_gpfitter" else []
         assert list(fitter.priors) == self.EXPECTED_PRIORS + gp
 
     @pytest.mark.parametrize("make", ["_fitter", "_gpfitter"])
@@ -4143,9 +4143,9 @@ IN_PLACE_EDITS = [
 ]
 
 GP_IN_PLACE_EDITS = [
-    ("gp_value_unphysical", _set_value("gp_amp", -1.0), ValueError, "gp_amp must be positive"),
-    ("gp_value_outside_prior", _set_value("gp_period", 60.0), ValueError,
-     "Initial value 60.0 of parameter gp_period is invalid"),
+    ("gp_value_unphysical", _set_value("gp_A", -1.0), ValueError, "gp_A must be positive"),
+    ("gp_value_outside_prior", _set_value("gp_P", 60.0), ValueError,
+     "Initial value 60.0 of parameter gp_P is invalid"),
 ]
 
 ENTRY_POINTS = ["find_map_estimate", "random", "around_point", "from_map", "run_mcmc"]
@@ -4488,10 +4488,10 @@ def _set_up_plot_fitter(name):
         fitter = Fitter(["b"], Parameterisation("P K e w Tc"))
     else:
         fitter = GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
-        params |= {"gp_amp": Parameter(1.0, fixed=False), "gp_lambda_e": Parameter(50.0, fixed=False),
-                   "gp_lambda_p": Parameter(0.5, fixed=False), "gp_period": Parameter(10.0, fixed=False)}
-        priors |= {"gp_amp": ravest.prior.Uniform(0, 10), "gp_lambda_e": ravest.prior.Uniform(1, 100),
-                   "gp_lambda_p": ravest.prior.Uniform(0.1, 2.0), "gp_period": ravest.prior.Uniform(1, 50)}
+        params |= {"gp_A": Parameter(1.0, fixed=False), "gp_lambda_e": Parameter(50.0, fixed=False),
+                   "gp_lambda_p": Parameter(0.5, fixed=False), "gp_P": Parameter(10.0, fixed=False)}
+        priors |= {"gp_A": ravest.prior.Uniform(0, 10), "gp_lambda_e": ravest.prior.Uniform(1, 100),
+                   "gp_lambda_p": ravest.prior.Uniform(0.1, 2.0), "gp_P": ravest.prior.Uniform(1, 50)}
     fitter.add_data(time, vel, velerr, np.array(["HARPS"] * 6), t0=2.0)
     fitter.params = params
     fitter.priors = priors
@@ -4876,12 +4876,12 @@ class TestPlanetLetters:
         priors = {"g_HARPS": ravest.prior.Uniform(-10, 10), "jit_HARPS": ravest.prior.Uniform(0, 5)}
         if kind == "GPFitter":
             params |= {
-                "gp_amp": Parameter(1.0, fixed=False),
+                "gp_A": Parameter(1.0, fixed=False),
                 "gp_lambda_e": Parameter(50.0, fixed=True),
                 "gp_lambda_p": Parameter(0.5, fixed=True),
-                "gp_period": Parameter(10.0, fixed=True),
+                "gp_P": Parameter(10.0, fixed=True),
             }
-            priors |= {"gp_amp": ravest.prior.Uniform(0, 10)}
+            priors |= {"gp_A": ravest.prior.Uniform(0, 10)}
         fitter.params = params
         fitter.priors = priors
         free = list(priors)
