@@ -33,6 +33,23 @@ def _build_quasiperiodic(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
     return jnp.square(params["gp_A"]) * exp_sine_squared * exp_squared
 
 
+def _build_qpcosine(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
+    """Build the QPCosine kernel (Nicholson & Aigrain 2022 form)."""
+    # LaTeX: exp{ - \frac{(x_i - x_j)^2}{2 {\lambda_e}^2}}
+    exp_squared = kernels.ExpSquared(scale=params["gp_lambda_e"])
+
+    # LaTeX: exp{ - \frac{\sin^2{\pi \frac{x_i-x_j}{P}}} {2 {\lambda_p}^2}}, as in the Quasiperiodic kernel
+    gamma = 1 / (2 * jnp.square(params["gp_lambda_p"]))
+    exp_sine_squared = kernels.ExpSineSquared(scale=params["gp_P"], gamma=gamma)
+
+    # LaTeX: \cos{4 \pi \frac{x_i-x_j}{P}}
+    # where tinygp's Cosine "scale" = P / 2
+    cosine = kernels.Cosine(scale=params["gp_P"] / 2)
+
+    # LaTeX: A^2 \exp{ - \frac{(x_i - x_j)^2}{2 {\lambda_e}^2}} [\exp{ - \frac{\sin^2{\pi \frac{x_i-x_j}{P}}} {2 {\lambda_p}^2}} + f \cos{4 \pi \frac{x_i-x_j}{P}}]
+    return jnp.square(params["gp_A"]) * exp_squared * (exp_sine_squared + params["gp_f"] * cosine)
+
+
 def _build_squared_exponential(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
     """Build the SquaredExponential kernel."""
     # LaTeX: A^2 \exp{ - \frac{(x_i - x_j)^2}{2 {\lambda_e}^2}}
@@ -69,6 +86,7 @@ def _build_periodic(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
 
 _KERNELS: Dict[str, _KernelEntry] = {
     "Quasiperiodic": _KernelEntry(("gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"), _build_quasiperiodic),
+    "QPCosine": _KernelEntry(("gp_A", "gp_f", "gp_lambda_e", "gp_lambda_p", "gp_P"), _build_qpcosine),
     "SquaredExponential": _KernelEntry(("gp_A", "gp_lambda_e"), _build_squared_exponential),
     "Exponential": _KernelEntry(("gp_A", "gp_lambda"), _build_exponential),
     "Matern32": _KernelEntry(("gp_A", "gp_lambda"), _build_matern32),
@@ -110,6 +128,29 @@ class GPKernel:
     gamma=1 / (2 gp_lambda_p^2))``, times ``gp_A^2``. RadVel's ``QuasiPerKernel`` has no factor 2
     in its decay, so its ``gp_explength`` is :math:`\sqrt{2}` times ``gp_lambda_e``; its
     ``gp_perlength`` is ``gp_lambda_p``.
+
+    **QPCosine** (Perger et al. 2021, in the form of Nicholson & Aigrain 2022)
+
+    .. math::
+
+        k(\tau) = A^2 \exp\left(- \frac{\tau^2}{2 \lambda_\mathrm{e}^2}\right)
+                  \left[\exp\left(- \frac{\sin^2(\pi \tau / P)}{2 \lambda_\mathrm{p}^2}\right)
+                  + f \cos\left(\frac{4 \pi \tau}{P}\right)\right]
+
+    ``param_names``, in order:
+
+    - ``gp_A`` (:math:`A`, m/s): amplitude
+    - ``gp_f`` (:math:`f`, dimensionless): weight of the cosine term, at half the period; must
+      be > 0. :math:`f \to 0` gives the Quasiperiodic kernel
+    - ``gp_lambda_e``, ``gp_lambda_p``, ``gp_P``: as in the Quasiperiodic kernel
+
+    tinygp: ``ExpSquared(scale=gp_lambda_e) * (ExpSineSquared(scale=gp_P,
+    gamma=1 / (2 gp_lambda_p^2)) + gp_f * Cosine(scale=gp_P / 2))``, times ``gp_A^2``.
+    In Nicholson & Aigrain 2022's symbols, their :math:`A` is ``gp_A^2``, :math:`l` is
+    ``gp_lambda_e`` and :math:`\Gamma` is ``1 / (2 gp_lambda_p^2)``. In Perger et al. 2021's,
+    :math:`h_1` is ``gp_A``, :math:`h_2` is ``gp_A sqrt(gp_f)``, :math:`w` is ``gp_lambda_p`` and
+    :math:`\lambda` is ``2 gp_lambda_e``; their recommendation of fixed :math:`w = 0.31` or priors
+    between 0.2--0.5 therefore means fixing ``gp_lambda_p`` at 0.31 or using a prior between 0.2--0.5.
 
     **SquaredExponential**
 

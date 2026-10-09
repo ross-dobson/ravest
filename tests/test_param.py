@@ -455,6 +455,7 @@ class TestParamKeyToLatex:
         ("gp_lambda_e", r"$\lambda_{\mathrm{e}}$"),
         ("gp_lambda_p", r"$\lambda_{\mathrm{p}}$"),
         ("gp_lambda", r"$\lambda$"),
+        ("gp_f", r"$f$"),
     ])
     def test_gp_hyperparams(self, key, expected) -> None:
         """Test GP kernel hyperparameters."""
@@ -544,6 +545,7 @@ class TestParamKeyToUnit:
         ("gp_A", "m/s"),
         ("gp_lambda_p", ""),
         ("gp_lambda", "d"),
+        ("gp_f", ""),
     ])
     def test_plain(self, key, expected) -> None:
         """Test the default plain-text form."""

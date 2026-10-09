@@ -13,7 +13,7 @@ from ravest.param import Parameter, Parameterisation
 from ravest.prior import Uniform
 
 # Kernels expected in the table, in table order
-EXPECTED_KERNELS = ["Quasiperiodic", "SquaredExponential", "Exponential", "Matern32", "Matern52", "Periodic"]
+EXPECTED_KERNELS = ["Quasiperiodic", "QPCosine", "SquaredExponential", "Exponential", "Matern32", "Matern52", "Periodic"]
 
 # Evaluation grid: tau from T[0] covers 0, P/2 (6.25) and P (12.5)
 T = np.array([0.0, 0.4, 3.5, 6.25, 7.0, 12.5, 25.0, 31.3])
@@ -22,6 +22,7 @@ TAU = np.abs(T[:, None] - T[None, :])
 VALUES = {"gp_A": 3.0, "gp_lambda_e": 30.0, "gp_lambda_p": 0.5, "gp_P": 12.5, "gp_lambda": 7.0, "gp_f": 0.4}
 A, LAMBDA_E, LAMBDA_P, P = VALUES["gp_A"], VALUES["gp_lambda_e"], VALUES["gp_lambda_p"], VALUES["gp_P"]
 LAMBDA = VALUES["gp_lambda"]
+F = VALUES["gp_f"]
 
 
 def kernel_matrix(kernel_type: str, values: dict = VALUES) -> np.ndarray:
@@ -234,6 +235,55 @@ class TestPeriodic:
         george = [9.0, 8.82050945528243, 2.745170710788816, 1.2180175491295144, 1.3066258030222249,
                   9.0, 9.0, 1.2184022728714008]
         np.testing.assert_allclose(kernel_matrix("Periodic")[0], george, rtol=1e-12)
+
+
+class TestQPCosine:
+    """The QPCosine kernel's numbers."""
+
+    def test_closed_form(self) -> None:
+        """Matches A^2 exp(-tau^2/(2 lambda_e^2)) [exp(-sin^2(pi tau/P)/(2 lambda_p^2)) + f cos(4 pi tau/P)]."""
+        expected = (A**2 * squared_exponential(TAU, LAMBDA_E)
+                    * (periodic(TAU, LAMBDA_P, P) + F * np.cos(4 * np.pi * TAU / P)))
+        np.testing.assert_allclose(kernel_matrix("QPCosine"), expected, rtol=1e-12)
+
+    def test_hand_values(self) -> None:
+        """A^2 (1 + f) at tau = 0; at tau = P only the decay is left; tau = P/2 by hand."""
+        K = kernel_matrix("QPCosine")
+        assert K[0, 0] == pytest.approx(A**2 * (1 + F), rel=1e-12)
+        assert K[0, 5] == pytest.approx(A**2 * np.exp(-P**2 / (2 * LAMBDA_E**2)) * (1 + F), rel=1e-12)
+        # A^2 exp(-P^2/(8 lambda_e^2)) (exp(-1/(2 lambda_p^2)) + f)
+        assert K[0, 3] == pytest.approx(4.7145862374004945, rel=1e-12)
+
+    def test_perger_2021(self) -> None:
+        """Matches Perger et al. 2021's QPC kernel in their own symbols.
+
+        h1 = gp_A, h2 = gp_A sqrt(gp_f), w = gp_lambda_p, lambda = 2 gp_lambda_e.
+        """
+        h1, h2, w, lam = A, A * np.sqrt(F), LAMBDA_P, 2 * LAMBDA_E
+        perger = np.exp(-2 * TAU**2 / lam**2) * (
+            h1**2 * np.exp(-np.sin(np.pi * TAU / P)**2 / (2 * w**2)) + h2**2 * np.cos(4 * np.pi * TAU / P))
+        np.testing.assert_allclose(kernel_matrix("QPCosine"), perger, rtol=1e-12)
+
+    def test_nicholson_aigrain_2022(self) -> None:
+        """Matches Nicholson & Aigrain 2022's form in their own symbols.
+
+        A = gp_A^2, l = gp_lambda_e, Gamma = 1/(2 gp_lambda_p^2), f = gp_f.
+        """
+        amplitude, length, gamma = A**2, LAMBDA_E, 1 / (2 * LAMBDA_P**2)
+        nicholson_aigrain = amplitude * np.exp(-TAU**2 / (2 * length**2)) * (
+            np.exp(-gamma * np.sin(np.pi * TAU / P)**2) + F * np.cos(4 * np.pi * TAU / P))
+        np.testing.assert_allclose(kernel_matrix("QPCosine"), nicholson_aigrain, rtol=1e-12)
+
+    def test_george(self) -> None:
+        """Matches george's ExpSquared x (ExpSine2 + f Cosine).
+
+        george 0.4.4, gp_A^2 * ExpSquaredKernel(metric=gp_lambda_e^2)
+        * (ExpSine2Kernel(gamma=1/(2 gp_lambda_p^2), log_period=log(gp_P))
+        + gp_f * CosineKernel(log_period=log(gp_P/2))); row k(T[0], T).
+        """
+        george = [12.6, 12.132265634256273, -0.5979414362755127, 4.714586237400494, 3.8253480516217175,
+                  11.552377482223562, 8.903768301007226, 2.7933066184588924]
+        np.testing.assert_allclose(kernel_matrix("QPCosine")[0], george, rtol=1e-12)
 
 
 class TestKernelTable:

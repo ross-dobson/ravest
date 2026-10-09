@@ -25,6 +25,7 @@ If your data or literature values are in other units, convert them before they r
 | `gd` | m/s/d | linear trend, $\dot{\gamma}\,(t - t_0)$ |
 | `gdd` | m/s/d^2 | quadratic trend, $\ddot{\gamma}\,(t - t_0)^2$ |
 | `gp_A` | m/s | GP amplitude |
+| `gp_f` | dimensionless | GP cosine-term weight (QPCosine kernel) |
 | `gp_lambda` | d | GP length scale (Exponential, Matern32 and Matern52 kernels) |
 | `gp_lambda_e` | d | GP evolutionary (exponential) length scale |
 | `gp_lambda_p` | dimensionless | GP periodic (harmonic complexity) length scale |
