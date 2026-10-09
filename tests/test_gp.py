@@ -13,7 +13,7 @@ from ravest.param import Parameter, Parameterisation
 from ravest.prior import Uniform
 
 # Kernels expected in the table, in table order
-EXPECTED_KERNELS = ["Quasiperiodic", "SquaredExponential", "Exponential"]
+EXPECTED_KERNELS = ["Quasiperiodic", "SquaredExponential", "Exponential", "Matern32"]
 
 # Evaluation grid: tau from T[0] covers 0, P/2 (6.25) and P (12.5)
 T = np.array([0.0, 0.4, 3.5, 6.25, 7.0, 12.5, 25.0, 31.3])
@@ -139,6 +139,40 @@ class TestExponential:
         celerite2 = [9.0, 8.500132232953828, 5.458775937413701, 3.6853571263712785, 3.310914970542981,
                      1.5090952387661742, 0.25304093774074843, 0.10287876795769818]
         np.testing.assert_allclose(kernel_matrix("Exponential")[0], celerite2, rtol=1e-12)
+
+
+class TestMatern32:
+    """The Matern32 kernel's numbers."""
+
+    def test_closed_form(self) -> None:
+        """Matches A^2 (1 + sqrt(3) tau/lambda) exp(-sqrt(3) tau/lambda)."""
+        r = np.sqrt(3) * TAU / LAMBDA
+        np.testing.assert_allclose(kernel_matrix("Matern32"), A**2 * (1 + r) * np.exp(-r), rtol=1e-12)
+
+    def test_hand_values(self) -> None:
+        """A^2 at tau = 0; A^2 (1 + sqrt(3)) exp(-sqrt(3)) at tau = lambda (T[4] = 7)."""
+        K = kernel_matrix("Matern32")
+        assert K[0, 0] == pytest.approx(A**2, rel=1e-12)
+        assert K[0, 4] == pytest.approx(A**2 * (1 + np.sqrt(3)) * np.exp(-np.sqrt(3)), rel=1e-12)
+
+    def test_george(self) -> None:
+        """Matches george's Matern32Kernel.
+
+        george 0.4.4, gp_A^2 * Matern32Kernel(metric=gp_lambda^2); row k(T[0], T).
+        """
+        george = [9.0, 8.95872183725947, 7.063988885617055, 4.881537705462964, 4.35021952136857,
+                  1.6712003954530985, 0.1331137858279411, 0.03407932627465895]
+        np.testing.assert_allclose(kernel_matrix("Matern32")[0], george, rtol=1e-12)
+
+    def test_celerite2(self) -> None:
+        """Matches celerite2's Matern32Term.
+
+        celerite2 0.3.3, Matern32Term(sigma=gp_A, rho=gp_lambda, eps=1e-8) (its approximation,
+        exact here to rounding); row k(T[0], T).
+        """
+        celerite2 = [9.0, 8.95872183725947, 7.063988885617054, 4.881537705462959, 4.3502195213685635,
+                     1.671200395453092, 0.13311378582793945, 0.034079326274658296]
+        np.testing.assert_allclose(kernel_matrix("Matern32")[0], celerite2, rtol=1e-12)
 
 
 class TestKernelTable:

@@ -46,10 +46,17 @@ def _build_exponential(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
     return jnp.square(params["gp_A"]) * kernels.Exp(scale=params["gp_lambda"])
 
 
+def _build_matern32(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
+    """Build the Matern32 kernel."""
+    # LaTeX: A^2 (1 + \frac{\sqrt{3} |x_i - x_j|}{\lambda}) \exp{ - \frac{\sqrt{3} |x_i - x_j|}{\lambda}}
+    return jnp.square(params["gp_A"]) * kernels.Matern32(scale=params["gp_lambda"])
+
+
 _KERNELS: Dict[str, _KernelEntry] = {
     "Quasiperiodic": _KernelEntry(("gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"), _build_quasiperiodic),
     "SquaredExponential": _KernelEntry(("gp_A", "gp_lambda_e"), _build_squared_exponential),
     "Exponential": _KernelEntry(("gp_A", "gp_lambda"), _build_exponential),
+    "Matern32": _KernelEntry(("gp_A", "gp_lambda"), _build_matern32),
 }
 SUPPORTED_KERNELS = list(_KERNELS)
 
@@ -117,6 +124,22 @@ class GPKernel:
 
     tinygp: ``Exp(scale=gp_lambda)``, times ``gp_A^2``. celerite2's ``RealTerm`` is the same
     kernel, with ``a = gp_A^2`` and ``c = 1 / gp_lambda``.
+
+    **Matern32**
+
+    .. math::
+
+        k(\tau) = A^2 \left(1 + \frac{\sqrt{3} |\tau|}{\lambda}\right)
+                  \exp\left(- \frac{\sqrt{3} |\tau|}{\lambda}\right)
+
+    ``param_names``, in order:
+
+    - ``gp_A`` (:math:`A`, m/s): amplitude
+    - ``gp_lambda`` (:math:`\lambda`, d): length scale (the same value decays differently in
+      Exponential, Matern32 and Matern52)
+
+    tinygp: ``Matern32(scale=gp_lambda)``, times ``gp_A^2``. celerite2's ``Matern32Term``
+    approximates it, with ``sigma = gp_A`` and ``rho = gp_lambda``.
     """
 
     def __init__(self, kernel_type: str) -> None:
