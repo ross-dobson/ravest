@@ -13,7 +13,7 @@ from ravest.param import Parameter, Parameterisation
 from ravest.prior import Uniform
 
 # Kernels expected in the table, in table order
-EXPECTED_KERNELS = ["Quasiperiodic", "SquaredExponential", "Exponential", "Matern32"]
+EXPECTED_KERNELS = ["Quasiperiodic", "SquaredExponential", "Exponential", "Matern32", "Matern52"]
 
 # Evaluation grid: tau from T[0] covers 0, P/2 (6.25) and P (12.5)
 T = np.array([0.0, 0.4, 3.5, 6.25, 7.0, 12.5, 25.0, 31.3])
@@ -173,6 +173,31 @@ class TestMatern32:
         celerite2 = [9.0, 8.95872183725947, 7.063988885617054, 4.881537705462959, 4.3502195213685635,
                      1.671200395453092, 0.13311378582793945, 0.034079326274658296]
         np.testing.assert_allclose(kernel_matrix("Matern32")[0], celerite2, rtol=1e-12)
+
+
+class TestMatern52:
+    """The Matern52 kernel's numbers."""
+
+    def test_closed_form(self) -> None:
+        """Matches A^2 (1 + sqrt(5) tau/lambda + 5 tau^2/(3 lambda^2)) exp(-sqrt(5) tau/lambda)."""
+        r = np.sqrt(5) * TAU / LAMBDA
+        expected = A**2 * (1 + r + r**2 / 3) * np.exp(-r)
+        np.testing.assert_allclose(kernel_matrix("Matern52"), expected, rtol=1e-12)
+
+    def test_hand_values(self) -> None:
+        """A^2 at tau = 0; A^2 (1 + sqrt(5) + 5/3) exp(-sqrt(5)) at tau = lambda (T[4] = 7)."""
+        K = kernel_matrix("Matern52")
+        assert K[0, 0] == pytest.approx(A**2, rel=1e-12)
+        assert K[0, 4] == pytest.approx(A**2 * (1 + np.sqrt(5) + 5 / 3) * np.exp(-np.sqrt(5)), rel=1e-12)
+
+    def test_george(self) -> None:
+        """Matches george's Matern52Kernel.
+
+        george 0.4.4, gp_A^2 * Matern52Kernel(metric=gp_lambda^2); row k(T[0], T).
+        """
+        george = [9.0, 8.975603614820384, 7.457842281763128, 5.286630814585738, 4.715946979486382,
+                  1.7110854896589327, 0.09260432403135035, 0.018138285003575023]
+        np.testing.assert_allclose(kernel_matrix("Matern52")[0], george, rtol=1e-12)
 
 
 class TestKernelTable:
