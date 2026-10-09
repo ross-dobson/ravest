@@ -12,26 +12,26 @@ If your data or literature values are in other units, convert them before they r
 
 ## Parameter units
 
-| Parameter | Unit | Notes |
-|-----------|------|-------|
-| `P` | d | orbital period |
-| `K` | m/s | RV semi-amplitude |
-| `e` | dimensionless | eccentricity, $0 \le e < 1$ |
-| `w` | rad | the star's argument of periastron $\omega_\star$, in $[-\pi, \pi)$ |
-| `secosw`, `sesinw` | dimensionless | $\sqrt{e}\cos\omega_\star$, $\sqrt{e}\sin\omega_\star$ |
-| `Tc`, `Tp` | d | time of transit centre / periastron passage, on the same time axis as your `time` data |
-| `g_<instrument>` | m/s | RV offset for that instrument |
-| `jit_<instrument>` | m/s | jitter for that instrument |
-| `gd` | m/s/d | linear trend, $\dot{\gamma}\,(t - t_0)$ |
-| `gdd` | m/s/d^2 | quadratic trend, $\ddot{\gamma}\,(t - t_0)^2$ |
-| `gp_A` | m/s | GP amplitude |
-| `gp_f` | dimensionless | GP cosine-term weight (QPCosine kernel) |
-| `gp_lambda` | d | GP length scale (Exponential, Matern32 and Matern52 kernels) |
-| `gp_lambda_e` | d | GP evolutionary (exponential) length scale |
-| `gp_lambda_p` | dimensionless | GP periodic (harmonic complexity) length scale |
-| `gp_P` | d | GP period |
+| Parameter | Ravest key | Unit | Notes |
+|-----------|------------|------|-------|
+| $P$ | `P` | d | orbital period |
+| $K$ | `K` | m/s | RV semi-amplitude |
+| $e$ | `e` | dimensionless | eccentricity, $0 \le e < 1$ |
+| $\omega_\star$ | `w` | rad | the star's argument of periastron, in $[-\pi, \pi)$ |
+| $\sqrt{e}\cos\omega_\star$, $\sqrt{e}\sin\omega_\star$ | `secosw`, `sesinw` | dimensionless | eccentricity and argument of periastron combined |
+| $T_{\mathrm{C}}$, $T_{\mathrm{P}}$ | `Tc`, `Tp` | d | time of transit centre / periastron passage, on the same time axis as your `time` data |
+| $\gamma_{\mathrm{inst}}$ | `g_<instrument>` | m/s | RV offset for that instrument |
+| $\sigma_{\mathrm{inst}}$ | `jit_<instrument>` | m/s | jitter for that instrument |
+| $\dot{\gamma}$ | `gd` | m/s/d | linear trend, $\dot{\gamma}\,(t - t_0)$ |
+| $\ddot{\gamma}$ | `gdd` | m/s/d^2 | quadratic trend, $\ddot{\gamma}\,(t - t_0)^2$ |
+| $A_{\mathrm{GP}}$ | `gp_A` | m/s | GP amplitude |
+| $f$ | `gp_f` | dimensionless | GP cosine-term weight (QPCosine kernel) |
+| $\lambda$ | `gp_lambda` | d | GP length scale (Exponential, Matern32 and Matern52 kernels) |
+| $\lambda_{\mathrm{e}}$ | `gp_lambda_e` | d | GP evolutionary (exponential) length scale |
+| $\lambda_{\mathrm{p}}$ | `gp_lambda_p` | dimensionless | GP periodic (harmonic complexity) length scale |
+| $P_{\mathrm{GP}}$ | `gp_P` | d | GP period |
 
-Planet parameters take the planet letter as a suffix (`P_b`, `K_c`), and the units are the same for every planet.
+Planet parameters take the planet letter as a suffix (`P_b`, `K_c`), and the units are the same for every planet. The symbols are the labels Ravest uses in its plots, where they gain the planet letter or instrument name as a subscript, e.g. $P_{\mathrm{b}}$, $\gamma_{\mathrm{HARPS}}$.
 
 The data passed to `add_data` follow the same units: `time` and `t0` in days, `vel` and `velerr` in m/s. The stellar mass, given to `Star` or as `mass_star` to `Planet.mpsini` and `calculate_mpsini`, is in solar masses $M_\odot$.
 
