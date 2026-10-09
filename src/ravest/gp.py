@@ -58,12 +58,22 @@ def _build_matern52(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
     return jnp.square(params["gp_A"]) * kernels.Matern52(scale=params["gp_lambda"])
 
 
+def _build_periodic(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
+    """Build the Periodic kernel."""
+    # LaTeX: A^2 \exp{ - \frac{\sin^2{\pi \frac{x_i-x_j}{P}}} {2 {\lambda_p}^2}}
+    # where tinygp's "scale" P = our "gp_P" P_GP
+    # where tinygp's "gamma" = 1 / (2 {\lambda_p}^2)
+    gamma = 1 / (2 * jnp.square(params["gp_lambda_p"]))
+    return jnp.square(params["gp_A"]) * kernels.ExpSineSquared(scale=params["gp_P"], gamma=gamma)
+
+
 _KERNELS: Dict[str, _KernelEntry] = {
     "Quasiperiodic": _KernelEntry(("gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"), _build_quasiperiodic),
     "SquaredExponential": _KernelEntry(("gp_A", "gp_lambda_e"), _build_squared_exponential),
     "Exponential": _KernelEntry(("gp_A", "gp_lambda"), _build_exponential),
     "Matern32": _KernelEntry(("gp_A", "gp_lambda"), _build_matern32),
     "Matern52": _KernelEntry(("gp_A", "gp_lambda"), _build_matern52),
+    "Periodic": _KernelEntry(("gp_A", "gp_lambda_p", "gp_P"), _build_periodic),
 }
 SUPPORTED_KERNELS = list(_KERNELS)
 
@@ -162,6 +172,22 @@ class GPKernel:
       Exponential, Matern32 and Matern52)
 
     tinygp: ``Matern52(scale=gp_lambda)``, times ``gp_A^2``.
+
+    **Periodic**
+
+    .. math::
+
+        k(\tau) = A^2 \exp\left[- \frac{\sin^2(\pi \tau / P)}{2 \lambda_\mathrm{p}^2}\right]
+
+    ``param_names``, in order:
+
+    - ``gp_A`` (:math:`A`, m/s): amplitude
+    - ``gp_lambda_p`` (:math:`\lambda_\mathrm{p}`, dimensionless): periodic length scale
+      (harmonic complexity)
+    - ``gp_P`` (:math:`P`, d): period
+
+    tinygp: ``ExpSineSquared(scale=gp_P, gamma=1 / (2 gp_lambda_p^2))``, times ``gp_A^2``.
+    RadVel's ``PerKernel`` is the same kernel; its ``gp_length`` is ``gp_lambda_p``.
     """
 
     def __init__(self, kernel_type: str) -> None:

@@ -13,7 +13,7 @@ from ravest.param import Parameter, Parameterisation
 from ravest.prior import Uniform
 
 # Kernels expected in the table, in table order
-EXPECTED_KERNELS = ["Quasiperiodic", "SquaredExponential", "Exponential", "Matern32", "Matern52"]
+EXPECTED_KERNELS = ["Quasiperiodic", "SquaredExponential", "Exponential", "Matern32", "Matern52", "Periodic"]
 
 # Evaluation grid: tau from T[0] covers 0, P/2 (6.25) and P (12.5)
 T = np.array([0.0, 0.4, 3.5, 6.25, 7.0, 12.5, 25.0, 31.3])
@@ -198,6 +198,42 @@ class TestMatern52:
         george = [9.0, 8.975603614820384, 7.457842281763128, 5.286630814585738, 4.715946979486382,
                   1.7110854896589327, 0.09260432403135035, 0.018138285003575023]
         np.testing.assert_allclose(kernel_matrix("Matern52")[0], george, rtol=1e-12)
+
+
+class TestPeriodic:
+    """The Periodic kernel's numbers."""
+
+    def test_closed_form(self) -> None:
+        """Matches A^2 exp(-sin^2(pi tau/P)/(2 lambda_p^2))."""
+        expected = A**2 * periodic(TAU, LAMBDA_P, P)
+        np.testing.assert_allclose(kernel_matrix("Periodic"), expected, rtol=1e-12)
+
+    def test_hand_values(self) -> None:
+        """A^2 at tau = 0, P and 2P; A^2 exp(-1/(2 lambda_p^2)) at tau = P/2."""
+        K = kernel_matrix("Periodic")
+        for i in (0, 5, 6):  # T[5] - T[0] = P, T[6] - T[0] = 2P
+            assert K[0, i] == pytest.approx(A**2, rel=1e-12)
+        assert K[0, 3] == pytest.approx(A**2 * np.exp(-1 / (2 * LAMBDA_P**2)), rel=1e-12)
+
+    def test_radvel(self) -> None:
+        """Matches RadVel's PerKernel.
+
+        RadVel 1.6.6 PerKernel, gp_amp = gp_A, gp_length = gp_lambda_p, gp_per = gp_P;
+        row k(T[0], T).
+        """
+        radvel = [9.0, 8.82050945528243, 2.7451707107888152, 1.2180175491295144, 1.3066258030222249,
+                  9.0, 9.0, 1.2184022728714008]
+        np.testing.assert_allclose(kernel_matrix("Periodic")[0], radvel, rtol=1e-12)
+
+    def test_george(self) -> None:
+        """Matches george's ExpSine2Kernel.
+
+        george 0.4.4, gp_A^2 * ExpSine2Kernel(gamma=1/(2 gp_lambda_p^2), log_period=log(gp_P));
+        row k(T[0], T).
+        """
+        george = [9.0, 8.82050945528243, 2.745170710788816, 1.2180175491295144, 1.3066258030222249,
+                  9.0, 9.0, 1.2184022728714008]
+        np.testing.assert_allclose(kernel_matrix("Periodic")[0], george, rtol=1e-12)
 
 
 class TestKernelTable:
