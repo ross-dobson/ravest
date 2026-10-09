@@ -167,7 +167,7 @@ class Fitter:
         the free parameters are sampled: the MCMC chain's columns are
         ``free_params_names``, in that order (see ``get_samples_df``).
 
-        On a GPFitter, it also holds the GP kernel's hyperparameters (e.g. ``gp_amp``).
+        On a GPFitter, it also holds the GP kernel's hyperparameters (e.g. ``gp_A``).
         """
         return self._params
 
@@ -188,7 +188,7 @@ class Fitter:
             by the fitter: all required parameters for the
             chosen parameterisation, with planet letters (not required for
             trend or jitter parameters). On a GPFitter, also the GP kernel's
-            hyperparameters (e.g. ``gp_amp``, ``gp_lambda_e``, ``gp_lambda_p``, ``gp_period``).
+            hyperparameters (e.g. ``gp_A``, ``gp_lambda_e``, ``gp_lambda_p``, ``gp_P``).
 
         Raises
         ------

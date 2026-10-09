@@ -12,7 +12,7 @@ class TestGPKernel:
         """Test GPKernel initialization with valid kernel type."""
         kernel = GPKernel("Quasiperiodic")
         assert kernel.kernel_type == "Quasiperiodic"
-        assert kernel.expected_hyperparams == ["gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"]
+        assert kernel.expected_hyperparams == ["gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"]
 
     def test_gpkernel_init_invalid(self) -> None:
         """Test GPKernel initialization with invalid kernel type."""
@@ -23,19 +23,19 @@ class TestGPKernel:
         """Test getting expected hyperparameters."""
         kernel = GPKernel("Quasiperiodic")
         hyperparams = kernel.get_expected_hyperparams()
-        assert hyperparams == ["gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"]
+        assert hyperparams == ["gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"]
         # Verify it returns a copy
         hyperparams.append("extra")
-        assert kernel.expected_hyperparams == ["gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"]
+        assert kernel.expected_hyperparams == ["gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"]
 
     def test_validate_hyperparams_valid(self) -> None:
         """Test validating valid hyperparameters."""
         kernel = GPKernel("Quasiperiodic")
         hyperparams = {
-            "gp_amp": Parameter(1.0, fixed=False),
+            "gp_A": Parameter(1.0, fixed=False),
             "gp_lambda_e": Parameter(50.0, fixed=False),
             "gp_lambda_p": Parameter(0.5, fixed=False),
-            "gp_period": Parameter(10.0, fixed=False),
+            "gp_P": Parameter(10.0, fixed=False),
         }
         # Should not raise
         kernel.validate_hyperparams(hyperparams)
@@ -44,9 +44,9 @@ class TestGPKernel:
         """Test error when required hyperparameters are missing."""
         kernel = GPKernel("Quasiperiodic")
         hyperparams = {
-            "gp_amp": Parameter(1.0, fixed=False),
+            "gp_A": Parameter(1.0, fixed=False),
             "gp_lambda_e": Parameter(50.0, fixed=False),
-            # Missing gp_lambda_p and gp_period
+            # Missing gp_lambda_p and gp_P
         }
         with pytest.raises(ValueError, match="Missing required hyperparameters"):
             kernel.validate_hyperparams(hyperparams)
@@ -55,10 +55,10 @@ class TestGPKernel:
         """Test error when unexpected hyperparameters are provided."""
         kernel = GPKernel("Quasiperiodic")
         hyperparams = {
-            "gp_amp": Parameter(1.0, fixed=False),
+            "gp_A": Parameter(1.0, fixed=False),
             "gp_lambda_e": Parameter(50.0, fixed=False),
             "gp_lambda_p": Parameter(0.5, fixed=False),
-            "gp_period": Parameter(10.0, fixed=False),
+            "gp_P": Parameter(10.0, fixed=False),
             "extra_param": Parameter(5.0, fixed=False),
         }
         with pytest.raises(ValueError, match="Unexpected hyperparameters"):
@@ -68,10 +68,10 @@ class TestGPKernel:
         """Test error for non-finite hyperparameter values."""
         kernel = GPKernel("Quasiperiodic")
         hyperparams_values = {
-            "gp_amp": np.nan,
+            "gp_A": np.nan,
             "gp_lambda_e": 50.0,
             "gp_lambda_p": 0.5,
-            "gp_period": 10.0,
+            "gp_P": 10.0,
         }
         with pytest.raises(ValueError, match="Non-finite hyperparameter"):
             kernel._validate_hyperparams_values(hyperparams_values)
@@ -80,10 +80,10 @@ class TestGPKernel:
         """Test error for negative hyperparameter values."""
         kernel = GPKernel("Quasiperiodic")
         hyperparams_values = {
-            "gp_amp": 1.0,
+            "gp_A": 1.0,
             "gp_lambda_e": -50.0,  # Invalid negative value
             "gp_lambda_p": 0.5,
-            "gp_period": 10.0,
+            "gp_P": 10.0,
         }
         with pytest.raises(ValueError, match="must be positive"):
             kernel._validate_hyperparams_values(hyperparams_values)
@@ -92,10 +92,10 @@ class TestGPKernel:
         """Test error for zero hyperparameter values."""
         kernel = GPKernel("Quasiperiodic")
         hyperparams_values = {
-            "gp_amp": 1.0,
+            "gp_A": 1.0,
             "gp_lambda_e": 50.0,
             "gp_lambda_p": 0.0,  # Invalid zero value
-            "gp_period": 10.0,
+            "gp_P": 10.0,
         }
         with pytest.raises(ValueError, match="must be positive"):
             kernel._validate_hyperparams_values(hyperparams_values)
@@ -104,10 +104,10 @@ class TestGPKernel:
         """Test building a Quasiperiodic kernel."""
         kernel = GPKernel("Quasiperiodic")
         hyperparams_values = {
-            "gp_amp": 1.0,
+            "gp_A": 1.0,
             "gp_lambda_e": 50.0,
             "gp_lambda_p": 0.5,
-            "gp_period": 10.0,
+            "gp_P": 10.0,
         }
         tinygp_kernel = kernel.build_kernel(hyperparams_values)
         # Check that it returns a tinygp kernel object

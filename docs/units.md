@@ -24,10 +24,10 @@ If your data or literature values are in other units, convert them before they r
 | `jit_<instrument>` | m/s | jitter for that instrument |
 | `gd` | m/s/d | linear trend, $\dot{\gamma}\,(t - t_0)$ |
 | `gdd` | m/s/d^2 | quadratic trend, $\ddot{\gamma}\,(t - t_0)^2$ |
-| `gp_amp` | m/s | GP amplitude |
+| `gp_A` | m/s | GP amplitude |
 | `gp_lambda_e` | d | GP evolutionary (exponential) length scale |
 | `gp_lambda_p` | dimensionless | GP periodic (harmonic complexity) length scale |
-| `gp_period` | d | GP period |
+| `gp_P` | d | GP period |
 
 Planet parameters take the planet letter as a suffix (`P_b`, `K_c`), and the units are the same for every planet.
 

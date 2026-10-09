@@ -34,7 +34,7 @@ class GPKernel:
 
         # Set expected hyperparameters based on kernel type
         if self.kernel_type == "Quasiperiodic":
-            self.expected_hyperparams = ["gp_amp", "gp_lambda_e", "gp_lambda_p", "gp_period"]
+            self.expected_hyperparams = ["gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"]
         else:
             raise ValueError(f"Unsupported kernel type: {kernel_type}. "
                             f"Supported kernels: {SUPPORTED_KERNELS}")
@@ -112,11 +112,11 @@ class GPKernel:
             # # see Equation 15 in Rajpaul et al. 2021 https://doi.org/10.1093/mnras/stab2192
             # # LaTeX: \lambda_e^2 > \frac{3}{2\pi} P_{GP}^2 \lambda_p^2
             # LHS = jnp.square(hyperparams_values["gp_lambda_e"])
-            # RHS = (3 / (2 * jnp.pi)) * jnp.square(hyperparams_values["gp_period"] * hyperparams_values["gp_lambda_p"])
+            # RHS = (3 / (2 * jnp.pi)) * jnp.square(hyperparams_values["gp_P"] * hyperparams_values["gp_lambda_p"])
 
             # if not LHS > RHS:
             #     raise ValueError(
-            #         f"gp_lambda_e^2 must be greater than (3/(2pi)) * gp_period^2 * gp_lambda_p^2 "
+            #         f"gp_lambda_e^2 must be greater than (3/(2pi)) * gp_P^2 * gp_lambda_p^2 "
             #         f"to ensure at least one non-trivial turning point in the GP. Requires LHS > RHS, but got: "
             #         f"LHS: {LHS:.3f}, RHS: {RHS:.3f}"
             #     )
@@ -137,20 +137,20 @@ class GPKernel:
             Configured kernel (not full GaussianProcess)
         """
         if self.kernel_type == "Quasiperiodic":
-            gp_amp = hyperparams["gp_amp"]
+            gp_A = hyperparams["gp_A"]
             gp_lambda_e = hyperparams["gp_lambda_e"]
             gp_lambda_p = hyperparams["gp_lambda_p"]
-            gp_period = hyperparams["gp_period"]
+            gp_P = hyperparams["gp_P"]
 
             # LaTeX: exp{ - \frac{(x_i - x_j)^2}{2 {l}^2}}
             # where tinygp's "scale" l = our "gp_lambda_e"
             exp_squared = kernels.ExpSquared(scale=gp_lambda_e)
 
             # LaTeX: exp{ - \Gamma \sin^2{\pi \frac{x_i-x_j}{P}}}
-            # where tinygp's "scale" P = our "gp_period" P_GP
+            # where tinygp's "scale" P = our "gp_P" P_GP
             # where tinygp's "gamma" = 1 / (2 {\lambda_p}^2)
             gamma = 1 / (2 * jnp.square(gp_lambda_p))
-            exp_sine_squared = kernels.ExpSineSquared(scale=gp_period, gamma=gamma)
+            exp_sine_squared = kernels.ExpSineSquared(scale=gp_P, gamma=gamma)
 
             # LaTeX A^2 * \exp{ - \frac{(x_i - x_j)^2}{2 {\lambda_e}^2}} * exp{ - \frac{\sin^2{\pi \frac{x_i-x_j}{P}}} {2 {\lambda_p}^2}}
-            return jnp.square(gp_amp) * exp_sine_squared * exp_squared
+            return jnp.square(gp_A) * exp_sine_squared * exp_squared

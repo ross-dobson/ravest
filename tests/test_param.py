@@ -450,8 +450,8 @@ class TestParamKeyToLatex:
         assert param_key_to_latex("gdd") == r"$\ddot{\gamma}$"
 
     @pytest.mark.parametrize("key, expected", [
-        ("gp_amp", r"$A_{\mathrm{GP}}$"),
-        ("gp_period", r"$P_{\mathrm{GP}}$"),
+        ("gp_A", r"$A_{\mathrm{GP}}$"),
+        ("gp_P", r"$P_{\mathrm{GP}}$"),
         ("gp_lambda_e", r"$\lambda_{\mathrm{e}}$"),
         ("gp_lambda_p", r"$\lambda_{\mathrm{p}}$"),
     ])
@@ -540,7 +540,7 @@ class TestParamKeyToUnit:
         ("g_HARPS", "m/s"),
         ("gd", "m/s/d"),
         ("gdd", "m/s/d^2"),
-        ("gp_amp", "m/s"),
+        ("gp_A", "m/s"),
         ("gp_lambda_p", ""),
     ])
     def test_plain(self, key, expected) -> None:

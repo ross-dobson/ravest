@@ -481,7 +481,7 @@ def param_key_to_latex(param_key: str) -> str:
     - ``<base>_<planet letter>``, e.g. ``P_b``, ``secosw_c``.
     - ``<prefix>_<instrument>``, e.g. ``g_HARPS``, ``jit_HARPS_15``. Unlike a
       planet letter, an instrument name may contain a further underscore.
-    - a fixed whole-key name, not decomposed at all, e.g. ``gd``, ``gp_amp``.
+    - a fixed whole-key name, not decomposed at all, e.g. ``gd``, ``gp_A``.
 
     Subscripts follow MNRAS style: a subscript that is a physical variable is
     italic, one that is merely a label is roman. Planet letters, instrument
@@ -491,7 +491,7 @@ def param_key_to_latex(param_key: str) -> str:
     Parameters
     ----------
     param_key : str
-        Parameter key, e.g. 'P_b', 'w_c', 'jit_HARPS', 'gp_amp'.
+        Parameter key, e.g. 'P_b', 'w_c', 'jit_HARPS', 'gp_A'.
 
     Returns
     -------
@@ -541,8 +541,8 @@ def param_key_to_latex(param_key: str) -> str:
     # unlike _BASE_TO_LATEX the values are finished labels, $...$ delimiters and
     # all. 'GP', 'e' and 'p' are labels, not variables, so they are set roman.
     _GP_TO_LATEX = {
-        "gp_amp": r"$A_{\mathrm{GP}}$",
-        "gp_period": r"$P_{\mathrm{GP}}$",
+        "gp_A": r"$A_{\mathrm{GP}}$",
+        "gp_P": r"$P_{\mathrm{GP}}$",
         "gp_lambda_e": r"$\lambda_{\mathrm{e}}$",
         "gp_lambda_p": r"$\lambda_{\mathrm{p}}$",
     }
@@ -645,8 +645,8 @@ def _param_key_to_plain_unit(key: str) -> str | None:
 
     # GP hyperparameters
     _GP_UNITS = {
-        "gp_amp": "m/s",
-        "gp_period": "d",
+        "gp_A": "m/s",
+        "gp_P": "d",
         "gp_lambda_e": "d",
         "gp_lambda_p": "",
     }
@@ -688,7 +688,7 @@ def param_key_to_unit(key: str, *, latex: bool = False) -> str | None:
     Parameters
     ----------
     key : str
-        Parameter key, e.g. 'P_b', 'K_c', 'jit_HARPS', 'gp_amp'.
+        Parameter key, e.g. 'P_b', 'K_c', 'jit_HARPS', 'gp_A'.
     latex : bool, optional
         If False (default), return plain text, e.g. 'm/s'. If True, return
         the LaTeX form for matplotlib labels, e.g.
