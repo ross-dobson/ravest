@@ -12,8 +12,18 @@ from ravest.gp import SUPPORTED_KERNELS, GPKernel
 from ravest.param import Parameter, Parameterisation
 from ravest.prior import Uniform
 
-# Kernels expected in the table, in table order
-EXPECTED_KERNELS = ["Quasiperiodic", "QPCosine", "SquaredExponential", "Exponential", "Matern32", "Matern52", "Periodic"]
+# Kernels expected in the table, in table order, with their hyperparameter names in order:
+# amplitude, period or timescale, decay or coherence, shape
+EXPECTED_PARAM_NAMES = {
+    "Quasiperiodic": ["gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"],
+    "QPCosine": ["gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p", "gp_f"],
+    "SquaredExponential": ["gp_A", "gp_lambda_e"],
+    "Exponential": ["gp_A", "gp_lambda"],
+    "Matern32": ["gp_A", "gp_lambda"],
+    "Matern52": ["gp_A", "gp_lambda"],
+    "Periodic": ["gp_A", "gp_P", "gp_lambda_p"],
+}
+EXPECTED_KERNELS = list(EXPECTED_PARAM_NAMES)
 
 # Evaluation grid: tau from T[0] covers 0, P/2 (6.25) and P (12.5)
 T = np.array([0.0, 0.4, 3.5, 6.25, 7.0, 12.5, 25.0, 31.3])
@@ -292,6 +302,11 @@ class TestKernelTable:
     def test_supported_kernels(self) -> None:
         """SUPPORTED_KERNELS lists every kernel, in table order."""
         assert SUPPORTED_KERNELS == EXPECTED_KERNELS
+
+    @pytest.mark.parametrize("kernel_type", EXPECTED_KERNELS)
+    def test_param_names(self, kernel_type) -> None:
+        """Each kernel's hyperparameter names, in order."""
+        assert GPKernel(kernel_type).param_names == EXPECTED_PARAM_NAMES[kernel_type]
 
     @pytest.mark.parametrize("kernel_type", SUPPORTED_KERNELS)
     def test_param_names_invariants(self, kernel_type) -> None:

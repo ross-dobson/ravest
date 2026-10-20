@@ -2540,7 +2540,7 @@ class TestGPFitter:
         fitter.params = test_gp_all_params
 
         assert len(fitter.params) == 13  # 5 planetary + g_HARPS + jit_HARPS + 2 trend + 4 GP
-        assert list(fitter.params)[-4:] == ["gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"]
+        assert list(fitter.params)[-4:] == ["gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"]
 
     def test_params_missing_gp_names(self, test_gp_data, test_gp_circular_params) -> None:
         """The first params assignment must include the GP hyperparameters too."""
@@ -2585,7 +2585,7 @@ class TestGPFitter:
         fitter.params = test_gp_all_params
         fitter.priors = test_gp_all_priors
 
-        assert list(fitter.priors) == ["K_b", "jit_HARPS", "gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"]
+        assert list(fitter.priors) == ["K_b", "jit_HARPS", "gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"]
 
     def test_add_priors_missing_gp_prior(self, test_gp_data, test_gp_all_params, test_gp_all_priors) -> None:
         """A free GP hyperparameter without a prior is reported like any other."""
@@ -2620,8 +2620,8 @@ class TestGPFitter:
         fitter = self._fitter(test_gp_data)
         fitter.params = test_gp_all_params
 
-        assert fitter.free_params_names == ["K_b", "jit_HARPS", "gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"]
-        assert fitter.free_params_values == [5.0, 1.0, 1.0, 50.0, 0.5, 10.0]
+        assert fitter.free_params_names == ["K_b", "jit_HARPS", "gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"]
+        assert fitter.free_params_values == [5.0, 1.0, 1.0, 10.0, 50.0, 0.5]
         assert list(fitter.free_params_dict) == fitter.free_params_names
         assert fitter.ndim == 6
 
@@ -2873,7 +2873,7 @@ class TestGPFitterMCMC:
 
         df = fitter.get_samples_df()
         assert list(df.columns) == fitter.free_params_names
-        assert fitter.free_params_names == ["K_b", "jit_HARPS", "gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"]
+        assert fitter.free_params_names == ["K_b", "jit_HARPS", "gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"]
         assert len(df) == 50 * nwalkers
 
     def test_sample_retrieval_dict(self, setup_gpfitter):
@@ -3287,7 +3287,7 @@ class TestGPFitterIntegration:
 
         assert len(fitter.params) == 18  # 5*2 planets + 4 system + 4 GP
         assert fitter.free_params_names == ["K_b", "K_c", "jit_HARPS",
-                                            "gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"]
+                                            "gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"]
         assert fitter.ndim == 7
 
 
@@ -3817,7 +3817,7 @@ class TestMinimumWalkers:
             fitter.add_data(*test_gp_data, t0=2.0)
             fitter.params = test_circular_params | test_gp_hyperparams
             fitter.priors = test_simple_priors | test_gp_hyperpriors
-            centre = np.array([5.0, 1.0, 1.0, 50.0, 0.5, 10.0])
+            centre = np.array([5.0, 1.0, 1.0, 10.0, 50.0, 0.5])
         assert fitter.ndim == len(centre)
         return fitter, centre
 
@@ -3900,7 +3900,7 @@ class TestParamOrder:
         "gd", "gdd",
     ]
 
-    QP_ORDER = ["gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"]
+    QP_ORDER = ["gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"]
 
     FIXED = {"Tc_c", "jit_harps", "gd", "gdd", "gp_lambda_p"}
 
@@ -4039,7 +4039,7 @@ class TestParamOrder:
         fitter = getattr(self, make)()
         fitter.priors = self._priors(make)
 
-        gp = ["gp_A", "gp_lambda_e", "gp_P"] if make == "_gpfitter" else []
+        gp = ["gp_A", "gp_P", "gp_lambda_e"] if make == "_gpfitter" else []
         assert list(fitter.priors) == self.EXPECTED_PRIORS + gp
 
     @pytest.mark.parametrize("make", ["_fitter", "_gpfitter"])

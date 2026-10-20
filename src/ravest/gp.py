@@ -85,13 +85,13 @@ def _build_periodic(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
 
 
 _KERNELS: Dict[str, _KernelEntry] = {
-    "Quasiperiodic": _KernelEntry(("gp_A", "gp_lambda_e", "gp_lambda_p", "gp_P"), _build_quasiperiodic),
-    "QPCosine": _KernelEntry(("gp_A", "gp_f", "gp_lambda_e", "gp_lambda_p", "gp_P"), _build_qpcosine),
+    "Quasiperiodic": _KernelEntry(("gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"), _build_quasiperiodic),
+    "QPCosine": _KernelEntry(("gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p", "gp_f"), _build_qpcosine),
     "SquaredExponential": _KernelEntry(("gp_A", "gp_lambda_e"), _build_squared_exponential),
     "Exponential": _KernelEntry(("gp_A", "gp_lambda"), _build_exponential),
     "Matern32": _KernelEntry(("gp_A", "gp_lambda"), _build_matern32),
     "Matern52": _KernelEntry(("gp_A", "gp_lambda"), _build_matern52),
-    "Periodic": _KernelEntry(("gp_A", "gp_lambda_p", "gp_P"), _build_periodic),
+    "Periodic": _KernelEntry(("gp_A", "gp_P", "gp_lambda_p"), _build_periodic),
 }
 SUPPORTED_KERNELS = list(_KERNELS)
 
@@ -119,10 +119,10 @@ class GPKernel:
     ``param_names``, in order:
 
     - ``gp_A`` (:math:`A`, m/s): amplitude
+    - ``gp_P`` (:math:`P`, d): period
     - ``gp_lambda_e`` (:math:`\lambda_\mathrm{e}`, d): evolutionary (exponential) length scale
     - ``gp_lambda_p`` (:math:`\lambda_\mathrm{p}`, dimensionless): periodic length scale
       (harmonic complexity)
-    - ``gp_P`` (:math:`P`, d): period
 
     tinygp: ``ExpSquared(scale=gp_lambda_e) * ExpSineSquared(scale=gp_P,
     gamma=1 / (2 gp_lambda_p^2))``, times ``gp_A^2``. RadVel's ``QuasiPerKernel`` has no factor 2
@@ -140,9 +140,9 @@ class GPKernel:
     ``param_names``, in order:
 
     - ``gp_A`` (:math:`A`, m/s): amplitude
+    - ``gp_P``, ``gp_lambda_e``, ``gp_lambda_p``: as in the Quasiperiodic kernel
     - ``gp_f`` (:math:`f`, dimensionless): weight of the cosine term, at half the period; must
       be > 0. :math:`f \to 0` gives the Quasiperiodic kernel
-    - ``gp_lambda_e``, ``gp_lambda_p``, ``gp_P``: as in the Quasiperiodic kernel
 
     tinygp: ``ExpSquared(scale=gp_lambda_e) * (ExpSineSquared(scale=gp_P,
     gamma=1 / (2 gp_lambda_p^2)) + gp_f * Cosine(scale=gp_P / 2))``, times ``gp_A^2``.
@@ -223,9 +223,9 @@ class GPKernel:
     ``param_names``, in order:
 
     - ``gp_A`` (:math:`A`, m/s): amplitude
+    - ``gp_P`` (:math:`P`, d): period
     - ``gp_lambda_p`` (:math:`\lambda_\mathrm{p}`, dimensionless): periodic length scale
       (harmonic complexity)
-    - ``gp_P`` (:math:`P`, d): period
 
     tinygp: ``ExpSineSquared(scale=gp_P, gamma=1 / (2 gp_lambda_p^2))``, times ``gp_A^2``.
     RadVel's ``PerKernel`` is the same kernel; its ``gp_length`` is ``gp_lambda_p``.
