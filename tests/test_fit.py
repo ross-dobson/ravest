@@ -363,6 +363,83 @@ class TestFitter:
         assert len(fixed_vals) == 7
 
 
+class TestAddDataSortsByTime:
+    """add_data stores the data sorted by time, on both fitter classes."""
+
+    # Two instruments given one after the other, so the times are out of order; HARPS and HIRES
+    # both observe at t = 3.0
+    TIME = np.array([0.0, 3.0, 6.0, 9.0, 1.5, 3.0, 4.5])
+    VEL = np.array([5.0, -2.0, -5.0, 2.0, 103.0, 98.0, 101.0])
+    VELERR = np.array([1.0, 1.1, 0.9, 0.85, 1.5, 1.2, 1.3])
+    INSTRUMENT = np.array(["HARPS"] * 4 + ["HIRES"] * 3)
+    SORTED = [0, 4, 1, 5, 6, 2, 3]  # the rows in time order; at t = 3.0, HARPS before HIRES
+
+    @staticmethod
+    def _fitter(kind):
+        if kind == "Fitter":
+            return Fitter(["b"], Parameterisation("P K e w Tc"))
+        return GPFitter(["b"], Parameterisation("P K e w Tc"), GPKernel("Quasiperiodic"))
+
+    @staticmethod
+    def _values(kind):
+        """Every parameter value, with a non-zero trend so a time/velocity mismatch would show."""
+        values = {"P_b": 3.7, "K_b": 4.0, "e_b": 0.1, "w_b": 0.5, "Tc_b": 1.0,
+                  "g_HARPS": 1.0, "jit_HARPS": 0.5, "g_HIRES": 100.0, "jit_HIRES": 0.7,
+                  "gd": 0.3, "gdd": -0.02}
+        if kind == "GPFitter":
+            values |= {"gp_A": 2.0, "gp_P": 5.0, "gp_lambda_e": 20.0, "gp_lambda_p": 0.5}
+        return values
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    def test_rows_sorted_together(self, kind) -> None:
+        """Each row's time, velocity, uncertainty and instrument move together into time order."""
+        fitter = self._fitter(kind)
+        fitter.add_data(self.TIME, self.VEL, self.VELERR, self.INSTRUMENT, t0=4.0)
+
+        np.testing.assert_array_equal(fitter.time, self.TIME[self.SORTED])
+        np.testing.assert_array_equal(fitter.vel, self.VEL[self.SORTED])
+        np.testing.assert_array_equal(fitter.velerr, self.VELERR[self.SORTED])
+        np.testing.assert_array_equal(fitter.instrument, self.INSTRUMENT[self.SORTED])
+        assert fitter.t0 == 4.0
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    def test_stored_order_independent_of_input_order(self, kind) -> None:
+        """Any order of the same rows, the tied ones swapped included, is stored identically."""
+        rng = np.random.default_rng(4)
+        orders = [[4, 5, 6, 0, 1, 2, 3]] + [rng.permutation(len(self.TIME)) for _ in range(5)]
+        for order in orders:
+            fitter = self._fitter(kind)
+            fitter.add_data(self.TIME[order], self.VEL[order], self.VELERR[order],
+                            self.INSTRUMENT[order], t0=4.0)
+            np.testing.assert_array_equal(fitter.time, self.TIME[self.SORTED])
+            np.testing.assert_array_equal(fitter.vel, self.VEL[self.SORTED])
+            np.testing.assert_array_equal(fitter.velerr, self.VELERR[self.SORTED])
+            np.testing.assert_array_equal(fitter.instrument, self.INSTRUMENT[self.SORTED])
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    def test_inputs_and_instruments_unchanged(self, kind) -> None:
+        """The caller's arrays are not reordered, and unique_instruments is as before."""
+        time, vel = self.TIME.copy(), self.VEL.copy()
+        fitter = self._fitter(kind)
+        fitter.add_data(time, vel, self.VELERR, self.INSTRUMENT, t0=4.0)
+
+        np.testing.assert_array_equal(time, self.TIME)
+        np.testing.assert_array_equal(vel, self.VEL)
+        np.testing.assert_array_equal(fitter.unique_instruments, ["HARPS", "HIRES"])
+
+    @pytest.mark.parametrize("kind", ["Fitter", "GPFitter"])
+    def test_log_likelihood_independent_of_input_order(self, kind) -> None:
+        """Shuffled, instrument-by-instrument and time-ordered input give the same log-likelihood."""
+        shuffled = np.random.default_rng(3).permutation(len(self.TIME))
+        log_likelihoods = []
+        for order in (self.SORTED, shuffled, np.arange(len(self.TIME))):
+            fitter = self._fitter(kind)
+            fitter.add_data(self.TIME[order], self.VEL[order], self.VELERR[order],
+                            self.INSTRUMENT[order], t0=4.0)
+            log_likelihoods.append(fitter.calculate_log_likelihood(self._values(kind)))
+        np.testing.assert_allclose(log_likelihoods[1:], log_likelihoods[0], rtol=1e-12)
+
+
 class TestLogLikelihood:
     """Tests for the LogLikelihood class."""
 
