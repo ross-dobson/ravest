@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax.typing import ArrayLike
 from tinygp import kernels
+from tinygp.kernels import quasisep
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,12 @@ def _build_exponential(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
     """Build the Exponential kernel."""
     # LaTeX: A^2 \exp{ - \frac{|x_i - x_j|}{\lambda}}
     return jnp.square(params["gp_A"]) * kernels.Exp(scale=params["gp_lambda"])
+
+
+def _build_exponential_quasiseparable(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
+    """Build the Exponential_QuasiSeparable kernel."""
+    # LaTeX: A^2 \exp{ - \frac{|x_i - x_j|}{\lambda}}, as the Exponential kernel
+    return jnp.square(params["gp_A"]) * quasisep.Exp(scale=params["gp_lambda"])
 
 
 def _build_matern32(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
@@ -86,6 +93,7 @@ def _build_qpcosine(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
 
 _KERNELS: Dict[str, _KernelEntry] = {
     "Exponential": _KernelEntry(("gp_A", "gp_lambda"), _build_exponential),
+    "Exponential_QuasiSeparable": _KernelEntry(("gp_A", "gp_lambda"), _build_exponential_quasiseparable),
     "Matern32": _KernelEntry(("gp_A", "gp_lambda"), _build_matern32),
     "Matern52": _KernelEntry(("gp_A", "gp_lambda"), _build_matern52),
     "SquaredExponential": _KernelEntry(("gp_A", "gp_lambda_e"), _build_squared_exponential),
@@ -109,6 +117,11 @@ class GPKernel:
     of the time lag :math:`\tau = t_i - t_j` between two observations, and is built from tinygp's
     kernels.
 
+    **Quasiseparable kernels.** Kernels whose name ends in ``_QuasiSeparable`` use tinygp's
+    quasiseparable solver, whose cost grows linearly with the number of observations rather than
+    with its cube. The solver needs the data in time order, which ``add_data`` ensures.
+    ``Exponential_QuasiSeparable`` is the same kernel as ``Exponential``, and gives the same results.
+
     **Exponential**
 
     .. math::
@@ -123,6 +136,13 @@ class GPKernel:
 
     tinygp: ``Exp(scale=gp_lambda)``, times ``gp_A^2``. celerite2's ``RealTerm`` is the same
     kernel, with ``a = gp_A^2`` and ``c = 1 / gp_lambda``.
+
+    **Exponential_QuasiSeparable**
+
+    The Exponential kernel, with the quasiseparable solver. ``param_names`` as Exponential:
+    ``gp_A``, ``gp_lambda``.
+
+    tinygp: ``quasisep.Exp(scale=gp_lambda)``, times ``gp_A^2``.
 
     **Matern32**
 

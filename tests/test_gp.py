@@ -2,9 +2,12 @@
 import re
 
 import jax
+import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 from tinygp import GaussianProcess
+from tinygp.kernels import quasisep
 
 # ravest.fit switches JAX to 64-bit floats; the number checks below need it
 from ravest.fit import GPFitter
@@ -16,6 +19,7 @@ from ravest.prior import Uniform
 # amplitude, period or timescale, decay or coherence, shape
 EXPECTED_PARAM_NAMES = {
     "Exponential": ["gp_A", "gp_lambda"],
+    "Exponential_QuasiSeparable": ["gp_A", "gp_lambda"],
     "Matern32": ["gp_A", "gp_lambda"],
     "Matern52": ["gp_A", "gp_lambda"],
     "SquaredExponential": ["gp_A", "gp_lambda_e"],
@@ -24,6 +28,9 @@ EXPECTED_PARAM_NAMES = {
     "QPCosine": ["gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p", "gp_f"],
 }
 EXPECTED_KERNELS = list(EXPECTED_PARAM_NAMES)
+# Each quasiseparable kernel with a dense twin, and that twin
+QUASISEPARABLE_TWINS = {"Exponential_QuasiSeparable": "Exponential"}
+QUASISEPARABLE_KERNELS = [k for k in SUPPORTED_KERNELS if k.endswith("_QuasiSeparable")]
 
 # Evaluation grid: tau from T[0] covers 0, P/2 (6.25) and P (12.5)
 T = np.array([0.0, 0.4, 3.5, 6.25, 7.0, 12.5, 25.0, 31.3])
@@ -33,6 +40,11 @@ VALUES = {"gp_A": 3.0, "gp_lambda_e": 30.0, "gp_lambda_p": 0.5, "gp_P": 12.5, "g
 A, LAMBDA_E, LAMBDA_P, P = VALUES["gp_A"], VALUES["gp_lambda_e"], VALUES["gp_lambda_p"], VALUES["gp_P"]
 LAMBDA = VALUES["gp_lambda"]
 F = VALUES["gp_f"]
+
+# External reference rows k(T[0], T), shared by a dense kernel and its quasiseparable twin
+# celerite2 0.3.3, RealTerm(a=gp_A^2, c=1/gp_lambda)
+EXPONENTIAL_CELERITE2 = [9.0, 8.500132232953828, 5.458775937413701, 3.6853571263712785, 3.310914970542981,
+                         1.5090952387661742, 0.25304093774074843, 0.10287876795769818]
 
 
 def kernel_matrix(kernel_type: str, values: dict = VALUES) -> np.ndarray:
@@ -143,13 +155,8 @@ class TestExponential:
         assert K[0, 4] == pytest.approx(A**2 * np.exp(-1), rel=1e-12)
 
     def test_celerite2(self) -> None:
-        """Matches celerite2's RealTerm.
-
-        celerite2 0.3.3, RealTerm(a=gp_A^2, c=1/gp_lambda); row k(T[0], T).
-        """
-        celerite2 = [9.0, 8.500132232953828, 5.458775937413701, 3.6853571263712785, 3.310914970542981,
-                     1.5090952387661742, 0.25304093774074843, 0.10287876795769818]
-        np.testing.assert_allclose(kernel_matrix("Exponential")[0], celerite2, rtol=1e-12)
+        """Matches celerite2's RealTerm (EXPONENTIAL_CELERITE2)."""
+        np.testing.assert_allclose(kernel_matrix("Exponential")[0], EXPONENTIAL_CELERITE2, rtol=1e-12)
 
 
 class TestMatern32:
@@ -296,6 +303,20 @@ class TestQPCosine:
         np.testing.assert_allclose(kernel_matrix("QPCosine")[0], george, rtol=1e-12)
 
 
+class TestExponentialQuasiSeparable:
+    """The Exponential_QuasiSeparable kernel's numbers (it also equals Exponential: TestQuasiseparableTwins)."""
+
+    def test_closed_form(self) -> None:
+        """Matches A^2 exp(-tau/lambda)."""
+        expected = A**2 * np.exp(-TAU / LAMBDA)
+        np.testing.assert_allclose(kernel_matrix("Exponential_QuasiSeparable"), expected, rtol=1e-12)
+
+    def test_celerite2(self) -> None:
+        """Matches celerite2's RealTerm (EXPONENTIAL_CELERITE2)."""
+        np.testing.assert_allclose(kernel_matrix("Exponential_QuasiSeparable")[0], EXPONENTIAL_CELERITE2,
+                                   rtol=1e-12)
+
+
 class TestKernelTable:
     """The kernel table and GPKernel's public surface, for every kernel."""
 
@@ -307,6 +328,12 @@ class TestKernelTable:
     def test_param_names(self, kernel_type) -> None:
         """Each kernel's hyperparameter names, in order."""
         assert GPKernel(kernel_type).param_names == EXPECTED_PARAM_NAMES[kernel_type]
+
+    @pytest.mark.parametrize("kernel_type", SUPPORTED_KERNELS)
+    def test_quasiseparable_suffix(self, kernel_type) -> None:
+        """A name ends in _QuasiSeparable exactly when the kernel uses tinygp's quasiseparable solver."""
+        kernel = GPKernel(kernel_type).build_kernel(kernel_values(kernel_type))
+        assert kernel_type.endswith("_QuasiSeparable") == isinstance(kernel, quasisep.Quasisep)
 
     @pytest.mark.parametrize("kernel_type", SUPPORTED_KERNELS)
     def test_param_names_invariants(self, kernel_type) -> None:
@@ -396,24 +423,35 @@ class TestKernelTable:
         np.testing.assert_allclose(np.asarray(matrix(values)), kernel_matrix(kernel_type, values), rtol=1e-12)
 
 
-def make_gp_fitter(kernel_type: str, gp_values: dict | None = None) -> GPFitter:
-    """A no-planet GPFitter on two instruments, with its GP hyperparameters free.
+def make_gp_fitter(kernel_type: str, gp_values: dict | None = None, planet: bool = False,
+                   by_instrument: bool = False) -> GPFitter:
+    """A GPFitter on two instruments, with its GP hyperparameters free.
 
     gp_values are the GP hyperparameters for the first params assignment (default: the
-    kernel's own names, from VALUES).
+    kernel's own names, from VALUES). planet adds a planet b with only K_b free. by_instrument
+    passes the data instrument by instrument, so out of time order.
     """
     rng = np.random.default_rng(2)
     time = np.sort(rng.uniform(0, 60, 24))
     instrument = np.array(["HARPS", "HIRES"] * 12)
     velerr = rng.uniform(0.8, 1.6, 24)
     vel = 3.0 * np.sin(2 * np.pi * time / 12.5) + rng.normal(0, 1, 24) + np.where(instrument == "HARPS", 5.0, -2.0)
-    fitter = GPFitter([], Parameterisation("P K e w Tp"), GPKernel(kernel_type))
+    if planet:
+        vel += 4.0 * np.sin(2 * np.pi * time / 7.3)
+    if by_instrument:
+        order = np.argsort(instrument, kind="stable")
+        time, vel, velerr, instrument = time[order], vel[order], velerr[order], instrument[order]
+    fitter = GPFitter(["b"] if planet else [], Parameterisation("P K e w Tp"), GPKernel(kernel_type))
     fitter.add_data(time, vel, velerr, instrument, t0=30.0)
     params = {
         "g_HARPS": Parameter(5.0, fixed=False), "jit_HARPS": Parameter(0.5, fixed=False),
         "g_HIRES": Parameter(-2.0, fixed=False), "jit_HIRES": Parameter(0.7, fixed=False),
         "gd": Parameter(0.0, fixed=True), "gdd": Parameter(0.0, fixed=True),
     }
+    if planet:
+        params |= {"P_b": Parameter(7.3, fixed=True), "K_b": Parameter(4.0, fixed=False),
+                   "e_b": Parameter(0.0, fixed=True), "w_b": Parameter(np.pi / 2, fixed=True),
+                   "Tp_b": Parameter(0.0, fixed=True)}
     gp_values = kernel_values(kernel_type) if gp_values is None else gp_values
     params |= {name: Parameter(value, fixed=False) for name, value in gp_values.items()}
     fitter.params = params
@@ -466,3 +504,65 @@ class TestGPFitterWithEachKernel:
         assert np.isfinite(log_posterior.log_probability(free))
         for name in GPKernel(kernel_type).param_names:
             assert log_posterior.log_probability(free | {name: -1.0}) == -np.inf
+
+
+def all_values(fitter: GPFitter) -> dict:
+    """Every parameter's value, by name."""
+    return {name: param.value for name, param in fitter.params.items()}
+
+
+class TestQuasiseparableTwins:
+    """Each quasiseparable twin gives its dense kernel's numbers, on data in any order."""
+
+    @pytest.mark.parametrize("twin, dense", QUASISEPARABLE_TWINS.items())
+    def test_matrix_equals_dense(self, twin, dense) -> None:
+        """Same covariance as the dense kernel, on the grid and on unsorted times."""
+        np.testing.assert_allclose(kernel_matrix(twin), kernel_matrix(dense), rtol=1e-12)
+        times = np.random.default_rng(1).uniform(0, 100, 50)
+        values = kernel_values(dense)
+        np.testing.assert_allclose(np.asarray(GPKernel(twin).build_kernel(values)(times, times)),
+                                   np.asarray(GPKernel(dense).build_kernel(values)(times, times)), rtol=1e-12)
+
+    @pytest.mark.parametrize("twin, dense", QUASISEPARABLE_TWINS.items())
+    def test_log_likelihood_equals_dense(self, twin, dense) -> None:
+        """Data given instrument by instrument give the dense kernel's log-likelihood."""
+        fitter, dense_fitter = (make_gp_fitter(k, by_instrument=True) for k in (twin, dense))
+        values = all_values(fitter)
+        assert fitter.calculate_log_likelihood(values) == pytest.approx(
+            dense_fitter.calculate_log_likelihood(values), rel=1e-12)
+
+    @pytest.mark.parametrize("twin, dense", QUASISEPARABLE_TWINS.items())
+    def test_prediction_equals_dense(self, twin, dense) -> None:
+        """calculate_rv_gp_custom at unsorted times gives the dense kernel's prediction."""
+        fitter, dense_fitter = (make_gp_fitter(k, planet=True, by_instrument=True) for k in (twin, dense))
+        times = np.random.default_rng(5).uniform(-10, 70, 40)
+        values = all_values(fitter)
+        np.testing.assert_allclose(fitter.calculate_rv_gp_custom(times, values),
+                                   dense_fitter.calculate_rv_gp_custom(times, values), rtol=1e-10, atol=1e-10)
+
+
+class TestQuasiseparablePredictions:
+    """GPFitter's predictions and plots work with every quasiseparable kernel."""
+
+    @pytest.mark.parametrize("kernel_type", QUASISEPARABLE_KERNELS)
+    def test_prediction_at_unsorted_times(self, kernel_type) -> None:
+        """calculate_rv_gp_custom at unsorted times is finite."""
+        fitter = make_gp_fitter(kernel_type, planet=True, by_instrument=True)
+        times = np.random.default_rng(5).uniform(-10, 70, 40)
+        assert np.all(np.isfinite(fitter.calculate_rv_gp_custom(times, all_values(fitter))))
+
+    @pytest.mark.parametrize("kernel_type", QUASISEPARABLE_KERNELS)
+    def test_map_mcmc_and_plots_run(self, kernel_type) -> None:
+        """MAP, a short MCMC, and the MAP, posterior and best-sample plots all run."""
+        matplotlib.use("Agg")
+        fitter = make_gp_fitter(kernel_type, planet=True, by_instrument=True)
+        map_result = fitter.find_map_estimate()
+        fitter.plot_MAP_rv(map_result, n_smooth=50)
+        fitter.plot_MAP_phase("b", map_result, n_smooth=50)
+        nwalkers = 2 * fitter.ndim + 2
+        initial_positions = fitter.generate_initial_walker_positions_from_map(map_result, nwalkers=nwalkers)
+        fitter.run_mcmc(initial_positions, nwalkers=nwalkers, max_steps=30, progress=False)
+        fitter.plot_posterior_rv(discard_start=10, thin=5, n_smooth=50)
+        fitter.plot_posterior_phase("b", discard_start=10, thin=5, n_smooth=50)
+        fitter.plot_best_sample_rv(discard_start=10, n_smooth=50)
+        plt.close("all")
