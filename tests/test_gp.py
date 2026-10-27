@@ -15,13 +15,13 @@ from ravest.prior import Uniform
 # Kernels expected in the table, in table order, with their hyperparameter names in order:
 # amplitude, period or timescale, decay or coherence, shape
 EXPECTED_PARAM_NAMES = {
-    "Quasiperiodic": ["gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"],
-    "QPCosine": ["gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p", "gp_f"],
-    "SquaredExponential": ["gp_A", "gp_lambda_e"],
     "Exponential": ["gp_A", "gp_lambda"],
     "Matern32": ["gp_A", "gp_lambda"],
     "Matern52": ["gp_A", "gp_lambda"],
+    "SquaredExponential": ["gp_A", "gp_lambda_e"],
     "Periodic": ["gp_A", "gp_P", "gp_lambda_p"],
+    "Quasiperiodic": ["gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"],
+    "QPCosine": ["gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p", "gp_f"],
 }
 EXPECTED_KERNELS = list(EXPECTED_PARAM_NAMES)
 
