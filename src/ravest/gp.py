@@ -48,6 +48,12 @@ def _build_matern52(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
     return jnp.square(params["gp_A"]) * kernels.Matern52(scale=params["gp_lambda"])
 
 
+def _build_matern52_quasiseparable(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
+    """Build the Matern52_QuasiSeparable kernel."""
+    # LaTeX: A^2 (1 + \frac{\sqrt{5} |x_i - x_j|}{\lambda} + \frac{5 (x_i - x_j)^2}{3 \lambda^2}) \exp{ - \frac{\sqrt{5} |x_i - x_j|}{\lambda}}, as the Matern52 kernel
+    return jnp.square(params["gp_A"]) * quasisep.Matern52(scale=params["gp_lambda"])
+
+
 def _build_squared_exponential(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
     """Build the SquaredExponential kernel."""
     # LaTeX: A^2 \exp{ - \frac{(x_i - x_j)^2}{2 {\lambda_e}^2}}
@@ -103,6 +109,7 @@ _KERNELS: Dict[str, _KernelEntry] = {
     "Matern32": _KernelEntry(("gp_A", "gp_lambda"), _build_matern32),
     "Matern32_QuasiSeparable": _KernelEntry(("gp_A", "gp_lambda"), _build_matern32_quasiseparable),
     "Matern52": _KernelEntry(("gp_A", "gp_lambda"), _build_matern52),
+    "Matern52_QuasiSeparable": _KernelEntry(("gp_A", "gp_lambda"), _build_matern52_quasiseparable),
     "SquaredExponential": _KernelEntry(("gp_A", "gp_lambda_e"), _build_squared_exponential),
     "Periodic": _KernelEntry(("gp_A", "gp_P", "gp_lambda_p"), _build_periodic),
     "Quasiperiodic": _KernelEntry(("gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"), _build_quasiperiodic),
@@ -127,8 +134,8 @@ class GPKernel:
     **Quasiseparable kernels.** Kernels whose name ends in ``_QuasiSeparable`` use tinygp's
     quasiseparable solver, whose cost grows linearly with the number of observations rather than
     with its cube. The solver needs the data in time order, which ``add_data`` ensures.
-    ``Exponential_QuasiSeparable`` and ``Matern32_QuasiSeparable`` are the same kernels as
-    ``Exponential`` and ``Matern32``, and give the same results.
+    ``Exponential_QuasiSeparable``, ``Matern32_QuasiSeparable`` and ``Matern52_QuasiSeparable`` are
+    the same kernels as ``Exponential``, ``Matern32`` and ``Matern52``, and give the same results.
 
     **Exponential**
 
@@ -189,6 +196,13 @@ class GPKernel:
       Exponential, Matern32 and Matern52)
 
     tinygp: ``Matern52(scale=gp_lambda)``, times ``gp_A^2``.
+
+    **Matern52_QuasiSeparable**
+
+    The Matern52 kernel, with the quasiseparable solver. ``param_names`` as Matern52:
+    ``gp_A``, ``gp_lambda``.
+
+    tinygp: ``quasisep.Matern52(scale=gp_lambda)``, times ``gp_A^2``.
 
     **SquaredExponential**
 

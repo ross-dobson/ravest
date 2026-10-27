@@ -23,6 +23,7 @@ EXPECTED_PARAM_NAMES = {
     "Matern32": ["gp_A", "gp_lambda"],
     "Matern32_QuasiSeparable": ["gp_A", "gp_lambda"],
     "Matern52": ["gp_A", "gp_lambda"],
+    "Matern52_QuasiSeparable": ["gp_A", "gp_lambda"],
     "SquaredExponential": ["gp_A", "gp_lambda_e"],
     "Periodic": ["gp_A", "gp_P", "gp_lambda_p"],
     "Quasiperiodic": ["gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"],
@@ -30,7 +31,11 @@ EXPECTED_PARAM_NAMES = {
 }
 EXPECTED_KERNELS = list(EXPECTED_PARAM_NAMES)
 # Each quasiseparable kernel with a dense twin, and that twin
-QUASISEPARABLE_TWINS = {"Exponential_QuasiSeparable": "Exponential", "Matern32_QuasiSeparable": "Matern32"}
+QUASISEPARABLE_TWINS = {
+    "Exponential_QuasiSeparable": "Exponential",
+    "Matern32_QuasiSeparable": "Matern32",
+    "Matern52_QuasiSeparable": "Matern52",
+}
 QUASISEPARABLE_KERNELS = [k for k in SUPPORTED_KERNELS if k.endswith("_QuasiSeparable")]
 
 # Evaluation grid: tau from T[0] covers 0, P/2 (6.25) and P (12.5)
@@ -52,6 +57,9 @@ MATERN32_GEORGE = [9.0, 8.95872183725947, 7.063988885617055, 4.881537705462964, 
 # celerite2 0.3.3, Matern32Term(sigma=gp_A, rho=gp_lambda, eps=1e-8) (its approximation, exact here to rounding)
 MATERN32_CELERITE2 = [9.0, 8.95872183725947, 7.063988885617054, 4.881537705462959, 4.3502195213685635,
                       1.671200395453092, 0.13311378582793945, 0.034079326274658296]
+# george 0.4.4, gp_A^2 * Matern52Kernel(metric=gp_lambda^2)
+MATERN52_GEORGE = [9.0, 8.975603614820384, 7.457842281763128, 5.286630814585738, 4.715946979486382,
+                   1.7110854896589327, 0.09260432403135035, 0.018138285003575023]
 
 
 def kernel_matrix(kernel_type: str, values: dict = VALUES) -> np.ndarray:
@@ -205,13 +213,8 @@ class TestMatern52:
         assert K[0, 4] == pytest.approx(A**2 * (1 + np.sqrt(5) + 5 / 3) * np.exp(-np.sqrt(5)), rel=1e-12)
 
     def test_george(self) -> None:
-        """Matches george's Matern52Kernel.
-
-        george 0.4.4, gp_A^2 * Matern52Kernel(metric=gp_lambda^2); row k(T[0], T).
-        """
-        george = [9.0, 8.975603614820384, 7.457842281763128, 5.286630814585738, 4.715946979486382,
-                  1.7110854896589327, 0.09260432403135035, 0.018138285003575023]
-        np.testing.assert_allclose(kernel_matrix("Matern52")[0], george, rtol=1e-12)
+        """Matches george's Matern52Kernel (MATERN52_GEORGE)."""
+        np.testing.assert_allclose(kernel_matrix("Matern52")[0], MATERN52_GEORGE, rtol=1e-12)
 
 
 class TestPeriodic:
@@ -328,6 +331,20 @@ class TestMatern32QuasiSeparable:
     def test_celerite2(self) -> None:
         """Matches celerite2's Matern32Term (MATERN32_CELERITE2)."""
         np.testing.assert_allclose(kernel_matrix("Matern32_QuasiSeparable")[0], MATERN32_CELERITE2, rtol=1e-12)
+
+
+class TestMatern52QuasiSeparable:
+    """The Matern52_QuasiSeparable kernel's numbers (it also equals Matern52: TestQuasiseparableTwins)."""
+
+    def test_closed_form(self) -> None:
+        """Matches A^2 (1 + sqrt(5) tau/lambda + 5 tau^2/(3 lambda^2)) exp(-sqrt(5) tau/lambda)."""
+        r = np.sqrt(5) * TAU / LAMBDA
+        expected = A**2 * (1 + r + r**2 / 3) * np.exp(-r)
+        np.testing.assert_allclose(kernel_matrix("Matern52_QuasiSeparable"), expected, rtol=1e-12)
+
+    def test_george(self) -> None:
+        """Matches george's Matern52Kernel (MATERN52_GEORGE)."""
+        np.testing.assert_allclose(kernel_matrix("Matern52_QuasiSeparable")[0], MATERN52_GEORGE, rtol=1e-12)
 
 
 class TestKernelTable:
@@ -575,7 +592,8 @@ class TestQuasiseparablePredictions:
         nwalkers = 2 * fitter.ndim + 2
         initial_positions = fitter.generate_initial_walker_positions_from_map(map_result, nwalkers=nwalkers)
         fitter.run_mcmc(initial_positions, nwalkers=nwalkers, max_steps=30, progress=False)
-        fitter.plot_posterior_rv(discard_start=10, thin=5, n_smooth=50)
-        fitter.plot_posterior_phase("b", discard_start=10, thin=5, n_smooth=50)
-        fitter.plot_best_sample_rv(discard_start=10, n_smooth=50)
+        # One kept step (of 30) keeps the per-sample GP predictions in the posterior plots few
+        fitter.plot_posterior_rv(discard_start=25, thin=5, n_smooth=50)
+        fitter.plot_posterior_phase("b", discard_start=25, thin=5, n_smooth=50)
+        fitter.plot_best_sample_rv(discard_start=25, n_smooth=50)
         plt.close("all")
