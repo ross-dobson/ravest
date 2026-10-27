@@ -21,6 +21,7 @@ EXPECTED_PARAM_NAMES = {
     "Exponential": ["gp_A", "gp_lambda"],
     "Exponential_QuasiSeparable": ["gp_A", "gp_lambda"],
     "Matern32": ["gp_A", "gp_lambda"],
+    "Matern32_QuasiSeparable": ["gp_A", "gp_lambda"],
     "Matern52": ["gp_A", "gp_lambda"],
     "SquaredExponential": ["gp_A", "gp_lambda_e"],
     "Periodic": ["gp_A", "gp_P", "gp_lambda_p"],
@@ -29,7 +30,7 @@ EXPECTED_PARAM_NAMES = {
 }
 EXPECTED_KERNELS = list(EXPECTED_PARAM_NAMES)
 # Each quasiseparable kernel with a dense twin, and that twin
-QUASISEPARABLE_TWINS = {"Exponential_QuasiSeparable": "Exponential"}
+QUASISEPARABLE_TWINS = {"Exponential_QuasiSeparable": "Exponential", "Matern32_QuasiSeparable": "Matern32"}
 QUASISEPARABLE_KERNELS = [k for k in SUPPORTED_KERNELS if k.endswith("_QuasiSeparable")]
 
 # Evaluation grid: tau from T[0] covers 0, P/2 (6.25) and P (12.5)
@@ -45,6 +46,12 @@ F = VALUES["gp_f"]
 # celerite2 0.3.3, RealTerm(a=gp_A^2, c=1/gp_lambda)
 EXPONENTIAL_CELERITE2 = [9.0, 8.500132232953828, 5.458775937413701, 3.6853571263712785, 3.310914970542981,
                          1.5090952387661742, 0.25304093774074843, 0.10287876795769818]
+# george 0.4.4, gp_A^2 * Matern32Kernel(metric=gp_lambda^2)
+MATERN32_GEORGE = [9.0, 8.95872183725947, 7.063988885617055, 4.881537705462964, 4.35021952136857,
+                   1.6712003954530985, 0.1331137858279411, 0.03407932627465895]
+# celerite2 0.3.3, Matern32Term(sigma=gp_A, rho=gp_lambda, eps=1e-8) (its approximation, exact here to rounding)
+MATERN32_CELERITE2 = [9.0, 8.95872183725947, 7.063988885617054, 4.881537705462959, 4.3502195213685635,
+                      1.671200395453092, 0.13311378582793945, 0.034079326274658296]
 
 
 def kernel_matrix(kernel_type: str, values: dict = VALUES) -> np.ndarray:
@@ -174,23 +181,12 @@ class TestMatern32:
         assert K[0, 4] == pytest.approx(A**2 * (1 + np.sqrt(3)) * np.exp(-np.sqrt(3)), rel=1e-12)
 
     def test_george(self) -> None:
-        """Matches george's Matern32Kernel.
-
-        george 0.4.4, gp_A^2 * Matern32Kernel(metric=gp_lambda^2); row k(T[0], T).
-        """
-        george = [9.0, 8.95872183725947, 7.063988885617055, 4.881537705462964, 4.35021952136857,
-                  1.6712003954530985, 0.1331137858279411, 0.03407932627465895]
-        np.testing.assert_allclose(kernel_matrix("Matern32")[0], george, rtol=1e-12)
+        """Matches george's Matern32Kernel (MATERN32_GEORGE)."""
+        np.testing.assert_allclose(kernel_matrix("Matern32")[0], MATERN32_GEORGE, rtol=1e-12)
 
     def test_celerite2(self) -> None:
-        """Matches celerite2's Matern32Term.
-
-        celerite2 0.3.3, Matern32Term(sigma=gp_A, rho=gp_lambda, eps=1e-8) (its approximation,
-        exact here to rounding); row k(T[0], T).
-        """
-        celerite2 = [9.0, 8.95872183725947, 7.063988885617054, 4.881537705462959, 4.3502195213685635,
-                     1.671200395453092, 0.13311378582793945, 0.034079326274658296]
-        np.testing.assert_allclose(kernel_matrix("Matern32")[0], celerite2, rtol=1e-12)
+        """Matches celerite2's Matern32Term (MATERN32_CELERITE2)."""
+        np.testing.assert_allclose(kernel_matrix("Matern32")[0], MATERN32_CELERITE2, rtol=1e-12)
 
 
 class TestMatern52:
@@ -315,6 +311,23 @@ class TestExponentialQuasiSeparable:
         """Matches celerite2's RealTerm (EXPONENTIAL_CELERITE2)."""
         np.testing.assert_allclose(kernel_matrix("Exponential_QuasiSeparable")[0], EXPONENTIAL_CELERITE2,
                                    rtol=1e-12)
+
+
+class TestMatern32QuasiSeparable:
+    """The Matern32_QuasiSeparable kernel's numbers (it also equals Matern32: TestQuasiseparableTwins)."""
+
+    def test_closed_form(self) -> None:
+        """Matches A^2 (1 + sqrt(3) tau/lambda) exp(-sqrt(3) tau/lambda)."""
+        r = np.sqrt(3) * TAU / LAMBDA
+        np.testing.assert_allclose(kernel_matrix("Matern32_QuasiSeparable"), A**2 * (1 + r) * np.exp(-r), rtol=1e-12)
+
+    def test_george(self) -> None:
+        """Matches george's Matern32Kernel (MATERN32_GEORGE)."""
+        np.testing.assert_allclose(kernel_matrix("Matern32_QuasiSeparable")[0], MATERN32_GEORGE, rtol=1e-12)
+
+    def test_celerite2(self) -> None:
+        """Matches celerite2's Matern32Term (MATERN32_CELERITE2)."""
+        np.testing.assert_allclose(kernel_matrix("Matern32_QuasiSeparable")[0], MATERN32_CELERITE2, rtol=1e-12)
 
 
 class TestKernelTable:

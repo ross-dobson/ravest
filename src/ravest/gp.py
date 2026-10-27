@@ -36,6 +36,12 @@ def _build_matern32(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
     return jnp.square(params["gp_A"]) * kernels.Matern32(scale=params["gp_lambda"])
 
 
+def _build_matern32_quasiseparable(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
+    """Build the Matern32_QuasiSeparable kernel."""
+    # LaTeX: A^2 (1 + \frac{\sqrt{3} |x_i - x_j|}{\lambda}) \exp{ - \frac{\sqrt{3} |x_i - x_j|}{\lambda}}, as the Matern32 kernel
+    return jnp.square(params["gp_A"]) * quasisep.Matern32(scale=params["gp_lambda"])
+
+
 def _build_matern52(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
     """Build the Matern52 kernel."""
     # LaTeX: A^2 (1 + \frac{\sqrt{5} |x_i - x_j|}{\lambda} + \frac{5 (x_i - x_j)^2}{3 \lambda^2}) \exp{ - \frac{\sqrt{5} |x_i - x_j|}{\lambda}}
@@ -95,6 +101,7 @@ _KERNELS: Dict[str, _KernelEntry] = {
     "Exponential": _KernelEntry(("gp_A", "gp_lambda"), _build_exponential),
     "Exponential_QuasiSeparable": _KernelEntry(("gp_A", "gp_lambda"), _build_exponential_quasiseparable),
     "Matern32": _KernelEntry(("gp_A", "gp_lambda"), _build_matern32),
+    "Matern32_QuasiSeparable": _KernelEntry(("gp_A", "gp_lambda"), _build_matern32_quasiseparable),
     "Matern52": _KernelEntry(("gp_A", "gp_lambda"), _build_matern52),
     "SquaredExponential": _KernelEntry(("gp_A", "gp_lambda_e"), _build_squared_exponential),
     "Periodic": _KernelEntry(("gp_A", "gp_P", "gp_lambda_p"), _build_periodic),
@@ -120,7 +127,8 @@ class GPKernel:
     **Quasiseparable kernels.** Kernels whose name ends in ``_QuasiSeparable`` use tinygp's
     quasiseparable solver, whose cost grows linearly with the number of observations rather than
     with its cube. The solver needs the data in time order, which ``add_data`` ensures.
-    ``Exponential_QuasiSeparable`` is the same kernel as ``Exponential``, and gives the same results.
+    ``Exponential_QuasiSeparable`` and ``Matern32_QuasiSeparable`` are the same kernels as
+    ``Exponential`` and ``Matern32``, and give the same results.
 
     **Exponential**
 
@@ -159,6 +167,13 @@ class GPKernel:
 
     tinygp: ``Matern32(scale=gp_lambda)``, times ``gp_A^2``. celerite2's ``Matern32Term``
     approximates it, with ``sigma = gp_A`` and ``rho = gp_lambda``.
+
+    **Matern32_QuasiSeparable**
+
+    The Matern32 kernel, with the quasiseparable solver. ``param_names`` as Matern32:
+    ``gp_A``, ``gp_lambda``.
+
+    tinygp: ``quasisep.Matern32(scale=gp_lambda)``, times ``gp_A^2``.
 
     **Matern52**
 
