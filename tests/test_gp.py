@@ -28,6 +28,7 @@ EXPECTED_PARAM_NAMES = {
     "Periodic": ["gp_A", "gp_P", "gp_lambda_p"],
     "Quasiperiodic": ["gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"],
     "QPCosine": ["gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p", "gp_f"],
+    "SHO_QuasiSeparable": ["gp_A", "gp_rho", "gp_Q"],
 }
 EXPECTED_KERNELS = list(EXPECTED_PARAM_NAMES)
 # Each quasiseparable kernel with a dense twin, and that twin
@@ -42,10 +43,13 @@ QUASISEPARABLE_KERNELS = [k for k in SUPPORTED_KERNELS if k.endswith("_QuasiSepa
 T = np.array([0.0, 0.4, 3.5, 6.25, 7.0, 12.5, 25.0, 31.3])
 TAU = np.abs(T[:, None] - T[None, :])
 # One value per hyperparameter name; each kernel takes its own names from here
-VALUES = {"gp_A": 3.0, "gp_lambda_e": 30.0, "gp_lambda_p": 0.5, "gp_P": 12.5, "gp_lambda": 7.0, "gp_f": 0.4}
+# gp_rho = 4 pi and gp_Q = 3 are celerite2's own SHO test values (w0 = 0.5, Q = 3)
+VALUES = {"gp_A": 3.0, "gp_lambda_e": 30.0, "gp_lambda_p": 0.5, "gp_P": 12.5, "gp_lambda": 7.0, "gp_f": 0.4,
+          "gp_rho": 4 * np.pi, "gp_Q": 3.0}
 A, LAMBDA_E, LAMBDA_P, P = VALUES["gp_A"], VALUES["gp_lambda_e"], VALUES["gp_lambda_p"], VALUES["gp_P"]
 LAMBDA = VALUES["gp_lambda"]
 F = VALUES["gp_f"]
+RHO = VALUES["gp_rho"]
 
 # External reference rows k(T[0], T), shared by a dense kernel and its quasiseparable twin
 # celerite2 0.3.3, RealTerm(a=gp_A^2, c=1/gp_lambda)
@@ -75,6 +79,19 @@ def kernel_values(kernel_type: str) -> dict:
 def kernel_at(kernel_type: str, tau: float, values: dict = VALUES) -> float:
     """The kernel at a single lag tau."""
     return float(GPKernel(kernel_type).build_kernel(values)(np.array([0.0]), np.array([tau]))[0, 0])
+
+
+def sho(tau: np.ndarray, rho: float, q: float) -> np.ndarray:
+    """The SHO kernel over A^2 (Foreman-Mackey et al. 2017), in each damping regime."""
+    x = 2 * np.pi * np.abs(tau) / rho  # omega_0 tau
+    envelope = np.exp(-x / (2 * q))
+    if q < 0.5:
+        eta = np.sqrt(1 / (4 * q**2) - 1)
+        return envelope * (np.cosh(eta * x) + np.sinh(eta * x) / (2 * eta * q))
+    if q > 0.5:
+        eta = np.sqrt(1 - 1 / (4 * q**2))
+        return envelope * (np.cos(eta * x) + np.sin(eta * x) / (2 * eta * q))
+    return envelope * (1 + x)
 
 
 def squared_exponential(tau: np.ndarray, lambda_e: float) -> np.ndarray:
@@ -345,6 +362,129 @@ class TestMatern52QuasiSeparable:
     def test_george(self) -> None:
         """Matches george's Matern52Kernel (MATERN52_GEORGE)."""
         np.testing.assert_allclose(kernel_matrix("Matern52_QuasiSeparable")[0], MATERN52_GEORGE, rtol=1e-12)
+
+
+class TestSHOQuasiSeparable:
+    """The SHO_QuasiSeparable kernel's numbers, in every damping regime."""
+
+    # Quality factors where tinygp's SHO is exact: strongly overdamped, overdamped, just outside
+    # tinygp's critical band on either side, exactly critical, and underdamped up to near-periodic
+    QUALITIES = [0.05, 0.2, 0.5 - 1e-5, 0.5, 0.5 + 1e-5, 1.5, 3.0, 100.0]
+    # Inside tinygp's critical band (jnp.allclose(Q, 0.5)) it uses the exact-critical formula
+    BAND = [0.5 - 2e-6, 0.5 + 2e-6]
+
+    # Rows k(T[0], T) with gp_A = 3, gp_rho = 4 pi, by Q. celerite2 0.3.3,
+    # SHOTerm(sigma=gp_A, rho=gp_rho, Q=gp_Q); celerite 0.4.3, SHOTerm(log_S0, log_Q, log_omega0)
+    # with S0 = gp_A^2 gp_rho / (2 pi gp_Q) and omega0 = 2 pi / gp_rho.
+    CELERITE2 = {
+        0.01: [9.0, 8.982914662410812, 8.844739291998597, 8.723944414155637, 8.691287626347775,
+               8.455510433126497, 7.943167298752427, 7.696833028177737],
+        0.05: [8.999999999999998, 8.932249255137219, 8.264923432801416, 7.7144695471970275, 7.570814190602953,
+               6.5959454664878105, 4.82190923347377, 4.117615464355147],
+        0.2: [9.0, 8.867973016644886, 6.530620734959786, 4.901479471618055, 4.532483652472385,
+              2.5531085148255284, 0.6927131357077085, 0.35894626135277635],
+        1.5: [9.0, 8.828308574277319, 1.3731534568523922, -2.8975025053712353, -2.9237560075650246,
+              0.8853509193434265, 0.06433467247157039, -0.01421088364250517],
+        3.0: [9.0, 8.824517698789727, 0.08673705930980115, -5.282051067032682, -5.042287190028831,
+              3.0881436059490284, 1.0429416412285752, -0.6070432085546765],
+        100.0: [9.0, 8.82071866151994, -1.546152484550615, -8.858505697423153, -8.297546822770572,
+                8.71682314106366, 8.433204629179453, -8.306108647816629],
+    }
+    CELERITE1 = {
+        0.01: [9.000000000000007, 8.982914662410819, 8.844739291998604, 8.723944414155646, 8.691287626347782,
+               8.455510433126502, 7.943167298752433, 7.696833028177744],
+        0.05: [9.000000000000002, 8.932249255137222, 8.26492343280142, 7.71446954719703, 7.570814190602958,
+               6.595945466487814, 4.821909233473772, 4.117615464355149],
+        0.2: [9.0, 8.867973016644886, 6.530620734959786, 4.901479471618055, 4.532483652472385,
+              2.5531085148255284, 0.6927131357077085, 0.35894626135277635],
+        1.5: [9.0, 8.828308574277319, 1.3731534568523922, -2.897502505371235, -2.9237560075650246,
+              0.8853509193434266, 0.06433467247157039, -0.01421088364250517],
+        3.0: [9.000000000000002, 8.824517698789728, 0.08673705930980087, -5.282051067032682, -5.042287190028831,
+              3.088143605949028, 1.0429416412285748, -0.6070432085546764],
+        100.0: [9.000000000000005, 8.820718661519944, -1.5461524845506158, -8.858505697423157, -8.297546822770576,
+                8.716823141063664, 8.433204629179459, -8.306108647816636],
+    }
+
+    @staticmethod
+    def values(q: float) -> dict:
+        """The SHO's own VALUES, with quality factor q."""
+        return kernel_values("SHO_QuasiSeparable") | {"gp_Q": q}
+
+    @pytest.mark.parametrize("q", QUALITIES)
+    def test_closed_form(self, q) -> None:
+        """Matches the closed form in the kernel's own damping regime."""
+        np.testing.assert_allclose(kernel_matrix("SHO_QuasiSeparable", self.values(q)), A**2 * sho(TAU, RHO, q),
+                                   rtol=1e-12, atol=1e-12 * A**2)
+
+    @pytest.mark.parametrize("q", BAND)
+    def test_inside_critical_band(self, q) -> None:
+        """Within tinygp's critical band the exact-critical formula stands in, to within 1e-5 A^2."""
+        np.testing.assert_allclose(kernel_matrix("SHO_QuasiSeparable", self.values(q)), A**2 * sho(TAU, RHO, q),
+                                   rtol=0, atol=1e-5 * A**2)
+
+    @pytest.mark.parametrize("q", [0.5 - 1e-5, 0.5 - 2e-6, 0.5 + 2e-6, 0.5 + 1e-5])
+    def test_continuous_across_critical(self, q) -> None:
+        """Just off Q = 1/2 the kernel is within 1e-4 A^2 of the critical kernel: no jump at the branches."""
+        np.testing.assert_allclose(kernel_matrix("SHO_QuasiSeparable", self.values(q)),
+                                   kernel_matrix("SHO_QuasiSeparable", self.values(0.5)), rtol=0, atol=1e-4 * A**2)
+
+    @pytest.mark.parametrize("q", QUALITIES + BAND)
+    def test_hand_value(self, q) -> None:
+        """A^2 at tau = 0."""
+        assert kernel_at("SHO_QuasiSeparable", 0.0, self.values(q)) == pytest.approx(A**2, rel=1e-12)
+
+    def test_critical_is_matern32(self) -> None:
+        """At Q = 1/2 it is the Matern32 kernel with gp_lambda = sqrt(3) gp_rho / (2 pi)."""
+        matern32 = {"gp_A": A, "gp_lambda": np.sqrt(3) * RHO / (2 * np.pi)}
+        np.testing.assert_allclose(kernel_matrix("SHO_QuasiSeparable", self.values(0.5)),
+                                   kernel_matrix("Matern32", matern32), rtol=1e-12)
+
+    @pytest.mark.parametrize("q", [0.05, 0.2, 1.5, 3.0, 100.0])
+    def test_celerite2(self, q) -> None:
+        """Matches celerite2's SHOTerm (CELERITE2)."""
+        np.testing.assert_allclose(kernel_matrix("SHO_QuasiSeparable", self.values(q))[0], self.CELERITE2[q],
+                                   rtol=1e-12, atol=1e-12 * A**2)
+
+    @pytest.mark.parametrize("q", [0.05, 0.2, 1.5, 3.0, 100.0])
+    def test_celerite(self, q) -> None:
+        """Matches celerite's SHOTerm (CELERITE1), checking the S0 and omega0 conversions."""
+        np.testing.assert_allclose(kernel_matrix("SHO_QuasiSeparable", self.values(q))[0], self.CELERITE1[q],
+                                   rtol=1e-12, atol=1e-12 * A**2)
+
+    @pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
+        "tinygp's quasiseparable SHO returns NaN here: for Q < 1/2 at long lags its cosh and sinh "
+        "terms overflow, where celerite and celerite2 stay finite"))
+    def test_strongly_overdamped_at_long_lags(self) -> None:
+        """At Q = 0.01 the lags up to 31.3 d match celerite2 and celerite."""
+        row = kernel_matrix("SHO_QuasiSeparable", self.values(0.01))[0]
+        np.testing.assert_allclose(row, self.CELERITE2[0.01], rtol=1e-12)
+        np.testing.assert_allclose(row, self.CELERITE1[0.01], rtol=1e-12)
+
+    @pytest.mark.parametrize("q", QUALITIES)
+    def test_positive_semidefinite(self, q) -> None:
+        """The covariance of 50 unsorted times over 100 days has no negative eigenvalues."""
+        times = np.random.default_rng(1).uniform(0, 100, 50)
+        K = np.asarray(GPKernel("SHO_QuasiSeparable").build_kernel(self.values(q))(times, times))
+        eigenvalues = np.linalg.eigvalsh(K)
+        assert eigenvalues.min() >= -1e-10 * eigenvalues.max()
+
+    @pytest.mark.parametrize("q", QUALITIES)
+    def test_log_likelihood_matches_dense(self, q) -> None:
+        """GPFitter's log-likelihood equals the dense Gaussian log-density of the kernel's matrix.
+
+        GPFitter goes through tinygp's quasiseparable solver; the expected value solves the
+        kernel's own covariance matrix densely.
+        """
+        fitter = make_gp_fitter("SHO_QuasiSeparable", gp_values=self.values(q), by_instrument=True)
+        values = all_values(fitter)
+        is_harps = fitter.instrument == "HARPS"
+        residuals = fitter.vel - np.where(is_harps, values["g_HARPS"], values["g_HIRES"])
+        jitter = np.where(is_harps, values["jit_HARPS"], values["jit_HIRES"])
+        cov = (np.asarray(GPKernel("SHO_QuasiSeparable").build_kernel(values)(fitter.time, fitter.time))
+               + np.diag(fitter.velerr**2 + jitter**2))
+        _, logdet = np.linalg.slogdet(cov)
+        expected = -0.5 * (residuals @ np.linalg.solve(cov, residuals) + logdet + len(residuals) * np.log(2 * np.pi))
+        assert fitter.calculate_log_likelihood(values) == pytest.approx(expected, rel=1e-12)
 
 
 class TestKernelTable:

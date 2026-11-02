@@ -30,6 +30,8 @@ If your data or literature values are in other units, convert them before they r
 | $\lambda_{\mathrm{e}}$ | `gp_lambda_e` | d | GP evolutionary (exponential) length scale |
 | $\lambda_{\mathrm{p}}$ | `gp_lambda_p` | dimensionless | GP periodic (harmonic complexity) length scale |
 | $P_{\mathrm{GP}}$ | `gp_P` | d | GP period |
+| $Q$ | `gp_Q` | dimensionless | GP quality factor |
+| $\rho$ | `gp_rho` | d | GP undamped oscillator period |
 
 Which GP hyperparameters each kernel uses, and its formula, are in the [`GPKernel` documentation](https://ravest.readthedocs.io/en/latest/autoapi/ravest/gp/index.html#ravest.gp.GPKernel).
 

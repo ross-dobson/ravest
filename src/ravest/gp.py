@@ -103,6 +103,12 @@ def _build_qpcosine(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
     return jnp.square(params["gp_A"]) * exp_squared * (exp_sine_squared + params["gp_f"] * cosine)
 
 
+def _build_sho_quasiseparable(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
+    """Build the SHO_QuasiSeparable kernel."""
+    # tinygp's omega = 2 \pi / \rho; its sigma = our gp_A, so k(0) = A^2
+    return quasisep.SHO(omega=2 * jnp.pi / params["gp_rho"], quality=params["gp_Q"], sigma=params["gp_A"])
+
+
 _KERNELS: Dict[str, _KernelEntry] = {
     "Exponential": _KernelEntry(("gp_A", "gp_lambda"), _build_exponential),
     "Exponential_QuasiSeparable": _KernelEntry(("gp_A", "gp_lambda"), _build_exponential_quasiseparable),
@@ -114,6 +120,7 @@ _KERNELS: Dict[str, _KernelEntry] = {
     "Periodic": _KernelEntry(("gp_A", "gp_P", "gp_lambda_p"), _build_periodic),
     "Quasiperiodic": _KernelEntry(("gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"), _build_quasiperiodic),
     "QPCosine": _KernelEntry(("gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p", "gp_f"), _build_qpcosine),
+    "SHO_QuasiSeparable": _KernelEntry(("gp_A", "gp_rho", "gp_Q"), _build_sho_quasiseparable),
 }
 SUPPORTED_KERNELS = list(_KERNELS)
 
@@ -278,6 +285,39 @@ class GPKernel:
     :math:`h_1` is ``gp_A``, :math:`h_2` is ``gp_A sqrt(gp_f)``, :math:`w` is ``gp_lambda_p`` and
     :math:`\lambda` is ``2 gp_lambda_e``; their recommendation of fixed :math:`w = 0.31` or priors
     between 0.2--0.5 therefore means fixing ``gp_lambda_p`` at 0.31 or using a prior between 0.2--0.5.
+
+    **SHO_QuasiSeparable** (damped, driven simple harmonic oscillator; Foreman-Mackey et al. 2017)
+
+    .. math::
+
+        k(\tau) = A^2 \exp\left(-\frac{\omega_0 |\tau|}{2Q}\right) \times
+        \begin{cases}
+            \cosh(\eta\,\omega_0 |\tau|) + \frac{1}{2\eta Q} \sinh(\eta\,\omega_0 |\tau|),
+                & \eta = \sqrt{1/(4Q^2) - 1}, \quad Q < 1/2 \\
+            1 + \omega_0 |\tau|, & Q = 1/2 \\
+            \cos(\eta\,\omega_0 |\tau|) + \frac{1}{2\eta Q} \sin(\eta\,\omega_0 |\tau|),
+                & \eta = \sqrt{1 - 1/(4Q^2)}, \quad Q > 1/2
+        \end{cases}
+
+    with :math:`\omega_0 = 2\pi / \rho`.
+
+    ``param_names``, in order:
+
+    - ``gp_A`` (:math:`A`, m/s): amplitude; :math:`k(0) = A^2`
+    - ``gp_rho`` (:math:`\rho`, d): undamped period, :math:`2\pi/\omega_0`. This is not the
+      period of the oscillations: for :math:`Q > 1/2` they repeat every :math:`\rho / \eta`, and for
+      :math:`Q \le 1/2` they do not oscillate
+    - ``gp_Q`` (:math:`Q`, dimensionless): quality factor. :math:`Q < 1/2` is overdamped and
+      :math:`Q > 1/2` underdamped (oscillating, for longer as :math:`Q` grows). At :math:`Q = 1/2`
+      (critically damped) it is the Matern32 kernel with ``gp_lambda = sqrt(3) gp_rho / (2 pi)``
+
+    tinygp: ``quasisep.SHO(omega=2 pi / gp_rho, quality=gp_Q, sigma=gp_A)``. celerite2's
+    ``SHOTerm(sigma=gp_A, rho=gp_rho, Q=gp_Q)`` is the same kernel, with the same parameters.
+    Foreman-Mackey et al. 2017, celerite and juliet use :math:`S_0`, :math:`\omega_0` and
+    :math:`Q` instead, with :math:`k(0) = S_0 \omega_0 Q`; so :math:`S_0 = A^2 \rho / (2\pi Q)`,
+    :math:`\omega_0 = 2\pi / \rho`, and their :math:`Q` is ``gp_Q`` (celerite takes the logarithms
+    of all three). exoplanet up to version 0.3 also accepted :math:`S_\mathrm{tot} = S_0 \omega_0 Q`,
+    which is ``gp_A^2``.
     """
 
     def __init__(self, kernel_type: str) -> None:
