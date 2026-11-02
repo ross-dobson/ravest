@@ -25,6 +25,7 @@ If your data or literature values are in other units, convert them before they r
 | $\dot{\gamma}$ | `gd` | m/s/d | linear trend, $\dot{\gamma}\,(t - t_0)$ |
 | $\ddot{\gamma}$ | `gdd` | m/s/d^2 | quadratic trend, $\ddot{\gamma}\,(t - t_0)^2$ |
 | $A_{\mathrm{GP}}$ | `gp_A` | m/s | GP amplitude |
+| $C$ | `gp_C` | dimensionless | GP balance between the decaying and oscillating parts |
 | $f$ | `gp_f` | dimensionless | GP weight of the half-period term |
 | $\lambda$ | `gp_lambda` | d | GP length scale |
 | $\lambda_{\mathrm{e}}$ | `gp_lambda_e` | d | GP evolutionary (exponential) length scale |

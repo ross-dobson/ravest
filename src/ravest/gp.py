@@ -103,6 +103,16 @@ def _build_qpcosine(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
     return jnp.square(params["gp_A"]) * exp_squared * (exp_sine_squared + params["gp_f"] * cosine)
 
 
+def _build_celerite_qp_quasiseparable(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
+    """Build the CeleriteQP_QuasiSeparable kernel (Foreman-Mackey et al. 2017, eq. 56)."""
+    # LaTeX: \frac{B}{2 + C} \exp{ - \frac{|x_i - x_j|}{\lambda}} [\cos{2 \pi \frac{x_i-x_j}{P}} + 1 + C], with B = A^2
+    b, c, lam = jnp.square(params["gp_A"]), params["gp_C"], params["gp_lambda"]
+    # the non-oscillating part, B (1 + C) / (2 + C) e^{-tau / lambda}, plus the oscillating part as a
+    # celerite term a e^{-c tau} cos(d tau) (b = 0)
+    return (b * (1 + c) / (2 + c) * quasisep.Exp(scale=lam)
+            + quasisep.Celerite(a=b / (2 + c), b=0.0, c=1 / lam, d=2 * jnp.pi / params["gp_P"]))
+
+
 def _build_sho_quasiseparable(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
     """Build the SHO_QuasiSeparable kernel."""
     # tinygp's omega = 2 \pi / \rho; its sigma = our gp_A, so k(0) = A^2
@@ -133,6 +143,8 @@ _KERNELS: Dict[str, _KernelEntry] = {
     "Periodic": _KernelEntry(("gp_A", "gp_P", "gp_lambda_p"), _build_periodic),
     "Quasiperiodic": _KernelEntry(("gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"), _build_quasiperiodic),
     "QPCosine": _KernelEntry(("gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p", "gp_f"), _build_qpcosine),
+    "CeleriteQP_QuasiSeparable": _KernelEntry(("gp_A", "gp_P", "gp_lambda", "gp_C"),
+                                              _build_celerite_qp_quasiseparable),
     "SHO_QuasiSeparable": _KernelEntry(("gp_A", "gp_rho", "gp_Q"), _build_sho_quasiseparable),
     "DoubleSHO_QuasiSeparable": _KernelEntry(("gp_A", "gp_P", "gp_Q0", "gp_dQ", "gp_f"),
                                              _build_double_sho_quasiseparable),
@@ -301,7 +313,29 @@ class GPKernel:
     :math:`\lambda` is ``2 gp_lambda_e``; their recommendation of fixed :math:`w = 0.31` or priors
     between 0.2--0.5 therefore means fixing ``gp_lambda_p`` at 0.31 or using a prior between 0.2--0.5.
 
-    **SHO_QuasiSeparable** (damped, driven simple harmonic oscillator; Foreman-Mackey et al. 2017)
+    **CeleriteQP_QuasiSeparable** (Foreman-Mackey et al. 2017, eq. 56; RadVel's ``CeleriteKernel``)
+
+    .. math::
+
+        k(\tau) = \frac{A^2}{2 + C} \exp\left(-\frac{|\tau|}{\lambda}\right)
+                  \left[\cos\left(\frac{2\pi\tau}{P}\right) + 1 + C\right]
+
+    ``param_names``, in order:
+
+    - ``gp_A`` (:math:`A`, m/s): amplitude; :math:`k(0) = A^2`
+    - ``gp_P`` (:math:`P`, d): period; the kernel peaks at multiples of :math:`P`
+    - ``gp_lambda`` (:math:`\lambda`, d): decay time scale, as in the Exponential kernel
+    - ``gp_C`` (:math:`C`, dimensionless): a fraction :math:`1/(2 + C)` of the variance is in the
+      oscillating term
+
+    tinygp: ``B (1 + gp_C) / (2 + gp_C) * quasisep.Exp(scale=gp_lambda) + quasisep.Celerite(
+    a=B / (2 + gp_C), b=0, c=1 / gp_lambda, d=2 pi / gp_P)``, with ``B = gp_A^2``. RadVel's
+    ``CeleriteKernel`` is the same kernel, with ``gp_B = gp_A^2``, ``gp_C = gp_C``,
+    ``gp_L = gp_lambda`` and ``gp_Prot = gp_P``; juliet's ``CeleriteQPKernel`` too, with ``B``,
+    ``L``, ``Prot`` and ``C`` likewise.
+
+    **SHO_QuasiSeparable** (damped, driven simple harmonic oscillator; Foreman-Mackey et al. 2017,
+    `doi:10.3847/1538-3881/aa9332 <https://doi.org/10.3847/1538-3881/aa9332>`_)
 
     .. math::
 

@@ -551,6 +551,7 @@ def param_key_to_latex(param_key: str) -> str:
         "gp_Q": r"$Q$",
         "gp_Q0": r"$Q_0$",
         "gp_dQ": r"$\delta Q$",
+        "gp_C": r"$C$",
     }
 
     # ---- 1. Exact lookup: GP hyperparameters ------------------------------
@@ -661,6 +662,7 @@ def _param_key_to_plain_unit(key: str) -> str | None:
         "gp_Q": "",
         "gp_Q0": "",
         "gp_dQ": "",
+        "gp_C": "",
     }
     if key in _GP_UNITS:
         return _GP_UNITS[key]

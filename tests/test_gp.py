@@ -28,6 +28,7 @@ EXPECTED_PARAM_NAMES = {
     "Periodic": ["gp_A", "gp_P", "gp_lambda_p"],
     "Quasiperiodic": ["gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"],
     "QPCosine": ["gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p", "gp_f"],
+    "CeleriteQP_QuasiSeparable": ["gp_A", "gp_P", "gp_lambda", "gp_C"],
     "SHO_QuasiSeparable": ["gp_A", "gp_rho", "gp_Q"],
     "DoubleSHO_QuasiSeparable": ["gp_A", "gp_P", "gp_Q0", "gp_dQ", "gp_f"],
 }
@@ -45,9 +46,9 @@ T = np.array([0.0, 0.4, 3.5, 6.25, 7.0, 12.5, 25.0, 31.3])
 TAU = np.abs(T[:, None] - T[None, :])
 # One value per hyperparameter name; each kernel takes its own names from here
 # gp_rho = 4 pi and gp_Q = 3 are celerite2's own SHO test values (w0 = 0.5, Q = 3); gp_Q0 = 1.3 and
-# gp_dQ = 1.05 are its RotationTerm test values
+# gp_dQ = 1.05 are its RotationTerm test values; gp_C = 1 is RadVel's CeleriteKernel example value
 VALUES = {"gp_A": 3.0, "gp_lambda_e": 30.0, "gp_lambda_p": 0.5, "gp_P": 12.5, "gp_lambda": 7.0, "gp_f": 0.4,
-          "gp_rho": 4 * np.pi, "gp_Q": 3.0, "gp_Q0": 1.3, "gp_dQ": 1.05}
+          "gp_rho": 4 * np.pi, "gp_Q": 3.0, "gp_Q0": 1.3, "gp_dQ": 1.05, "gp_C": 1.0}
 A, LAMBDA_E, LAMBDA_P, P = VALUES["gp_A"], VALUES["gp_lambda_e"], VALUES["gp_lambda_p"], VALUES["gp_P"]
 LAMBDA = VALUES["gp_lambda"]
 F = VALUES["gp_f"]
@@ -103,6 +104,11 @@ def double_sho(tau: np.ndarray, period: float, q0: float, dq: float, f: float) -
     q2 = 0.5 + q0
     w2 = 8 * np.pi * q2 / (period * np.sqrt(4 * q2**2 - 1))
     return (sho(tau, 2 * np.pi / w1, q1) + f * sho(tau, 2 * np.pi / w2, q2)) / (1 + f)
+
+
+def celerite_qp(tau: np.ndarray, period: float, lam: float, c: float) -> np.ndarray:
+    """The CeleriteQP kernel over A^2 (Foreman-Mackey et al. 2017, eq. 56)."""
+    return np.exp(-np.abs(tau) / lam) * (np.cos(2 * np.pi * tau / period) + 1 + c) / (2 + c)
 
 
 def squared_exponential(tau: np.ndarray, lambda_e: float) -> np.ndarray:
@@ -373,6 +379,116 @@ class TestMatern52QuasiSeparable:
     def test_george(self) -> None:
         """Matches george's Matern52Kernel (MATERN52_GEORGE)."""
         np.testing.assert_allclose(kernel_matrix("Matern52_QuasiSeparable")[0], MATERN52_GEORGE, rtol=1e-12)
+
+
+class TestCeleriteQPQuasiSeparable:
+    """The CeleriteQP_QuasiSeparable kernel's numbers, across its range."""
+
+    # (gp_A, gp_P, gp_lambda, gp_C): RadVel's gp_C; RadVel's k2-131_celerite.py example; strong and
+    # weak oscillation; decay within one period; near-periodic
+    CASES = [(3.0, 12.5, 7.0, 1.0), (30.0, 9.0, 9.0, 1.0), (3.0, 12.5, 7.0, 0.01), (3.0, 12.5, 7.0, 100.0),
+             (3.0, 12.5, 1.0, 1.0), (3.0, 12.5, 1000.0, 1.0)]
+
+    # Rows k(T[0], T) by case. RadVel 1.6.6 CeleriteKernel's own coefficients
+    # (compute_real_and_complex_hparams, with gp_B = gp_A^2, gp_C, gp_L = gp_lambda, gp_Prot = gp_P),
+    # evaluated by celerite 0.4.3 RealTerm + ComplexTerm and by celerite2 0.3.3 RealTerm + ComplexTerm.
+    RADVEL_CELERITE1 = {
+        (3.0, 12.5, 7.0, 1.0): [9.0, 8.443053993433885, 3.2982264212153, 1.2284523754570926, 1.181139684899902,
+                                1.5090952387661742, 0.25304093774074843, 0.0343037527250467],
+        (30.0, 9.0, 9.0, 1.0): [900.0, 849.7595748509933, 250.91606858610183, 248.37456206756963,
+                                299.58903155664586, 92.30686309239053, 40.544966440301145, 9.352929202312414],
+        (3.0, 12.5, 7.0, 0.01): [9.0, 8.414940830685257, 2.234075166968326, 0.01833511008144865,
+                                 0.13214588749360892, 1.5090952387661742, 0.2530409377407484,
+                                 0.0005279989537407451],
+        (3.0, 12.5, 7.0, 100.0): [8.999999999999998, 8.49845346120324, 5.395230363407864, 3.6130952219326256,
+                                  3.248274520965243, 1.5090952387661738, 0.2530409377407483,
+                                  0.10086185574497313],
+        (3.0, 12.5, 1.0, 1.0): [9.0, 5.992369727681222, 0.16420902432574133, 0.005791362408683127,
+                                0.0029277525648926483, 3.353987854870804e-05, 1.249914947846762e-10,
+                                7.653165487322128e-14],
+        (3.0, 12.5, 1000.0, 1.0): [9.0, 8.935990046159747, 5.418856828090284, 2.9813084718701837,
+                                   3.1882743267446054, 8.888200204444933, 8.777789208254994, 2.908472558892724],
+    }
+    RADVEL_CELERITE2 = {
+        (3.0, 12.5, 7.0, 1.0): [9.0, 8.443053993433885, 3.2982264212153, 1.2284523754570928, 1.181139684899902,
+                                1.5090952387661742, 0.25304093774074843, 0.03430375272504671],
+        (30.0, 9.0, 9.0, 1.0): [900.0, 849.7595748509934, 250.9160685861018, 248.37456206756957,
+                                299.58903155664586, 92.30686309239047, 40.544966440301124, 9.352929202312405],
+        (3.0, 12.5, 7.0, 0.01): [9.0, 8.414940830685257, 2.2340751669683265, 0.018335110081449058,
+                                 0.13214588749360945, 1.5090952387661742, 0.25304093774074843,
+                                 0.0005279989537407548],
+        (3.0, 12.5, 7.0, 100.0): [9.0, 8.498453461203242, 5.395230363407865, 3.613095221932626,
+                                  3.2482745209652437, 1.5090952387661742, 0.2530409377407484,
+                                  0.10086185574497314],
+        (3.0, 12.5, 1.0, 1.0): [9.0, 5.992369727681222, 0.16420902432574136, 0.005791362408683128,
+                                0.0029277525648926488, 3.353987854870804e-05, 1.249914947846762e-10,
+                                7.653165487322128e-14],
+        (3.0, 12.5, 1000.0, 1.0): [9.0, 8.935990046159747, 5.418856828090284, 2.981308471870184,
+                                   3.188274326744606, 8.888200204444933, 8.777789208254994, 2.9084725588927243],
+    }
+
+    @staticmethod
+    def values(case: tuple) -> dict:
+        """The CeleriteQP's hyperparameters (gp_A, gp_P, gp_lambda, gp_C) from case."""
+        return dict(zip(EXPECTED_PARAM_NAMES["CeleriteQP_QuasiSeparable"], case))
+
+    @pytest.mark.parametrize("case", CASES)
+    def test_closed_form(self, case) -> None:
+        """Matches A^2 / (2 + C) exp(-tau/lambda) [cos(2 pi tau/P) + 1 + C]."""
+        amp, period, lam, c = case
+        np.testing.assert_allclose(kernel_matrix("CeleriteQP_QuasiSeparable", self.values(case)),
+                                   amp**2 * celerite_qp(TAU, period, lam, c), rtol=1e-12, atol=1e-12 * amp**2)
+
+    @pytest.mark.parametrize("case", CASES)
+    def test_hand_values(self, case) -> None:
+        """A^2 at tau = 0; the peak A^2 exp(-P/lambda) at P; A^2 C exp(-P/(2 lambda)) / (2 + C) at P/2."""
+        amp, period, lam, c = case
+        values = self.values(case)
+        assert kernel_at("CeleriteQP_QuasiSeparable", 0.0, values) == pytest.approx(amp**2, rel=1e-12)
+        assert kernel_at("CeleriteQP_QuasiSeparable", period, values) == pytest.approx(
+            amp**2 * np.exp(-period / lam), rel=1e-12)
+        assert kernel_at("CeleriteQP_QuasiSeparable", period / 2, values) == pytest.approx(
+            amp**2 * c * np.exp(-period / (2 * lam)) / (2 + c), rel=1e-12)
+
+    @pytest.mark.parametrize("case", CASES)
+    def test_never_negative(self, case) -> None:
+        """The kernel is >= 0 at every lag from 0 to 10 periods."""
+        lags = np.linspace(0, 10 * case[1], 2001)
+        row = np.asarray(GPKernel("CeleriteQP_QuasiSeparable").build_kernel(self.values(case))(np.array([0.0]), lags))
+        assert np.all(row >= 0)
+
+    def test_large_c_is_exponential(self) -> None:
+        """As C grows the cosine term vanishes, leaving the Exponential kernel with the same gp_lambda."""
+        values = {"gp_A": A, "gp_P": P, "gp_lambda": LAMBDA, "gp_C": 1e8}
+        np.testing.assert_allclose(kernel_matrix("CeleriteQP_QuasiSeparable", values),
+                                   kernel_matrix("Exponential", {"gp_A": A, "gp_lambda": LAMBDA}), rtol=1e-7)
+
+    @pytest.mark.parametrize("case", CASES)
+    def test_radvel_celerite(self, case) -> None:
+        """Matches RadVel's CeleriteKernel coefficients, evaluated by celerite (RADVEL_CELERITE1)."""
+        np.testing.assert_allclose(kernel_matrix("CeleriteQP_QuasiSeparable", self.values(case))[0],
+                                   self.RADVEL_CELERITE1[case], rtol=1e-12, atol=1e-12 * case[0]**2)
+
+    @pytest.mark.parametrize("case", CASES)
+    def test_radvel_celerite2(self, case) -> None:
+        """Matches RadVel's CeleriteKernel coefficients, evaluated by celerite2 (RADVEL_CELERITE2)."""
+        np.testing.assert_allclose(kernel_matrix("CeleriteQP_QuasiSeparable", self.values(case))[0],
+                                   self.RADVEL_CELERITE2[case], rtol=1e-12, atol=1e-12 * case[0]**2)
+
+    @pytest.mark.parametrize("case", CASES)
+    def test_positive_semidefinite(self, case) -> None:
+        """The covariance of 50 unsorted times over 100 days has no negative eigenvalues."""
+        times = np.random.default_rng(1).uniform(0, 100, 50)
+        K = np.asarray(GPKernel("CeleriteQP_QuasiSeparable").build_kernel(self.values(case))(times, times))
+        eigenvalues = np.linalg.eigvalsh(K)
+        assert eigenvalues.min() >= -1e-10 * eigenvalues.max()
+
+    @pytest.mark.parametrize("case", CASES)
+    def test_log_likelihood_matches_dense(self, case) -> None:
+        """GPFitter's log-likelihood (quasiseparable solver) equals the dense Gaussian log-density."""
+        fitter = make_gp_fitter("CeleriteQP_QuasiSeparable", gp_values=self.values(case), by_instrument=True)
+        values = all_values(fitter)
+        assert fitter.calculate_log_likelihood(values) == pytest.approx(dense_log_likelihood(fitter, values), rel=1e-12)
 
 
 class TestSHOQuasiSeparable:
@@ -724,7 +840,9 @@ def make_gp_fitter(kernel_type: str, gp_values: dict | None = None, planet: bool
     gp_values = kernel_values(kernel_type) if gp_values is None else gp_values
     params |= {name: Parameter(value, fixed=False) for name, value in gp_values.items()}
     fitter.params = params
-    fitter.priors = {name: Uniform(-50, 50) if name.startswith("g_") else Uniform(0, 100)
+    # Uniform(0, 100) for the rest, widened for any value it would not cover
+    fitter.priors = {name: Uniform(-50, 50) if name.startswith("g_")
+                     else Uniform(0, max(100.0, 10 * fitter.params[name].value))
                      for name in fitter.free_params_names}
     return fitter
 
