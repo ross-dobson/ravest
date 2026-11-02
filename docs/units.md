@@ -31,6 +31,8 @@ If your data or literature values are in other units, convert them before they r
 | $\lambda_{\mathrm{p}}$ | `gp_lambda_p` | dimensionless | GP periodic (harmonic complexity) length scale |
 | $P_{\mathrm{GP}}$ | `gp_P` | d | GP period |
 | $Q$ | `gp_Q` | dimensionless | GP quality factor |
+| $Q_0$ | `gp_Q0` | dimensionless | GP half-period mode's quality factor, minus 1/2 |
+| $\delta Q$ | `gp_dQ` | dimensionless | GP quality-factor difference between the two modes |
 | $\rho$ | `gp_rho` | d | GP undamped oscillator period |
 
 Which GP hyperparameters each kernel uses, and its formula, are in the [`GPKernel` documentation](https://ravest.readthedocs.io/en/latest/autoapi/ravest/gp/index.html#ravest.gp.GPKernel).

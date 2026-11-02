@@ -109,6 +109,19 @@ def _build_sho_quasiseparable(params: Mapping[str, ArrayLike]) -> kernels.Kernel
     return quasisep.SHO(omega=2 * jnp.pi / params["gp_rho"], quality=params["gp_Q"], sigma=params["gp_A"])
 
 
+def _build_double_sho_quasiseparable(params: Mapping[str, ArrayLike]) -> kernels.Kernel:
+    """Build the DoubleSHO_QuasiSeparable kernel (celerite2's RotationTerm)."""
+    amp, period, f = params["gp_A"], params["gp_P"], params["gp_f"]
+    # main mode: Q_1 = 1/2 + Q_0 + \delta Q, damped oscillations at P, variance A^2 / (1 + f)
+    q1 = 0.5 + params["gp_Q0"] + params["gp_dQ"]
+    w1 = 4 * jnp.pi * q1 / (period * jnp.sqrt(4 * jnp.square(q1) - 1))
+    # half-period mode: Q_2 = 1/2 + Q_0 (also in w_2, as celerite2's code), at P / 2, variance f A^2 / (1 + f)
+    q2 = 0.5 + params["gp_Q0"]
+    w2 = 8 * jnp.pi * q2 / (period * jnp.sqrt(4 * jnp.square(q2) - 1))
+    return (quasisep.SHO(omega=w1, quality=q1, sigma=amp / jnp.sqrt(1 + f))
+            + quasisep.SHO(omega=w2, quality=q2, sigma=amp * jnp.sqrt(f / (1 + f))))
+
+
 _KERNELS: Dict[str, _KernelEntry] = {
     "Exponential": _KernelEntry(("gp_A", "gp_lambda"), _build_exponential),
     "Exponential_QuasiSeparable": _KernelEntry(("gp_A", "gp_lambda"), _build_exponential_quasiseparable),
@@ -121,6 +134,8 @@ _KERNELS: Dict[str, _KernelEntry] = {
     "Quasiperiodic": _KernelEntry(("gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"), _build_quasiperiodic),
     "QPCosine": _KernelEntry(("gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p", "gp_f"), _build_qpcosine),
     "SHO_QuasiSeparable": _KernelEntry(("gp_A", "gp_rho", "gp_Q"), _build_sho_quasiseparable),
+    "DoubleSHO_QuasiSeparable": _KernelEntry(("gp_A", "gp_P", "gp_Q0", "gp_dQ", "gp_f"),
+                                             _build_double_sho_quasiseparable),
 }
 SUPPORTED_KERNELS = list(_KERNELS)
 
@@ -318,6 +333,44 @@ class GPKernel:
     :math:`\omega_0 = 2\pi / \rho`, and their :math:`Q` is ``gp_Q`` (celerite takes the logarithms
     of all three). exoplanet up to version 0.3 also accepted :math:`S_\mathrm{tot} = S_0 \omega_0 Q`,
     which is ``gp_A^2``.
+
+    **DoubleSHO_QuasiSeparable** (two damped SHOs, at the period and at half of it; celerite2's
+    ``RotationTerm``)
+
+    .. math::
+
+        k(\tau) = k_\mathrm{SHO}(\tau;\ A_1, \omega_1, Q_1) + k_\mathrm{SHO}(\tau;\ A_2, \omega_2, Q_2)
+
+    where :math:`k_\mathrm{SHO}` is the SHO_QuasiSeparable kernel (with :math:`\omega_0 = \omega_i`),
+    and
+
+    .. math::
+
+        Q_1 = 1/2 + Q_0 + \delta Q, \quad
+        \omega_1 = \frac{4\pi Q_1}{P\sqrt{4Q_1^2 - 1}}, \quad
+        A_1^2 = \frac{A^2}{1 + f}
+
+        Q_2 = 1/2 + Q_0, \quad
+        \omega_2 = \frac{8\pi Q_2}{P\sqrt{4Q_2^2 - 1}}, \quad
+        A_2^2 = \frac{f A^2}{1 + f}
+
+    Both modes are underdamped, and oscillate at exactly :math:`P` and :math:`P/2`.
+
+    ``param_names``, in order:
+
+    - ``gp_A`` (:math:`A`, m/s): amplitude; :math:`k(0) = A^2`
+    - ``gp_P`` (:math:`P`, d): period of the main mode; the second mode's is :math:`P/2`
+    - ``gp_Q0`` (:math:`Q_0`, dimensionless): quality factor of the half-period mode, minus 1/2
+    - ``gp_dQ`` (:math:`\delta Q`, dimensionless): how much higher the main mode's quality factor is
+    - ``gp_f`` (:math:`f`, dimensionless): variance of the half-period mode relative to the main
+      mode's (:math:`f : 1`); :math:`f \to 0` removes it
+
+    tinygp: the sum of two ``quasisep.SHO(omega=omega_i, quality=Q_i, sigma=A_i)``. celerite2's
+    ``RotationTerm(sigma=gp_A, period=gp_P, Q0=gp_Q0, dQ=gp_dQ, f=gp_f)`` is the same kernel.
+    exoplanet up to version 0.3 had ``RotationTerm(amp, period, Q0, deltaQ, mix)``, with
+    ``amp = gp_A^2 / (1 + gp_f)`` (the main mode's variance), ``mix = gp_f`` and
+    ``deltaQ = gp_dQ``. juliet's ``CeleriteDoubleSHOKernel`` takes the same names but uses
+    :math:`Q_1` in :math:`\omega_2`, so its second mode is not at exactly :math:`P/2`.
     """
 
     def __init__(self, kernel_type: str) -> None:

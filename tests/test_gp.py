@@ -29,6 +29,7 @@ EXPECTED_PARAM_NAMES = {
     "Quasiperiodic": ["gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p"],
     "QPCosine": ["gp_A", "gp_P", "gp_lambda_e", "gp_lambda_p", "gp_f"],
     "SHO_QuasiSeparable": ["gp_A", "gp_rho", "gp_Q"],
+    "DoubleSHO_QuasiSeparable": ["gp_A", "gp_P", "gp_Q0", "gp_dQ", "gp_f"],
 }
 EXPECTED_KERNELS = list(EXPECTED_PARAM_NAMES)
 # Each quasiseparable kernel with a dense twin, and that twin
@@ -43,9 +44,10 @@ QUASISEPARABLE_KERNELS = [k for k in SUPPORTED_KERNELS if k.endswith("_QuasiSepa
 T = np.array([0.0, 0.4, 3.5, 6.25, 7.0, 12.5, 25.0, 31.3])
 TAU = np.abs(T[:, None] - T[None, :])
 # One value per hyperparameter name; each kernel takes its own names from here
-# gp_rho = 4 pi and gp_Q = 3 are celerite2's own SHO test values (w0 = 0.5, Q = 3)
+# gp_rho = 4 pi and gp_Q = 3 are celerite2's own SHO test values (w0 = 0.5, Q = 3); gp_Q0 = 1.3 and
+# gp_dQ = 1.05 are its RotationTerm test values
 VALUES = {"gp_A": 3.0, "gp_lambda_e": 30.0, "gp_lambda_p": 0.5, "gp_P": 12.5, "gp_lambda": 7.0, "gp_f": 0.4,
-          "gp_rho": 4 * np.pi, "gp_Q": 3.0}
+          "gp_rho": 4 * np.pi, "gp_Q": 3.0, "gp_Q0": 1.3, "gp_dQ": 1.05}
 A, LAMBDA_E, LAMBDA_P, P = VALUES["gp_A"], VALUES["gp_lambda_e"], VALUES["gp_lambda_p"], VALUES["gp_P"]
 LAMBDA = VALUES["gp_lambda"]
 F = VALUES["gp_f"]
@@ -92,6 +94,15 @@ def sho(tau: np.ndarray, rho: float, q: float) -> np.ndarray:
         eta = np.sqrt(1 - 1 / (4 * q**2))
         return envelope * (np.cos(eta * x) + np.sin(eta * x) / (2 * eta * q))
     return envelope * (1 + x)
+
+
+def double_sho(tau: np.ndarray, period: float, q0: float, dq: float, f: float) -> np.ndarray:
+    """The DoubleSHO kernel over A^2: SHOs at the period and half of it (celerite2's RotationTerm)."""
+    q1 = 0.5 + q0 + dq
+    w1 = 4 * np.pi * q1 / (period * np.sqrt(4 * q1**2 - 1))
+    q2 = 0.5 + q0
+    w2 = 8 * np.pi * q2 / (period * np.sqrt(4 * q2**2 - 1))
+    return (sho(tau, 2 * np.pi / w1, q1) + f * sho(tau, 2 * np.pi / w2, q2)) / (1 + f)
 
 
 def squared_exponential(tau: np.ndarray, lambda_e: float) -> np.ndarray:
@@ -477,14 +488,102 @@ class TestSHOQuasiSeparable:
         """
         fitter = make_gp_fitter("SHO_QuasiSeparable", gp_values=self.values(q), by_instrument=True)
         values = all_values(fitter)
-        is_harps = fitter.instrument == "HARPS"
-        residuals = fitter.vel - np.where(is_harps, values["g_HARPS"], values["g_HIRES"])
-        jitter = np.where(is_harps, values["jit_HARPS"], values["jit_HIRES"])
-        cov = (np.asarray(GPKernel("SHO_QuasiSeparable").build_kernel(values)(fitter.time, fitter.time))
-               + np.diag(fitter.velerr**2 + jitter**2))
-        _, logdet = np.linalg.slogdet(cov)
-        expected = -0.5 * (residuals @ np.linalg.solve(cov, residuals) + logdet + len(residuals) * np.log(2 * np.pi))
-        assert fitter.calculate_log_likelihood(values) == pytest.approx(expected, rel=1e-12)
+        assert fitter.calculate_log_likelihood(values) == pytest.approx(dense_log_likelihood(fitter, values), rel=1e-12)
+
+
+class TestDoubleSHOQuasiSeparable:
+    """The DoubleSHO_QuasiSeparable kernel's numbers, across its range."""
+
+    # (gp_Q0, gp_dQ, gp_f): celerite2's test values; a heavily damped half-period mode; Q2 just
+    # outside and inside tinygp's critical band; both modes inside it; nearly equal modes;
+    # near-periodic; a weak and a strong (f > 1) harmonic
+    CASES = [(1.3, 1.05, 0.4), (0.01, 1.05, 0.4), (1e-5, 1.05, 0.4), (2e-6, 1.05, 0.4), (1e-6, 1e-6, 0.4),
+             (1.3, 1e-3, 0.4), (100.0, 100.0, 0.4), (1.3, 1.05, 0.01), (1.3, 1.05, 2.0)]
+
+    # Rows k(T[0], T) with gp_A = 3, gp_P = 12.5, by (gp_Q0, gp_dQ, gp_f). celerite2 0.3.3,
+    # RotationTerm(sigma=gp_A, period=gp_P, Q0=gp_Q0, dQ=gp_dQ, f=gp_f). (Inside tinygp's critical
+    # band celerite2 regularises sqrt(4 Q^2 - 1), so those cases are checked against the closed form only.)
+    CELERITE2 = {
+        (1.3, 1.05, 0.4): [9.0, 8.66372065809558, -1.021266176490645, -3.2546871495147824, -3.1066251470679953,
+                           2.1661217305904894, 0.6866103983853244, -0.3908172261104803],
+        (0.01, 1.05, 0.4): [9.0, 7.287845394753511, 0.5139512460324246, -2.2205439094640607, -2.0608194587597906,
+                            0.767015706155726, 0.09151537009837708, -0.03159998755548291],
+        (1e-5, 1.05, 0.4): [9.0, 6.290459398037571, 0.520192135512206, -2.2036347104760066, -2.044987283941566,
+                            0.7553787013445046, 0.08875953060254158, -0.030415004699495714],
+        (1.3, 1e-3, 0.4): [9.0, 8.659186318833077, -0.5902566881693245, -2.175216843827629, -2.098075764128939,
+                           1.1139794140252084, 0.17200495750458888, -0.06834519216087862],
+        (100.0, 100.0, 0.4): [9.000000000000002, 8.665688667201639, -3.537634842937731, -3.8861150021887494,
+                              -4.112312850908083, 8.744213417391242, 8.499425628977061, -3.9830952339897694],
+        (1.3, 1.05, 0.01): [9.0, 8.812020210775717, -0.1137190301374656, -5.07631495123388, -4.727230078709436,
+                            2.9107313118237035, 0.949311531783743, -0.542120579956591],
+        (1.3, 1.05, 2.0): [9.0, 8.458889822940792, -2.2747671923083694, -0.7386610575677225, -0.8682511560145182,
+                           1.1376695226649567, 0.3237684910589618, -0.1818375510546557],
+    }
+
+    @staticmethod
+    def values(case: tuple) -> dict:
+        """The DoubleSHO's own VALUES, with (gp_Q0, gp_dQ, gp_f) from case."""
+        q0, dq, f = case
+        return kernel_values("DoubleSHO_QuasiSeparable") | {"gp_Q0": q0, "gp_dQ": dq, "gp_f": f}
+
+    @pytest.mark.parametrize("case", CASES)
+    def test_closed_form(self, case) -> None:
+        """Matches the sum of the two SHOs."""
+        np.testing.assert_allclose(kernel_matrix("DoubleSHO_QuasiSeparable", self.values(case)),
+                                   A**2 * double_sho(TAU, P, *case), rtol=1e-12, atol=1e-12 * A**2)
+
+    @pytest.mark.parametrize("case", CASES)
+    def test_hand_value(self, case) -> None:
+        """A^2 at tau = 0."""
+        assert kernel_at("DoubleSHO_QuasiSeparable", 0.0, self.values(case)) == pytest.approx(A**2, rel=1e-12)
+
+    @pytest.mark.parametrize("case", CASES)
+    def test_modes_at_period_and_half_period(self, case) -> None:
+        """The modes oscillate at 2 pi / P and 4 pi / P, with variances A^2 / (1 + f) and f A^2 / (1 + f)."""
+        f = case[2]
+        kernel = GPKernel("DoubleSHO_QuasiSeparable").build_kernel(self.values(case))
+        for mode, frequency, variance in ((kernel.kernel1, 2 * np.pi / P, A**2 / (1 + f)),
+                                          (kernel.kernel2, 4 * np.pi / P, f * A**2 / (1 + f))):
+            assert float(mode.omega * np.sqrt(1 - 1 / (4 * mode.quality**2))) == pytest.approx(frequency, rel=1e-9)
+            assert float(mode.sigma**2) == pytest.approx(variance, rel=1e-12)
+
+    def test_exoplanet_form(self) -> None:
+        """Matches exoplanet's (up to 0.3) RotationTerm in its own symbols.
+
+        amp = gp_A^2 / (1 + gp_f) is the main mode's variance, mix = gp_f, deltaQ = gp_dQ; each
+        SHO in S0, w0, Q form, with k(0) = S0 w0 Q.
+        """
+        q0, delta_q, mix = VALUES["gp_Q0"], VALUES["gp_dQ"], F
+        amp, period = A**2 / (1 + mix), P
+        q1 = 0.5 + q0 + delta_q
+        w1 = 4 * np.pi * q1 / (period * np.sqrt(4 * q1**2 - 1))
+        s1 = amp / (w1 * q1)
+        q2 = 0.5 + q0
+        w2 = 8 * np.pi * q2 / (period * np.sqrt(4 * q2**2 - 1))
+        s2 = mix * amp / (w2 * q2)
+        exoplanet = s1 * w1 * q1 * sho(TAU, 2 * np.pi / w1, q1) + s2 * w2 * q2 * sho(TAU, 2 * np.pi / w2, q2)
+        np.testing.assert_allclose(kernel_matrix("DoubleSHO_QuasiSeparable"), exoplanet, rtol=1e-12, atol=1e-12 * A**2)
+
+    @pytest.mark.parametrize("case", list(CELERITE2))
+    def test_celerite2(self, case) -> None:
+        """Matches celerite2's RotationTerm (CELERITE2)."""
+        np.testing.assert_allclose(kernel_matrix("DoubleSHO_QuasiSeparable", self.values(case))[0],
+                                   self.CELERITE2[case], rtol=1e-12, atol=1e-12 * A**2)
+
+    @pytest.mark.parametrize("case", CASES)
+    def test_positive_semidefinite(self, case) -> None:
+        """The covariance of 50 unsorted times over 100 days has no negative eigenvalues."""
+        times = np.random.default_rng(1).uniform(0, 100, 50)
+        K = np.asarray(GPKernel("DoubleSHO_QuasiSeparable").build_kernel(self.values(case))(times, times))
+        eigenvalues = np.linalg.eigvalsh(K)
+        assert eigenvalues.min() >= -1e-10 * eigenvalues.max()
+
+    @pytest.mark.parametrize("case", CASES)
+    def test_log_likelihood_matches_dense(self, case) -> None:
+        """GPFitter's log-likelihood (quasiseparable solver) equals the dense Gaussian log-density."""
+        fitter = make_gp_fitter("DoubleSHO_QuasiSeparable", gp_values=self.values(case), by_instrument=True)
+        values = all_values(fitter)
+        assert fitter.calculate_log_likelihood(values) == pytest.approx(dense_log_likelihood(fitter, values), rel=1e-12)
 
 
 class TestKernelTable:
@@ -679,6 +778,17 @@ class TestGPFitterWithEachKernel:
 def all_values(fitter: GPFitter) -> dict:
     """Every parameter's value, by name."""
     return {name: param.value for name, param in fitter.params.items()}
+
+
+def dense_log_likelihood(fitter: GPFitter, values: dict) -> float:
+    """The Gaussian log-density of the fitter's data, solving the kernel's covariance matrix densely."""
+    is_harps = fitter.instrument == "HARPS"
+    residuals = fitter.vel - np.where(is_harps, values["g_HARPS"], values["g_HIRES"])
+    jitter = np.where(is_harps, values["jit_HARPS"], values["jit_HIRES"])
+    cov = (np.asarray(fitter.gp_kernel.build_kernel(values)(fitter.time, fitter.time))
+           + np.diag(fitter.velerr**2 + jitter**2))
+    _, logdet = np.linalg.slogdet(cov)
+    return -0.5 * (residuals @ np.linalg.solve(cov, residuals) + logdet + len(residuals) * np.log(2 * np.pi))
 
 
 class TestQuasiseparableTwins:
