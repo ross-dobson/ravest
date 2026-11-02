@@ -1,5 +1,9 @@
+import inspect
 import logging
+import os
 import re
+import subprocess
+import sys
 import warnings
 
 import emcee
@@ -4772,6 +4776,48 @@ class TestRequireMCMCRun:
         with pytest.raises(RuntimeError, match=re.escape("No MCMC run yet: call run_mcmc() first.")):
             getattr(fitter, method)(**self.ARGS[method])
         plt.close("all")
+
+
+class TestRunMCMCArguments:
+    """run_mcmc takes no multiprocessing argument."""
+
+    @pytest.mark.parametrize("name", ["Fitter", "GPFitter"])
+    def test_signature_has_no_multiprocessing(self, name) -> None:
+        """run_mcmc has no multiprocessing parameter."""
+        fitter = _set_up_plot_fitter(name)
+        assert "multiprocessing" not in inspect.signature(type(fitter).run_mcmc).parameters
+
+    @pytest.mark.parametrize("value", [True, False])
+    @pytest.mark.parametrize("name", ["Fitter", "GPFitter"])
+    def test_multiprocessing_raises_type_error(self, name, value) -> None:
+        """Passing multiprocessing, even False, raises Python's TypeError."""
+        fitter = _set_up_plot_fitter(name)
+        with pytest.raises(TypeError, match="unexpected keyword argument 'multiprocessing'"):
+            fitter.run_mcmc(np.zeros((2, fitter.ndim)), nwalkers=2, multiprocessing=value)
+
+
+class TestImportLeavesThreadVariables:
+    """Importing ravest.fit does not change OMP_NUM_THREADS or MKL_NUM_THREADS."""
+
+    THREAD_VARIABLES = ("OMP_NUM_THREADS", "MKL_NUM_THREADS")
+
+    @staticmethod
+    def _variables_after_import(env):
+        """Print both variables in a fresh Python process after importing ravest.fit."""
+        code = ("import os, ravest.fit; "
+                "print(os.environ.get('OMP_NUM_THREADS'), os.environ.get('MKL_NUM_THREADS'))")
+        result = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True)
+        return result.stdout.strip()
+
+    def test_unset_variables_stay_unset(self) -> None:
+        """With neither variable set, both are still unset after the import."""
+        env = {k: v for k, v in os.environ.items() if k not in self.THREAD_VARIABLES}
+        assert self._variables_after_import(env) == "None None"
+
+    def test_set_variables_are_kept(self) -> None:
+        """Values the user set survive the import."""
+        env = os.environ | dict.fromkeys(self.THREAD_VARIABLES, "4")
+        assert self._variables_after_import(env) == "4 4"
 
 
 class TestParamsDictOrder:

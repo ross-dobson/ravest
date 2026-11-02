@@ -5,16 +5,8 @@ to planetary models using various parameterisations.
 """
 # fit.py
 import logging
-import multiprocessing as mp
-import os
 import warnings
 from typing import Callable, Dict, Optional
-
-# Many builds of NumPy are linked against OpenBLAS or MKL, which can use multiple threads
-# This can cause problems with multiprocessing (that we use to speed up emcee)
-# So we set these to only use one thread
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
 
 import corner
 import emcee
@@ -1211,7 +1203,7 @@ class Fitter:
             max_attempts=max_attempts
         )
 
-    def run_mcmc(self, initial_positions: np.ndarray, nwalkers: int, max_steps: int = 50000, progress: bool = True, multiprocessing: bool = False, check_convergence: bool = False, convergence_check_interval: int = 1000, convergence_check_start: int = 15000) -> None:
+    def run_mcmc(self, initial_positions: np.ndarray, nwalkers: int, max_steps: int = 50000, progress: bool = True, check_convergence: bool = False, convergence_check_interval: int = 1000, convergence_check_start: int = 15000) -> None:
         """Run MCMC sampling from given initial walker positions.
 
         Parameters
@@ -1228,8 +1220,6 @@ class Fitter:
             steps, stopping early when convergence criteria are met (default: 50000)
         progress : bool, optional
             Whether to show progress bar during MCMC (default: True)
-        multiprocessing : bool, optional
-            Whether to use multiprocessing for MCMC (default: False)
         check_convergence : bool, optional
             If True, estimate the autocorrelation time tau of every free parameter
             at each check, and stop early once both hold for every parameter:
@@ -1300,14 +1290,7 @@ class Fitter:
         # and I'm not sure constructing the dictionary later ourselves manually is any quicker than passing parameter_names argument
 
         # Create sampler
-        if multiprocessing:
-            pool = mp.get_context("spawn").Pool()  # Use 'spawn' instead of 'fork' to avoid issues on some Linux platforms
-            sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
-                                            parameter_names=self.free_params_names,
-                                            pool=pool)
-        else:
-            sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability,
-                                            parameter_names=self.free_params_names)
+        sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, lp.log_probability, parameter_names=self.free_params_names)
 
         # Warn if convergence arguments provided but convergence checking disabled
         if not check_convergence:
@@ -1398,11 +1381,6 @@ class Fitter:
             # Final log
             final_steps = sampler.iteration
             logging.info(f"...MCMC complete: {final_steps} steps total")
-
-        # Close multiprocessing pool if used
-        if multiprocessing:
-            pool.close()
-            pool.join()
 
         self.sampler = sampler
 
