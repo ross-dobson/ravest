@@ -2,7 +2,7 @@
 
 ## How can I speed up the fitting?
 
-Try enabling `multiprocessing=True` in your `Fitter`/`GPFitter` objects. Although, as parallelisation is never a perfectly linear speedup due to overheads, if you're running a lot of fits/targets simultaneously it might actually be overall quicker to run them single-threaded, but run multiple fits at the same time in different `.py` files in parallel - I tend to do this using the GNU `parallel` command distributed across multiple cores.
+If you're running a lot of fits/targets, it might be quicker overall to run them single-threaded, but run multiple fits at the same time in different `.py` files in parallel - I tend to do this using the GNU `parallel` command distributed across multiple cores.
 
 Although `tinygp` is written in JAX, your `GPFitter` MCMC may actually still run faster if you run it on the CPU, rather than on GPU. However for `harmonic` model comparison, that normally benefits from being run on the GPU, so you may want to investigate shuffling your active devices around. (You can use `pickle` to write and read `Fitter`/`GPFitter` objects from disk if needed.)
 

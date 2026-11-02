@@ -1,3 +1,4 @@
+import inspect
 import logging
 import re
 import warnings
@@ -4772,6 +4773,24 @@ class TestRequireMCMCRun:
         with pytest.raises(RuntimeError, match=re.escape("No MCMC run yet: call run_mcmc() first.")):
             getattr(fitter, method)(**self.ARGS[method])
         plt.close("all")
+
+
+class TestRunMCMCArguments:
+    """run_mcmc takes no multiprocessing argument."""
+
+    @pytest.mark.parametrize("name", ["Fitter", "GPFitter"])
+    def test_signature_has_no_multiprocessing(self, name) -> None:
+        """run_mcmc has no multiprocessing parameter."""
+        fitter = _set_up_plot_fitter(name)
+        assert "multiprocessing" not in inspect.signature(type(fitter).run_mcmc).parameters
+
+    @pytest.mark.parametrize("value", [True, False])
+    @pytest.mark.parametrize("name", ["Fitter", "GPFitter"])
+    def test_multiprocessing_raises_type_error(self, name, value) -> None:
+        """Passing multiprocessing, even False, raises Python's TypeError."""
+        fitter = _set_up_plot_fitter(name)
+        with pytest.raises(TypeError, match="unexpected keyword argument 'multiprocessing'"):
+            fitter.run_mcmc(np.zeros((2, fitter.ndim)), nwalkers=2, multiprocessing=value)
 
 
 class TestParamsDictOrder:
