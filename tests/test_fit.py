@@ -1,6 +1,9 @@
 import inspect
 import logging
+import os
 import re
+import subprocess
+import sys
 import warnings
 
 import emcee
@@ -4791,6 +4794,30 @@ class TestRunMCMCArguments:
         fitter = _set_up_plot_fitter(name)
         with pytest.raises(TypeError, match="unexpected keyword argument 'multiprocessing'"):
             fitter.run_mcmc(np.zeros((2, fitter.ndim)), nwalkers=2, multiprocessing=value)
+
+
+class TestImportLeavesThreadVariables:
+    """Importing ravest.fit does not change OMP_NUM_THREADS or MKL_NUM_THREADS."""
+
+    THREAD_VARIABLES = ("OMP_NUM_THREADS", "MKL_NUM_THREADS")
+
+    @staticmethod
+    def _variables_after_import(env):
+        """Print both variables in a fresh Python process after importing ravest.fit."""
+        code = ("import os, ravest.fit; "
+                "print(os.environ.get('OMP_NUM_THREADS'), os.environ.get('MKL_NUM_THREADS'))")
+        result = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True)
+        return result.stdout.strip()
+
+    def test_unset_variables_stay_unset(self) -> None:
+        """With neither variable set, both are still unset after the import."""
+        env = {k: v for k, v in os.environ.items() if k not in self.THREAD_VARIABLES}
+        assert self._variables_after_import(env) == "None None"
+
+    def test_set_variables_are_kept(self) -> None:
+        """Values the user set survive the import."""
+        env = os.environ | dict.fromkeys(self.THREAD_VARIABLES, "4")
+        assert self._variables_after_import(env) == "4 4"
 
 
 class TestParamsDictOrder:

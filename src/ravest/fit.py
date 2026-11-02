@@ -5,15 +5,8 @@ to planetary models using various parameterisations.
 """
 # fit.py
 import logging
-import os
 import warnings
 from typing import Callable, Dict, Optional
-
-# Many builds of NumPy are linked against OpenBLAS or MKL, which can use multiple threads
-# This can cause problems with multiprocessing (that we use to speed up emcee)
-# So we set these to only use one thread
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
 
 import corner
 import emcee
