@@ -144,16 +144,24 @@ class Fitter:
         t0 : float
             Reference time for the trend [days].
             Recommended to set this as mean or median of input `time` array.
+
+        Notes
+        -----
+        The data are sorted by time (the quasiseparable GP kernels need it) before being
+        stored, so ``time``, ``vel``, ``velerr`` and ``instrument`` read back in time order,
+        not necessarily the order they were passed in.
         """
         if not (len(time) == len(vel) == len(velerr) == len(instrument)):
             raise ValueError(
                 "Time, velocity, uncertainty, and instrument arrays must be the same length."
             )
 
-        self.time = np.ascontiguousarray(time)
-        self.vel = np.ascontiguousarray(vel)
-        self.velerr = np.ascontiguousarray(velerr)
-        self.instrument = np.asarray(instrument)
+        time, vel, velerr, instrument = (np.asarray(a) for a in (time, vel, velerr, instrument))
+        order = np.lexsort((velerr, vel, instrument, time))  # by time; lexsort's last key is the primary one
+        self.time = np.ascontiguousarray(time[order])
+        self.vel = np.ascontiguousarray(vel[order])
+        self.velerr = np.ascontiguousarray(velerr[order])
+        self.instrument = instrument[order]
         self.unique_instruments = np.array(sorted(np.unique(self.instrument), key=str.lower))  # case-insensitive
         self.t0 = t0
 

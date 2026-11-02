@@ -25,11 +25,18 @@ If your data or literature values are in other units, convert them before they r
 | $\dot{\gamma}$ | `gd` | m/s/d | linear trend, $\dot{\gamma}\,(t - t_0)$ |
 | $\ddot{\gamma}$ | `gdd` | m/s/d^2 | quadratic trend, $\ddot{\gamma}\,(t - t_0)^2$ |
 | $A_{\mathrm{GP}}$ | `gp_A` | m/s | GP amplitude |
-| $f$ | `gp_f` | dimensionless | GP cosine-term weight (QPCosine kernel) |
-| $\lambda$ | `gp_lambda` | d | GP length scale (Exponential, Matern32 and Matern52 kernels) |
+| $C$ | `gp_C` | dimensionless | GP balance between the decaying and oscillating parts |
+| $f$ | `gp_f` | dimensionless | GP weight of the half-period term |
+| $\lambda$ | `gp_lambda` | d | GP length scale |
 | $\lambda_{\mathrm{e}}$ | `gp_lambda_e` | d | GP evolutionary (exponential) length scale |
 | $\lambda_{\mathrm{p}}$ | `gp_lambda_p` | dimensionless | GP periodic (harmonic complexity) length scale |
 | $P_{\mathrm{GP}}$ | `gp_P` | d | GP period |
+| $Q$ | `gp_Q` | dimensionless | GP quality factor |
+| $Q_0$ | `gp_Q0` | dimensionless | GP half-period mode's quality factor, minus 1/2 |
+| $\delta Q$ | `gp_dQ` | dimensionless | GP quality-factor difference between the two modes |
+| $\rho$ | `gp_rho` | d | GP undamped oscillator period |
+
+Which GP hyperparameters each kernel uses, and its formula, are in the [`GPKernel` documentation](https://ravest.readthedocs.io/en/latest/autoapi/ravest/gp/index.html#ravest.gp.GPKernel).
 
 Planet parameters take the planet letter as a suffix (`P_b`, `K_c`), and the units are the same for every planet. The symbols are the labels Ravest uses in its plots, where they gain the planet letter or instrument name as a subscript, e.g. $P_{\mathrm{b}}$, $\gamma_{\mathrm{HARPS}}$.
 

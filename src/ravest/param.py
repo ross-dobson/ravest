@@ -547,6 +547,11 @@ def param_key_to_latex(param_key: str) -> str:
         "gp_lambda_p": r"$\lambda_{\mathrm{p}}$",
         "gp_lambda": r"$\lambda$",
         "gp_f": r"$f$",
+        "gp_rho": r"$\rho$",
+        "gp_Q": r"$Q$",
+        "gp_Q0": r"$Q_0$",
+        "gp_dQ": r"$\delta Q$",
+        "gp_C": r"$C$",
     }
 
     # ---- 1. Exact lookup: GP hyperparameters ------------------------------
@@ -653,6 +658,11 @@ def _param_key_to_plain_unit(key: str) -> str | None:
         "gp_lambda_p": "",
         "gp_lambda": "d",
         "gp_f": "",
+        "gp_rho": "d",
+        "gp_Q": "",
+        "gp_Q0": "",
+        "gp_dQ": "",
+        "gp_C": "",
     }
     if key in _GP_UNITS:
         return _GP_UNITS[key]
